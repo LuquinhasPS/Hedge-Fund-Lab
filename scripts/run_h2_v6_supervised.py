@@ -338,7 +338,7 @@ def repair(root, state):
     return events
 
 
-def verify(root=OUTPUT, forward_root=fwd.OUTPUT):
+def verify(root=OUTPUT, forward_root=fwd.OUTPUT, state=None):
     """Offline e somente leitura: cadeia, registros, hashes e prazos."""
     errors = []
     try:
@@ -356,7 +356,8 @@ def verify(root=OUTPUT, forward_root=fwd.OUTPUT):
             errors.append(f"chain broken at event {index}")
         previous = event.get("sha256")
     path = root / "state.json"
-    state = fwd.read(path) if path.exists() else {"proposals": {}, "outcomes": {}}
+    if state is None:  # the dashboard passes its share-delete read on Windows
+        state = fwd.read(path) if path.exists() else {"proposals": {}, "outcomes": {}}
     expected = {(n, s): d for n, s, d, _ in expected_events(root, state)}
     seen = {}
     for event in events:

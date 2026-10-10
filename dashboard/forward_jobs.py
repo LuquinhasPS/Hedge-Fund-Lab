@@ -178,7 +178,7 @@ class Jobs:
                 time.sleep(0.01)
 
     def start(self, command, token=None):
-        if command not in ("prepare", "preflight", "run", "benchmarks"):
+        if command not in ("prepare", "preflight", "run", "benchmarks", "supervised"):
             raise ValueError("invalid_command")
         with self.mutex:
             self.root.mkdir(parents=True, exist_ok=True)
@@ -256,6 +256,34 @@ class Jobs:
             )
         return results
 
+    def _supervised(self):
+        result = subprocess.run(
+            [
+                sys_python(),
+                "-B",
+                str(api.ROOT / "scripts/run_h2_v6_supervised.py"),
+                "sync",
+            ],
+            cwd=api.ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            shell=False,
+            timeout=600,
+        )
+        # Only fixed gate codes leave the process; stderr is never served.
+        for code in (
+            "NOT_COMPARABLE",
+            "identity",
+            "frozen forward input",
+            "busy",
+            "active",
+        ):
+            if result.returncode and code in result.stderr:
+                return f"BLOCKED: {code.replace(' ', '_')}"
+        return "SYNCED" if result.returncode == 0 else "BLOCKED; consult_local_runner"
+
     def _work(self, job, binding):
         try:
             if job["command"] == "preflight":
@@ -263,6 +291,17 @@ class Jobs:
                 if report["ready"]:
                     report["confirmation_token"] = self._token(report)
                 job.update(state="COMPLETE", report=report, stage=report["state"])
+            elif job["command"] == "supervised":
+                outcome = self._supervised()
+                job.update(
+                    state="COMPLETE" if outcome == "SYNCED" else "FAILED",
+                    supervised=outcome,
+                    stage="Carteira supervisionada sincronizada"
+                    if outcome == "SYNCED"
+                    else "Sincronização supervisionada bloqueada",
+                )
+                if outcome != "SYNCED":
+                    job["error"] = outcome
             elif job["command"] == "benchmarks":
                 job.update(
                     state="COMPLETE",

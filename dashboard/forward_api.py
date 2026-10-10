@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import run_h2_v6_forward as fwd  # noqa: E402
+import run_h2_v6_supervised as sup  # noqa: E402
 
 OUTPUT = fwd.OUTPUT
 STRATEGIES = {
@@ -17,7 +18,10 @@ STRATEGIES = {
     "buy_and_hold": "Buy & Hold",
     "sma_regime_h2_proposed": "SMA Regime 50/200",
     "bollinger_state_h2_proposed": "Bollinger Estado 20/2",
+    sup.STRATEGY: "H2 v6 Supervisionada",
 }
+BENCHMARKS = ("sma_regime_h2_proposed", "bollinger_state_h2_proposed")
+PENDING = ("APROVADA", "AJUSTADA_CONCENTRACAO", "PENDENTE_ABERTURA")
 
 
 def read(path):
@@ -513,7 +517,189 @@ def wallet(key, book, rows, mark, pending, initial, decisions):
     }
 
 
-def portfolios(root=OUTPUT, benchmark_root=None):
+def supervised_root(root):
+    """The supervised ledger is a sibling of the original forward ledger."""
+    return root.parent / "h2_v6_supervised"
+
+
+def proposals(folder, state, at):
+    """Proposals with their backend-derived order state; records are never edited."""
+    result = []
+    for session, proposal in sorted(state["proposals"].items()):
+        approval, cancel = sup.records(folder, session)
+        outcome = state["outcomes"].get(session)
+        result.append(
+            {
+                **proposal,
+                "order_state": sup.order_state(proposal, approval, cancel, outcome, at),
+                "approval": pick(
+                    approval, "action", "limits", "effect", "created_at", "expires_at"
+                )
+                if approval
+                else None,
+                "cancel": pick(cancel, "created_at") if cancel else None,
+                "outcome": outcome,
+            }
+        )
+    return result
+
+
+def supervised_wallet(state, ai, folder, at):
+    if state is None:
+        return {
+            "key": sup.STRATEGY,
+            "label": STRATEGIES[sup.STRATEGY],
+            "available": False,
+            "reason": "Carteira supervisionada não inicializada. Ela só pode começar antes da primeira abertura comum; aprovações retroativas são proibidas.",
+        }
+    items = proposals(folder, state, at)
+    pending = next(
+        (
+            {
+                "decision_session": p["decision_session"],
+                "target_session": p["target_session"],
+                "target_weight": p["approval"]["effect"]["target_weight"],
+            }
+            for p in reversed(items)
+            if p["order_state"] in PENDING
+        ),
+        None,
+    )
+    pairs = [(r["session"], r["open"], r["close"]) for r in state["sessions"]]
+    effect = lambda p: (p["approval"] or {}).get("effect") or {}  # noqa: E731
+    item = wallet(
+        sup.STRATEGY,
+        state["portfolio"],
+        state["sessions"],
+        state["mark"],
+        pending,
+        state["initial_capital"],
+        [
+            {
+                "session": p["decision_session"],
+                "status": p["order_state"],
+                "target_weight": effect(p).get(
+                    "target_weight", p.get("recommended_target")
+                ),
+                "target_session": p.get("target_session"),
+                "generated_at": p["created_at"],
+            }
+            for p in items
+        ],
+    )
+    states = collections.Counter(p["order_state"] for p in items)
+    item.update(
+        initialized_at=state["initialized_at"],
+        # A supervised ledger that lags the original is stale, not a different period.
+        comparable=state["inception"] == ai["sessions"][0]["session"]
+        and all(
+            state[k] == ai[k]
+            for k in ("initial_capital", "costs", "execution", "manifest_sha256")
+        )
+        and pairs
+        == [(r["session"], r["open"], r["close"]) for r in ai["sessions"]][: len(pairs)],
+        supervision={
+            "awaiting": states["AGUARDANDO_APROVACAO"],
+            "approved": sum(
+                (p["approval"] or {}).get("action") == "APPROVE" for p in items
+            ),
+            "rejected": states["REJEITADA"],
+            "executed": states["EXECUTADA"],
+            "not_executed": sum(
+                n
+                for k, n in states.items()
+                if k.startswith(("NAO_EXECUTADA", "BLOQUEADA"))
+            ),
+        },
+    )
+    return item
+
+
+def supervision(session=None, root=None, clock=None):
+    """Read-only supervision view: proposals, actions, outcomes, divergence, audit."""
+    root = root or OUTPUT
+    folder, at = supervised_root(root), (clock or fwd.now)()
+    schema = {k: {"direction": d, "max": m} for k, (d, m) in sup.LIMITS.items()}
+    state = read(folder / "state.json")
+    if state is None:
+        return {
+            "initialized": False,
+            "now": at.isoformat(),
+            "limits_schema": schema,
+            "reason": supervised_wallet(None, None, folder, at)["reason"],
+        }
+    items = proposals(folder, state, at)
+    if session:
+        session_name(session)
+    selected = (
+        next((p for p in items if p["decision_session"] == session), None)
+        if session
+        else (items[-1] if items else None)
+    )
+    original = read(root / "state.json") or {"sessions": []}
+    mine = {r["session"]: r for r in state["sessions"]}
+    by_session = {p["decision_session"]: p for p in items}
+    timeline = []
+    for r in original["sessions"]:
+        if r["session"] < state["inception"]:
+            continue
+        own, p = mine.get(r["session"]), by_session.get(r["session"]) or {}
+        timeline.append(
+            {
+                "session": r["session"],
+                "original_equity": r["equity"],
+                "supervised_equity": own and own["equity"],
+                "difference": own and own["equity"] - r["equity"],
+                "order_state": p.get("order_state"),
+                "action": (p.get("approval") or {}).get("action"),
+            }
+        )
+    book, mark = state["portfolio"], state["mark"]
+    return {
+        "initialized": True,
+        "strategy": sup.STRATEGY,
+        "inception": state["inception"],
+        "initialized_at": state["initialized_at"],
+        "now": at.isoformat(),
+        "position": {
+            **book,
+            "weight": sup.weight(book, mark["close"]),
+            "equity": book["cash"] + book["units"] * mark["close"],
+            "mark": mark,
+        },
+        "proposals": items,
+        "selected": selected,
+        "timeline": timeline,
+        "audit": sup.verify(folder, root, state=state),
+        "limits_schema": schema,
+    }
+
+
+def supervise(action, payload):
+    """Human action on the supervised wallet; never touches the original ledger."""
+    record = sup.act(
+        action,
+        payload["decision_session"],
+        payload["decision_sha256"],
+        payload.get("limits"),
+        root=supervised_root(OUTPUT),
+        forward_root=OUTPUT,
+        clock=lambda: fwd.now(),
+    )
+    return pick(
+        record,
+        "action",
+        "decision_session",
+        "target_session",
+        "limits",
+        "effect",
+        "created_at",
+        "expires_at",
+    )
+
+
+def portfolios(root=None, benchmark_root=None):
+    root = root or OUTPUT
     state = read(root / "state.json")
     if state is None:
         return {"classification": fwd.CLASSIFICATION, "wallets": []}
@@ -550,7 +736,7 @@ def portfolios(root=OUTPUT, benchmark_root=None):
     ]
     benchmark_root = benchmark_root or ROOT / "data/forward/h2_v6_benchmarks"
     notes = []
-    for key in tuple(STRATEGIES)[2:]:
+    for key in BENCHMARKS:
         benchmark = read(benchmark_root / key / "state.json")
         if benchmark is None:
             wallets.append(
@@ -594,6 +780,17 @@ def portfolios(root=OUTPUT, benchmark_root=None):
                 f"{STRATEGIES[key]}: marcação/início/identidade divergente; excluída do gráfico comparativo. Sincronize os ledgers com os mesmos inputs observados."
             )
         wallets.append(item)
+    supervised = supervised_wallet(
+        read(supervised_root(root) / "state.json"),
+        state,
+        supervised_root(root),
+        fwd.now(),
+    )
+    if supervised.get("comparable") is False:
+        notes.append(
+            "H2 v6 Supervisionada: início/identidade/preços divergentes; excluída do gráfico comparativo."
+        )
+    wallets.append(supervised)
     return {
         "classification": fwd.CLASSIFICATION,
         "paper_only": True,

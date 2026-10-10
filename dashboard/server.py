@@ -42,6 +42,25 @@ PROJECT_ROOT = DIR.parent
 LOG_FILE = PROJECT_ROOT / "data" / "logs" / "hedgefund.log"
 
 
+SUPERVISION = {"confirm", "decision_session", "decision_sha256"}
+#: Exact JSON fields per POST command; anything else is refused.
+POST_FIELDS = {
+    "prepare": set(),
+    "preflight": set(),
+    "benchmarks": set(),
+    "run": {"confirm", "confirmation_token"},
+    "supervision/sync": set(),
+    "supervision/approve": SUPERVISION | {"limits"},
+    "supervision/reject": SUPERVISION,
+    "supervision/cancel": SUPERVISION,
+}
+SUPERVISION_ACTIONS = {
+    "supervision/approve": "APPROVE",
+    "supervision/reject": "REJECT",
+    "supervision/cancel": "CANCEL",
+}
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     """Handler com rotas especiais para API de logs."""
 
@@ -152,7 +171,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             {"job"}
             if url.path == "/api/forward/status"
             else {"session"}
-            if url.path == "/api/forward/decision"
+            if url.path in ("/api/forward/decision", "/api/forward/supervision")
             else set()
         )
         if set(q) - allowed or any(len(v) != 1 for v in q.values()):
@@ -168,6 +187,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._send_json(forward_api.portfolios())
             if url.path == "/api/forward/agents" and not q:
                 return self._send_json(forward_api.agents())
+            if url.path == "/api/forward/supervision":
+                return self._send_json(
+                    forward_api.supervision(q.get("session", [None])[0])
+                )
         except (ValueError, KeyError, OSError):
             return self._send_json({"error": "invalid_or_incomplete_record"}, 400)
         return self._send_json(None, 404)
@@ -203,7 +226,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if (
             url.query
             or url.path != f"/api/forward/{command}"
-            or command not in ("prepare", "preflight", "run", "benchmarks")
+            or command not in POST_FIELDS
         ):
             return self._send_json(None, 404)
         if (
@@ -231,26 +254,37 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 object_pairs_hook=unique,
                 parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
             )
+            fields = POST_FIELDS[command]
             if (
                 not isinstance(payload, dict)
-                or (command != "run" and payload)
+                or set(payload) != fields
+                or (fields and payload["confirm"] is not True)
                 or (
                     command == "run"
-                    and (
-                        set(payload) != {"confirm", "confirmation_token"}
-                        or payload["confirm"] is not True
-                        or not isinstance(payload["confirmation_token"], str)
-                    )
+                    and not isinstance(payload["confirmation_token"], str)
                 )
             ):
                 raise ValueError("invalid_payload")
+            action = SUPERVISION_ACTIONS.get(command)
+            if action:
+                # Order approval never authorizes a model call; it only writes
+                # one immutable record for the supervised paper wallet.
+                return self._send_json(forward_api.supervise(action, payload), 201)
             return self._send_json(
-                jobs.start(command, payload.get("confirmation_token")), 202
+                jobs.start(
+                    "supervised" if command == "supervision/sync" else command,
+                    payload.get("confirmation_token"),
+                ),
+                202,
             )
-        except forward_jobs.Conflict as exc:
+        except (forward_jobs.Conflict, forward_api.sup.Conflict) as exc:
             return self._send_json({"error": str(exc)}, 409)
-        except (ValueError, TypeError, OSError):
-            return self._send_json({"error": "invalid_payload_or_local_state"}, 400)
+        except (ValueError, TypeError, OSError) as exc:
+            # Validation codes such as invalid_limit:max_buy_price are safe to show.
+            code = str(exc) if re.fullmatch(r"[a-z_]+(:[a-z_]+)?", str(exc)) else None
+            return self._send_json(
+                {"error": code or "invalid_payload_or_local_state"}, 400
+            )
 
     def _handle_h2(self) -> None:
         """Read-only H2 v6 API; every parameter is checked against a fixed set."""

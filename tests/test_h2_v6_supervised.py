@@ -53,7 +53,10 @@ def world(tmp_path, monkeypatch, identity):
     monkeypatch.setattr(fwd, "identity", lambda: identity)
     manifest, _ = identity
     return SimpleNamespace(
-        forward=tmp_path / "ai", root=tmp_path / "sup", bars=RawBars(), manifest=manifest
+        forward=tmp_path / "ai",
+        root=tmp_path / "h2_v6_supervised",
+        bars=RawBars(),
+        manifest=manifest,
     )
 
 
@@ -142,7 +145,9 @@ def test_approval_concentration_execution_idempotency_and_isolation(world):
     assert trade["type"] == "BUY"
     # Same base costs as the original: spread 5 bps + tax 0.032%, both in the cost.
     assert trade["cost"] == pytest.approx(trade["price"] * trade["quantity"] * 0.00082)
-    assert trade["price"] == pytest.approx(done["prices"]["adjusted_open"])  # settles adjusted
+    assert trade["price"] == pytest.approx(
+        done["prices"]["adjusted_open"]
+    )  # settles adjusted
     assert done["prices"]["raw_open"] == pytest.approx(done["prices"]["adjusted_open"])
     assert done["prices"]["raw_source"] == "sessions/2026-10-13/input.json"
     invested = trade["price"] * trade["quantity"]
@@ -398,3 +403,112 @@ def test_invalid_limits_are_refused_in_the_backend(world, limits):
     with pytest.raises(ValueError):
         act(w, "APPROVE", s, digest, limits)
     assert not (w.root / "approvals" / f"{s}.json").exists()
+
+
+# ── Phase B: HTTP endpoints over the same synthetic world ───────────────────
+
+
+def test_supervision_endpoints_are_guarded_and_never_touch_the_original(
+    world, monkeypatch, tmp_path
+):
+    import http.client
+    import threading
+    import time
+
+    sys.path.insert(0, str(ROOT / "dashboard"))
+    import forward_api as api
+    import forward_jobs as jobs
+    import server
+
+    w = world
+    s, digest = close_session(w, SAT)
+    sync(w, SAT)
+    monkeypatch.setattr(api, "OUTPUT", w.forward)
+    monkeypatch.setattr(fwd, "now", BEFORE_OPEN)
+    for paid in ("run", "ForwardGeminiClient", "DurableGeminiClient"):
+        monkeypatch.setattr(fwd, paid, lambda *a, **k: pytest.fail("model path reached"))
+    controller = jobs.Jobs(tmp_path / "operations", w.forward)
+    synced = []
+    monkeypatch.setattr(controller, "_supervised", lambda: synced.append(1) or "SYNCED")
+    monkeypatch.setattr(jobs, "JOBS", controller)
+    instance = server.ReusableTCPServer(("127.0.0.1", 0), server.Handler)
+    threading.Thread(target=instance.serve_forever, daemon=True).start()
+    port = instance.server_address[1]
+    valid = {
+        "Origin": f"http://127.0.0.1:{port}",
+        "X-CSRF-Token": controller.csrf,
+        "Content-Type": "application/json",
+    }
+
+    def call(path, payload=None, headers=None, raw=None):
+        client = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        body = (
+            raw if raw is not None else None if payload is None else json.dumps(payload)
+        )
+        client.request("GET" if body is None else "POST", path, body, headers or valid)
+        response = client.getresponse()
+        code, data = response.status, response.read()
+        client.close()
+        return code, json.loads(data) if data else None
+
+    try:
+        original = tree(w.forward)
+        code, view = call("/api/forward/supervision", headers={})
+        assert code == 200 and view["selected"]["order_state"] == "AGUARDANDO_APROVACAO"
+        assert view["selected"]["decision_sha256"] == digest and view["audit"]["ok"]
+        base = {"confirm": True, "decision_session": s, "decision_sha256": digest}
+        approve = "/api/forward/supervision/approve"
+        for bad in (
+            {},
+            base,  # approve requires an explicit limits object, even empty
+            {**base, "limits": {}, "extra": 1},
+            {**base, "confirm": False, "limits": {}},
+            {**base, "confirm": "true", "limits": {}},
+        ):
+            assert call(approve, bad)[0] == 400
+        nonfinite = '{"confirm":true,"decision_session":"%s","decision_sha256":"%s","limits":{"max_buy_price":NaN}}'
+        assert call(approve, raw=nonfinite % (s, digest))[0] == 400
+        assert call(approve, {**base, "limits": {"max_buy_price": -1}}) == (
+            400,
+            {"error": "invalid_limit:max_buy_price"},
+        )
+        assert (
+            call(approve, {**base, "limits": {}}, {**valid, "X-CSRF-Token": "x"})[0]
+            == 403
+        )
+        foreign = {**valid, "Origin": "http://evil.example"}
+        assert call(approve, {**base, "limits": {}}, foreign)[0] == 403
+        assert (
+            call(approve, {**base, "decision_sha256": "f" * 64, "limits": {}})[0] == 409
+        )
+        code, record = call(approve, {**base, "limits": {"max_buy_price": 1000}})
+        assert code == 201 and record["effect"]["state"] == "APROVADA"
+        assert call(approve, {**base, "limits": {}})[0] == 409  # never edited
+        assert call("/api/forward/supervision/cancel", base)[0] == 201
+        reject = call("/api/forward/supervision/reject", base)
+        assert reject[0] == 409 and reject[1]["error"].startswith("invalid_transition")
+        code, job = call("/api/forward/supervision/sync", {})
+        assert code == 202 and job["command"] == "supervised"
+        for _ in range(500):
+            if not controller.status()["busy"]:
+                break
+            time.sleep(0.01)
+        assert (
+            synced == [1]
+            and controller.status(job["id"])["job"]["supervised"] == "SYNCED"
+        )
+        assert call("/api/forward/supervision?session=../x", headers={})[0] == 400
+        assert call("/api/forward/supervision?other=1", headers={})[0] == 400
+        assert call(approve, headers={})[0] == 404  # GET on an action path
+        assert call("/api/forward/supervision", {}, valid)[0] == 404  # no bare POST
+        code, view = call(f"/api/forward/supervision?session={s}", headers={})
+        assert view["selected"]["order_state"] == "CANCELADA" and view["audit"]["ok"]
+        wallets = {
+            x["key"]: x for x in call("/api/forward/portfolios", headers={})[1]["wallets"]
+        }
+        assert wallets[sup.STRATEGY]["available"] and wallets[sup.STRATEGY]["comparable"]
+        assert tree(w.forward) == original  # the original Forward Test is untouched
+        assert "approvals" not in json.dumps(view)  # no private paths served
+    finally:
+        instance.shutdown()
+        instance.server_close()
