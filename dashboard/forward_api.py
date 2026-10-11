@@ -73,7 +73,8 @@ def session_name(value):
     return value
 
 
-def history(root=OUTPUT):
+def history(root=None):
+    root = root or OUTPUT
     state = read(root / "state.json") or {}
     sessions = root / "sessions"
     result = {
@@ -252,7 +253,8 @@ def flow(d):
     ]
 
 
-def decision(session=None, root=OUTPUT):
+def decision(session=None, root=None):
+    root = root or OUTPUT
     entries = history(root)
     recorded = [entry for entry in entries if entry.get("has_decision")]
     session = (
@@ -801,12 +803,13 @@ def portfolios(root=None, benchmark_root=None):
     }
 
 
-def agents(root=OUTPUT):
+def agents(root=None):
     """32-slot catalog. H2 v6 uses only the first Technical slots it declares.
 
     Observations come from recorded traces/decisions; inactive slots carry no
     history, and nothing here ranks competence from votes.
     """
+    root = root or OUTPUT
     params = read(fwd.CANDIDATE)["protocol"]["participant_spec"]["params"]
     price = fwd.oa1.PRICE_PER_M
     calls = collections.defaultdict(list)

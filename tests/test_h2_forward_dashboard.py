@@ -559,6 +559,19 @@ const posts=()=>requests.filter(r=>r.method==='POST');
   assert.equal(q(4,.5,{COMPRA:2,VENDA:0,MANTER:2},false).winner,'MANTER');
   assert.ok(q(5,.6,{COMPRA:6,VENDA:0,MANTER:0},true).error);
   assert.equal(requests.length,before);
+  // Supervised order approval: explicit checkbox, one POST, never the paid run endpoint.
+  vm.runInContext(`supervisionView={now:'2026-10-10T17:00:00-03:00',selected:{decision_session:'2026-10-09',decision_sha256:'${'b'.repeat(64)}',direction:'COMPRA',recommended_target:1,deadline:'2026-10-13T10:00:00-03:00'}}`,ctx);
+  const runs=posts().length;
+  vm.runInContext('askSupervision("approve")',ctx);
+  assert.equal(elements['sup-dialog'].open,true); assert.equal(elements['sup-submit'].disabled,true);
+  await vm.runInContext('confirmSupervision()',ctx); assert.equal(posts().length,runs);
+  elements['sup-accept'].checked=true; elements['sup-accept'].dispatch('change');
+  assert.equal(elements['sup-submit'].disabled,false);
+  await Promise.all([vm.runInContext('confirmSupervision()',ctx),vm.runInContext('confirmSupervision()',ctx)]);
+  assert.equal(posts().length,runs+1);
+  assert.ok(posts().at(-1).url.endsWith('/api/forward/supervision/approve'));
+  assert.deepEqual(JSON.parse(posts().at(-1).body),{confirm:true,decision_session:'2026-10-09',decision_sha256:'b'.repeat(64),limits:{}});
+  assert.equal(posts().filter(p=>p.url.endsWith('/run')).length,1);
   console.log('OFFLINE HUMAN CONFIRMATION OK');
 })().catch(e=>{console.error(e);process.exit(1)});
 """,

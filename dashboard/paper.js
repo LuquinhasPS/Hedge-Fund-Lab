@@ -18,10 +18,15 @@ const tone = (v) => v > 0 ? "good" : v < 0 ? "bad" : "flat";
 const agentName = (id) => esc(`TA-${String(id).padStart(2,"0")}`);
 const table = (headers, rows) => `<div class="scroll" tabindex="0" role="region" aria-label="Tabela rolável"><table><thead><tr>${headers.map(h=>`<th scope="col">${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 // Validated categorical order (dark surface, adjacent pairs); dashes are the secondary encoding.
-const COLORS = {ai:"#3987e5",buy_and_hold:"#d95926",sma_regime_h2_proposed:"#199e70",bollinger_state_h2_proposed:"#c98500"};
-const DASH = {ai:[],buy_and_hold:[7,4],sma_regime_h2_proposed:[2,3],bollinger_state_h2_proposed:[10,3,2,3]};
+const COLORS = {ai:"#3987e5",buy_and_hold:"#d95926",sma_regime_h2_proposed:"#199e70",bollinger_state_h2_proposed:"#c98500",h2_v6_supervised:"#d55181"};
+const DASH = {ai:[],buy_and_hold:[7,4],sma_regime_h2_proposed:[2,3],bollinger_state_h2_proposed:[10,3,2,3],h2_v6_supervised:[12,3]};
+const ORDER = ["ai","h2_v6_supervised","buy_and_hold","sma_regime_h2_proposed","bollinger_state_h2_proposed"];
+const STATES = {AGUARDANDO_APROVACAO:["Aguardando aprovação","warn"],APROVADA:["Aprovada","buy"],AJUSTADA_CONCENTRACAO:["Aprovada · ajustada por concentração","warn"],BLOQUEADA_VOLATILIDADE:["Bloqueada · volatilidade","sell"],PENDENTE_ABERTURA:["Aguardando abertura oficial","warn"],EXECUTADA:["Execução virtual confirmada","buy"],NAO_EXECUTADA_LIMITE_PRECO:["Não executada · limite de preço","sell"],NAO_EXECUTADA_GAP:["Não executada · gap","sell"],BLOQUEADA_BASE_PRECOS:["Bloqueada · base de preços","sell"],REJEITADA:["Rejeitada","sell"],CANCELADA:["Cancelada","hold"],EXPIRADA:["Expirada","hold"],SEM_ORDEM_NECESSARIA:["Sem ordem necessária","hold"],SEM_DECISAO:["Sem decisão","none"]};
+const stateChip = (v) => `<span class="chip sig-${STATES[v]?.[1] || "none"}" title="${esc(v)}">${esc(STATES[v]?.[0] || v)}</span>`;
+const LIMITS = {max_buy_price:["Preço máximo de compra (R$)",0.01],min_sell_price:["Preço mínimo de venda (R$)",0.01],max_gap_up:["Gap de alta máximo (%)",0.1],max_gap_down:["Gap de baixa máximo (%)",0.1],max_concentration:["Concentração máxima (%)",1],max_volatility:["Volatilidade máxima (%)",0.1]};
+const PRICE_LIMITS = ["max_buy_price","min_sell_price"];
 const ROLE = {SUPPORTS_COMPRA:["Suporte à COMPRA","buy"],SUPPORTS_VENDA:["Suporte à VENDA","sell"],CAUTION:["Cautela","warn"],NEUTRAL:["Neutro","hold"]};
-let wallets = [], latest = null, agentsData = null, records = [], selectedAgent = "TA-01", visible = null, charts = {}, decisionVersion = 0, refreshVersion = 0;
+let supervisionView = null, pendingAction = null, wallets = [], latest = null, agentsData = null, records = [], selectedAgent = "TA-01", visible = null, charts = {}, decisionVersion = 0, refreshVersion = 0;
 
 async function api(path, options) {
   const r = await fetch(`/api/forward/${path}`, {cache:"no-store",...options});
@@ -70,13 +75,14 @@ function equityChart(id, list) {
 /* ── Visão Geral ───────────────────────────────────────────── */
 function latestMark() { return wallets.map(w => w.mark?.session).filter(Boolean).sort().at(-1); }
 function walletCard(w) {
-  const head = `<div class="wallet-head"><h3><span class="swatch" aria-hidden="true"></span>${esc(w.label)}</h3>${w.pending ? chip("Ordem pendente","sig-warn") : ""}</div>`;
+  const head = `<div class="wallet-head"><h3><span class="swatch" aria-hidden="true"></span>${esc(w.label)}</h3>${w.supervision?.awaiting ? chip("Aguardando aprovação","sig-warn") : w.pending ? chip("Ordem pendente","sig-warn") : ""}</div>`;
+  const last = w.trades?.at(-1);
   if (!w.available) return `<article class="card wallet" style="--series:${COLORS[w.key]}">${head}${empty("Sem carteira prospectiva", esc(w.reason))}</article>`;
   const stale = w.mark?.session < latestMark();
   return `<article class="card wallet" style="--series:${COLORS[w.key]}">${head}
     <div class="value">${money(w.equity)}</div>
     <p class="delta ${tone(w.return)}">${signed(w.return, pct)} · ${signed(w.pnl, money)}</p>
-    ${facts([["PETR4 investido",money(w.marked_value)],["Caixa",money(w.cash)],["Exposição",pct(w.exposure)],["Custos",money(w.costs)],["Operações",num(w.trades.length)],["Drawdown máx.",w.max_drawdown == null ? `${ND} <small>· requer 2+ fechamentos</small>` : pct(w.max_drawdown)]],"mini")}
+    ${facts([["PETR4 investido",money(w.marked_value)],["Caixa",money(w.cash)],["Exposição",pct(w.exposure)],["Custos",money(w.costs)],["Operações",num(w.trades.length)],["Última operação",last ? `${day(last.session)} · ${last.type === "BUY" ? "compra" : "venda"}` : "Nenhuma"],["Drawdown máx.",w.max_drawdown == null ? `${ND} <small>· requer 2+ fechamentos</small>` : pct(w.max_drawdown)]],"mini")}
     <small class="${stale || w.comparable === false ? "warn" : "muted"}">${stale ? "Sem novos dados desde" : "Marcação"} ${day(w.mark?.session)}${w.comparable === false ? " · fora da comparação" : ""}</small></article>`;
 }
 function renderOverviewChart() {
@@ -145,25 +151,134 @@ function synthesis(d) {
 }
 function renderDecision(d) {
   if (!d) { $("decision").innerHTML = empty("Nenhuma sessão prospectiva registrada", "Atualize os dados para preparar a primeira entrada."); return; }
-  if (!d.consensus) { $("decision").innerHTML = empty(`Sessão ${day(d.session)} · ${d.status}`, d.status === "MISSED" ? "Nenhuma decisão foi registrada antes da abertura seguinte; posição mantida." : "Input preparado, sem decisão gravada."); return; }
+  if (!d.consensus) { $("decision").innerHTML = empty(`Sessão ${day(d.session)} · ${d.status}`, d.status === "MISSED" ? "Nenhuma decisão foi registrada antes da abertura seguinte; posição mantida." : "Input preparado, sem decisão gravada.") + '<div id="supervision-panel"></div>'; renderSupervision(d); return; }
   const risk = d.risk || {}, p = d.portfolio || {}, n = d.committee?.analyst_count || 0;
   const flow = (d.flow || []).map(s=>`<li><small>${esc(s.stage)}</small>${signal(s.result)}<p>${esc(s.detail)}</p>${s.changed === false ? '<span class="tag">Não alterou</span>' : s.changed ? '<span class="tag warn">Alterou</span>' : ""}</li>`).join("");
   $("decision").innerHTML = `<div class="meta">${chip(d.status)} ${chip(d.ticker || "PETR4.SA")} <span>Referência <strong>${day(d.session)}</strong></span><span>Fechamento usado <strong>${money(d.close_used)}</strong></span><span>Abertura-alvo <strong>${day(d.target_session)} ${esc(d.target_open_deadline?.slice(11,16) || "")}</strong></span><span class="muted">${d.replayed_from_journal ? "Replay offline do journal" : "Gerada em"} ${stamp(d.generated_at)}</span></div>
     ${d.failure ? `<p class="callout bad">${esc(d.failure)}</p>` : ""}
     <ol class="flow" aria-label="Fluxo da decisão">${flow}</ol>
+    <div id="supervision-panel"></div>
     <div class="room-grid"><div><h2>Comitê técnico · ${n} analistas</h2><div class="analysts">${Array.from({length:n}, (_,i) => analystCard(i + 1, d.analysts.filter(a => Number(a.analyst_id) === i + 1))).join("")}</div></div>${quorumCard(d)}</div>
     ${synthesis(d)}
     <div class="pair"><article class="card"><h2>Risk Manager</h2><p>${signal(risk.verdict)} ${chip(risk.risk_source)} ${risk.veto_effect ? chip(`Veto ${risk.veto_effect}`) : ""}</p><p>${esc(risk.analysis)}</p>${table(["Regra","Valor","Limite","Estado"], (risk.rules || []).map(r=>[esc(r.rule),num(r.value),`${esc(r.operator)} ${num(r.limit)}`,chip(r.status, r.status === "PASSOU" ? "sig-buy" : r.status === "DISPAROU" ? "sig-sell" : "")]))}</article>
     <article class="card"><h2>Portfolio Manager</h2><p>${signal(p.decision)} ${chip(p.final_cause)}</p><p>${esc(p.reasoning)}</p>
       <h3>Da recomendação à execução</h3>${facts([["Sinal técnico",signal(d.consensus.technical_outcome)],["Decisão final",signal(p.decision)],["Ordem pretendida",d.intent_weight == null ? "Nenhuma" : `Alvo ${pct(d.intent_weight)} PETR4`],["Ordem pendente",d.pending ? `Sim · abertura ${day(d.pending.target_session)}` : "Não"],["Ordem executada",d.execution ? `${day(d.execution.session)} · ${d.execution.trades.length} operação(ões)` : "Ainda não observada"],["Não executável",d.status === "LATE_NOT_EXECUTABLE" ? "Sim · decisão após a abertura" : "Não"],["Posição no fechamento",pct(p.observed_weight)]])}
       <p class="muted small">A posição-alvo é uma recomendação para a próxima abertura. A composição financeira atual está em Carteiras.</p></article></div>`;
+  renderSupervision(d);
+}
+
+/* ── Supervisão Humana ─────────────────────────────────────── */
+function remaining(deadline, now) {
+  const minutes = Math.floor((new Date(deadline) - new Date(now)) / 60000);
+  return minutes <= 0 ? "prazo encerrado" : `restam ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+function limitText(key, value) {
+  return `${esc(LIMITS[key]?.[0].replace(/ \(.*\)/, "") || key)} ${PRICE_LIMITS.includes(key) ? money(value) : pct(value)}`;
+}
+function renderSupervision(d) {
+  const box = $("supervision-panel");
+  if (!box) return;
+  const s = supervisionView, intro = '<p class="muted small">Carteira H2 v6 Supervisionada · paper trading. Aprovar ou rejeitar uma ordem não chama o Gemini e não altera a H2 v6 original.</p>';
+  const head = (state) => `<div class="card-head"><h2>Supervisão Humana</h2>${state ? stateChip(state) : ""}</div>${intro}`;
+  if (!s?.initialized) { box.innerHTML = `<article class="card supervision">${head()}${empty("Carteira supervisionada não inicializada", esc(s?.reason || "Consulte os registros."))}</article>`; return; }
+  const p = s.selected;
+  if (!p || p.decision_session !== d.session) { box.innerHTML = `<article class="card supervision">${head()}${empty("Sem proposta supervisionada para esta sessão", "Use “Sincronizar carteira supervisionada” em Operação depois da decisão dos agentes, antes do prazo da abertura.")}</article>`; return; }
+  const a = p.approval, o = p.outcome, open = p.order_state === "AGUARDANDO_APROVACAO" && new Date(s.now) < new Date(p.deadline);
+  const limits = a ? (Object.keys(a.limits || {}).length ? Object.entries(a.limits).map(([k,v]) => chip(limitText(k, v))).join(" ") : "Nenhum limite adicional") : "—";
+  const waiting = {AGUARDANDO_APROVACAO:"Decisão humana até o prazo", APROVADA:"Abertura oficial e verificação dos limites", AJUSTADA_CONCENTRACAO:"Abertura oficial e verificação dos limites", PENDENTE_ABERTURA:"Reconciliação com a abertura oficial, disponível após o fechamento"}[p.order_state] || "Nenhuma";
+  const c = d.consensus || {};
+  box.innerHTML = `<article class="card supervision">${head(p.order_state)}
+    <div class="pair">${facts([["Ativo",esc(d.ticker)],["Data de referência",day(p.decision_session)],["Decisão dos agentes",`${signal(d.portfolio?.decision)} <small class="muted">${esc(p.final_cause)}</small>`],["Consenso",`${signal(c.consensus_reached ? c.technical_outcome : "SEM CONSENSO")} ${esc(c.signal?.justification || "")}`],["Risk Manager",signal(d.risk?.verdict)],["Portfolio Manager",signal(d.portfolio?.decision)]])}
+    ${facts([["Posição supervisionada no fechamento",pct(p.weight_at_close)],["Carteira supervisionada agora",`${pct(s.position.weight)} PETR4 · ${money(s.position.equity)}`],["Posição-alvo recomendada",p.recommended_target == null ? "Nenhuma ordem" : `${pct(p.recommended_target)} PETR4`],["Prazo de validade",p.deadline ? `${stamp(p.deadline)}${open ? ` · ${remaining(p.deadline, s.now)}` : ""}` : ND],["Fechamento bruto oficial",money(p.raw_close)]])}</div>
+    <h3>Da recomendação à ordem supervisionada</h3>
+    <ol class="ladder">
+      <li><small>Recomendação original</small><div>${signal(p.direction && !["VETO"].includes(p.direction) ? p.direction : d.portfolio?.decision)} ${esc(p.reason)}</div></li>
+      <li><small>Decisão do operador</small><div>${a ? `${chip(a.action === "APPROVE" ? "Aprovou" : "Rejeitou", a.action === "APPROVE" ? "sig-buy" : "sig-sell")} ${stamp(a.created_at)}${p.cancel ? ` · ${chip("Cancelou","sig-hold")} ${stamp(p.cancel.created_at)}` : ""}` : open ? "Aguardando" : "Nenhuma"}</div></li>
+      <li><small>Limites aplicados</small><div>${limits}${a?.effect ? ` <span class="muted">${esc(a.effect.reason)}</span>` : ""}</div></li>
+      <li><small>Condições pendentes</small><div>${esc(waiting)}</div></li>
+      <li><small>Status da ordem</small><div>${stateChip(p.order_state)}</div></li>
+      <li><small>Resultado da reconciliação</small><div>${o ? `${esc(o.reason)}${o.prices ? `<br/><span class="muted small">Abertura bruta ${money(o.prices.raw_open)} (${esc(o.prices.raw_source)}) · ajustada ${money(o.prices.adjusted_open)} · gap bruto ${pct(o.prices.raw_gap)}</span>` : ""}` : "Ainda não reconciliada"}</div></li>
+    </ol>
+    ${open ? limitsForm(p, s) : ""}
+    ${["APROVADA","AJUSTADA_CONCENTRACAO"].includes(p.order_state) && new Date(s.now) < new Date(p.deadline) ? '<div class="row"><button type="button" data-action="cancel">Cancelar aprovação</button><span class="muted small">Registra um evento de cancelamento; a aprovação original permanece.</span></div>' : ""}
+    <p class="muted small">${s.audit.ok ? `Cadeia de auditoria íntegra · ${s.audit.events} eventos` : `<span class="bad">Auditoria com divergências: ${esc(s.audit.errors.join("; "))}</span>`}</p></article>`;
+  if (open) preview();
+}
+function limitsForm(p, s) {
+  const fields = Object.entries(s.limits_schema).filter(([, v]) => !v.direction || v.direction === p.direction);
+  return `<form id="sup-form" class="limits" novalidate><h3>Limites opcionais</h3><div class="limit-grid">${fields.map(([k]) => `<label>${esc(LIMITS[k][0])}<input type="number" data-limit="${esc(k)}" min="0" step="${LIMITS[k][1]}" inputmode="decimal" /></label>`).join("")}</div>
+    <p id="sup-preview" class="preview" role="status"></p>
+    <div class="row"><button type="button" class="primary" data-action="approve">APROVAR RECOMENDAÇÃO</button><button type="button" data-action="reject">REJEITAR RECOMENDAÇÃO</button></div></form>`;
+}
+function readLimits() {
+  const limits = {};
+  for (const input of document.querySelectorAll("#sup-form [data-limit]")) {
+    if (input.value === "") continue;
+    const key = input.dataset.limit, value = Number(input.value);
+    if (!Number.isFinite(value) || value <= 0) return {error:`${LIMITS[key][0]}: informe um número positivo.`};
+    limits[key] = PRICE_LIMITS.includes(key) ? value : value / 100;
+  }
+  return {limits};
+}
+function preview() {
+  const box = $("sup-preview"), p = supervisionView?.selected;
+  if (!box || !p) return;
+  const {limits: L, error: problem} = readLimits();
+  if (problem) { box.innerHTML = `<span class="warn">${esc(problem)}</span>`; return; }
+  const close = p.raw_close, lines = [];
+  if (L.max_buy_price) lines.push(`Compra só se a abertura bruta for ≤ ${money(L.max_buy_price)} (${signed(L.max_buy_price / close - 1, pct)} sobre o fechamento bruto ${money(close)}).`);
+  if (L.min_sell_price) lines.push(`Venda só se a abertura bruta for ≥ ${money(L.min_sell_price)} (${signed(L.min_sell_price / close - 1, pct)} sobre o fechamento bruto ${money(close)}).`);
+  if (L.max_gap_up || L.max_gap_down) lines.push(`Executa só com abertura bruta entre ${L.max_gap_down ? money(close * (1 - L.max_gap_down)) : "sem piso"} e ${L.max_gap_up ? money(close * (1 + L.max_gap_up)) : "sem teto"}.`);
+  if (L.max_concentration) {
+    const target = Math.min(L.max_concentration, p.recommended_target);
+    lines.push(target >= p.recommended_target ? "Concentração acima do alvo recomendado: sem efeito." : p.weight_at_close >= target ? `Exposição já atinge ${pct(target)}: nenhuma ordem.` : `Alvo ajustado para ${pct(target)}; estimativa ao fechamento ≈ ${money((target - p.weight_at_close) * supervisionView.position.equity)} em PETR4. A quantidade real depende da abertura.`);
+  }
+  if (L.max_volatility) lines.push(p.recent_volatility == null || p.recent_volatility > L.max_volatility ? `Volatilidade registrada ${pct(p.recent_volatility)} acima do limite: a aprovação ficaria bloqueada.` : `Volatilidade registrada ${pct(p.recent_volatility)} dentro do limite.`);
+  if (!lines.length) lines.push("Sem limites adicionais: executa na abertura oficial seguinte pela convenção da H2 v6.");
+  box.innerHTML = lines.map(t => `<span>${esc(t)}</span>`).join("") + '<span class="muted">Prévia informativa: o preço de abertura ainda não é conhecido e nada aqui é uma execução.</span>';
+}
+function askSupervision(action) {
+  const p = supervisionView?.selected;
+  if (!p || posting) return;
+  const {limits, error: problem} = action === "approve" ? readLimits() : {limits:null};
+  if (problem) { preview(); return; }
+  const payload = {confirm:true, decision_session:p.decision_session, decision_sha256:p.decision_sha256, ...(action === "approve" ? {limits} : {})};
+  pendingAction = {action, payload};
+  const names = {approve:"Aprovar recomendação", reject:"Rejeitar recomendação", cancel:"Cancelar aprovação"};
+  $("sup-title").textContent = names[action];
+  $("sup-details").innerHTML = facts([["Sessão",day(p.decision_session)],["Recomendação",`${signal(p.direction)} alvo ${pct(p.recommended_target)}`],["Limites",action === "approve" ? (Object.keys(limits).length ? Object.entries(limits).map(([k,v]) => chip(limitText(k, v))).join(" ") : "Nenhum") : "—"],["Decisão SHA256",esc(p.decision_sha256.slice(0,12))],["Prazo",stamp(p.deadline)]]);
+  $("sup-accept").checked = false; $("sup-submit").disabled = true;
+  $("sup-dialog").showModal();
+}
+async function confirmSupervision() {
+  if (!pendingAction || !$("sup-accept").checked || posting) return;
+  const {action, payload} = pendingAction;
+  pendingAction = null; posting = true; $("sup-dialog").close(); $("error").hidden = true;
+  try {
+    await api(`supervision/${action}`, {method:"POST", headers:{"Content-Type":"application/json","X-CSRF-Token":csrf}, body:JSON.stringify(payload)});
+  } catch(e) { error(e); }
+  finally { posting = false; await refresh(); }
+}
+function supervisionHistory(w) {
+  const s = supervisionView;
+  if (w.key !== "h2_v6_supervised" || !s?.initialized) return "";
+  const last = s.timeline.filter(t => t.difference != null).at(-1), k = w.supervision || {};
+  return `<article class="card"><div class="card-head"><h2>Supervisão humana · histórico</h2><small class="muted">Início ${day(s.inception)} · criada em ${stamp(s.initialized_at)}</small></div>
+    ${facts([["Aguardando aprovação",num(k.awaiting)],["Aprovadas",num(k.approved)],["Rejeitadas",num(k.rejected)],["Não executadas por limite ou bloqueio",num(k.not_executed)],["Execuções virtuais",num(k.executed)],["Diferença atual vs H2 original",last ? `${signed(last.difference, money)} em ${day(last.session)}` : ND]],"wide")}
+    <h3>Decisões supervisionadas</h3>${table(["Sessão","Recomendação","Ação humana","Limites","Estado","Motivo"], s.proposals.slice().reverse().map(p => [day(p.decision_session),signal(p.direction || null),p.approval ? (p.approval.action === "APPROVE" ? "Aprovou" : "Rejeitou") + (p.cancel ? " · cancelou" : "") : "—",p.approval && Object.keys(p.approval.limits || {}).length ? Object.entries(p.approval.limits).map(([k,v]) => chip(limitText(k, v))).join(" ") : "—",stateChip(p.order_state),`<span class="wrap">${esc((p.outcome || {}).reason || p.reason)}</span>`]))}
+    <h3>Linha do tempo: intervenção × patrimônio</h3>${table(["Fechamento","H2 original","Supervisionada","Diferença","Proposta da sessão"], s.timeline.slice().reverse().map(t => [day(t.session),money(t.original_equity),money(t.supervised_equity),t.difference == null ? ND : `<span class="${tone(t.difference)}">${signed(t.difference, money)}</span>`,t.order_state ? stateChip(t.order_state) : "—"]))}
+    <p class="muted small">Diferença descritiva entre duas carteiras paralelas com mesmo início, capital, custos e preços observados. Com poucas sessões e julgamento humano não cego, ela não demonstra efeito causal da supervisão.</p></article>`;
 }
 function renderHistory() {
   $("history").innerHTML = records.length ? table(["Sessão","Estado","COMPRA / VENDA / MANTER","Sinal técnico","Decisão final","Alvo",""], records.slice().reverse().map(r=>[day(r.session),chip(r.status),r.vote_counts ? `${r.vote_counts.COMPRA ?? 0} / ${r.vote_counts.VENDA ?? 0} / ${r.vote_counts.MANTER ?? 0}` : ND,signal(r.technical_outcome),signal(r.final_decision),pct(r.target_weight),r.has_decision ? `<button data-session="${esc(r.session)}">Abrir</button>` : ""])) : empty("Nenhuma deliberação registrada");
 }
 async function loadDecision(session="") {
   const version = ++decisionVersion;
-  try { const d = await api(`decision${session ? `?session=${encodeURIComponent(session)}` : ""}`); if (version === decisionVersion) renderDecision(d); } catch(e) { if (version === decisionVersion) error(e); }
+  const query = session ? `?session=${encodeURIComponent(session)}` : "";
+  try {
+    const [d, s] = await Promise.all([api(`decision${query}`), api(`supervision${query}`)]);
+    if (version === decisionVersion) { supervisionView = s; renderDecision(d); renderComposition(); }
+  } catch(e) { if (version === decisionVersion) error(e); }
 }
 
 /* ── Carteiras ─────────────────────────────────────────────── */
@@ -181,11 +296,11 @@ function renderComposition() {
     <div class="value">${money(w.equity)} <small class="delta ${tone(w.return)}">${signed(w.return, pct)} · ${signed(w.pnl, money)}</small></div>
     <h3>Posição executada</h3>${allocation(w)}
     ${w.pending ? `<h3>Intenção pendente</h3><div class="allocation target" role="img" aria-label="Alvo ${pct(w.pending.target_weight)} PETR4, não executado"><span class="seg ghost" style="width:${w.pending.target_weight * 100}%"></span></div><p class="muted small">Alvo ${pct(w.pending.target_weight)} PETR4 na abertura de ${day(w.pending.target_session)}. Uma intenção de compra não é posição: a composição só muda após a execução observada.</p>` : ""}
-    ${facts([["Patrimônio total",money(w.equity)],["Capital inicial",money(w.initial_capital)],["Exposição",pct(w.exposure)],["Custos acumulados",money(w.costs)],["Operações executadas",num(w.trades.length)],["Drawdown máximo",w.max_drawdown == null ? `${ND} · requer 2+ fechamentos` : pct(w.max_drawdown)],["Ordem pendente",w.pending ? `${day(w.pending.target_session)} · alvo ${pct(w.pending.target_weight)}` : "Nenhuma"],["Última decisão",w.last_decision ? `${day(w.last_decision.session)} · ${esc(w.last_decision.status)} · alvo ${pct(w.last_decision.target_weight)}` : w.key === "buy_and_hold" ? "Compra única na primeira abertura após a inicialização" : "Sem decisão"],["Proventos","Ainda não contabilizados"]],"wide")}</article>`;
-  $("trades").innerHTML = `<article class="card"><h2>Operações executadas · ${esc(w.label)}</h2>${w.trades.length ? table(["Decisão","Execução","Ativo","Lado","Preço","Quantidade","Custo","Patrimônio no fechamento"], w.trades.map(t=>[t.decision_session ? day(t.decision_session) : w.key === "buy_and_hold" ? "Regra B&H" : ND,day(t.session),esc(t.asset),signal(t.type === "BUY" ? "COMPRA" : t.type === "SELL" ? "VENDA" : t.type),money(t.price),num(t.quantity),money(t.cost),money(t.equity_after)])) : empty("Nenhuma operação executada", "Ordens pendentes não são patrimônio investido.")}</article>`;
+    ${facts([["Patrimônio total",money(w.equity)],["Capital inicial",money(w.initial_capital)],["Exposição",pct(w.exposure)],["Custos acumulados",money(w.costs)],["Operações executadas",num(w.trades.length)],["Drawdown máximo",w.max_drawdown == null ? `${ND} · requer 2+ fechamentos` : pct(w.max_drawdown)],["Ordem pendente",w.pending ? `${day(w.pending.target_session)} · alvo ${pct(w.pending.target_weight)}` : "Nenhuma"],["Última decisão",w.last_decision ? `${day(w.last_decision.session)} · ${esc(STATES[w.last_decision.status]?.[0] || w.last_decision.status)} · alvo ${pct(w.last_decision.target_weight)}` : w.key === "buy_and_hold" ? "Compra única na primeira abertura após a inicialização" : "Sem decisão"],["Proventos","Ainda não contabilizados"]],"wide")}</article>`;
+  $("trades").innerHTML = supervisionHistory(w) + `<article class="card"><h2>Operações executadas · ${esc(w.label)}</h2>${w.trades.length ? table(["Decisão","Execução","Ativo","Lado","Preço","Quantidade","Custo","Patrimônio no fechamento"], w.trades.map(t=>[t.decision_session ? day(t.decision_session) : w.key === "buy_and_hold" ? "Regra B&H" : ND,day(t.session),esc(t.asset),signal(t.type === "BUY" ? "COMPRA" : t.type === "SELL" ? "VENDA" : t.type),money(t.price),num(t.quantity),money(t.cost),money(t.equity_after)])) : empty("Nenhuma operação executada", "Ordens pendentes não são patrimônio investido.")}</article>`;
 }
 function renderWallets(data) {
-  wallets = data?.wallets || [];
+  wallets = (data?.wallets || []).slice().sort((a, b) => ORDER.indexOf(a.key) - ORDER.indexOf(b.key));
   const selected = $("strategy").value;
   $("strategy").innerHTML = wallets.map(w=>`<option value="${esc(w.key)}">${esc(w.label)}</option>`).join("");
   if (wallets.some(w => w.key === selected)) $("strategy").value = selected;
@@ -265,13 +380,18 @@ $("overview-series").addEventListener("change", (e) => { const k = e.target.data
 $("catalog").addEventListener("click", (e) => { const id = e.target.closest?.("[data-agent]")?.dataset.agent; if (id) { selectedAgent = id; renderAgents(); } });
 $("sim-form").addEventListener("input", simulate);
 $("sim-form").addEventListener("submit", (e) => e.preventDefault());
+$("decision").addEventListener("click", (e) => { const action = e.target.dataset?.action; if (action) askSupervision(action); });
+$("decision").addEventListener("input", (e) => { if (e.target.dataset?.limit) preview(); });
+$("sup-accept").addEventListener("change", () => $("sup-submit").disabled = !$("sup-accept").checked);
+$("sup-dismiss").addEventListener("click", () => { pendingAction = null; $("sup-dialog").close(); });
+$("sup-submit").addEventListener("click", confirmSupervision);
 if (typeof window !== "undefined") window.addEventListener("hashchange", route);
 route(); simulate(); refresh();
 
 let csrf, busy=false, posting=false, report=null, completedJob=null, confirmationToken=null;
 const checkLabels={treatment_identity:"Identidade H2 v6 e Git limpo",after_reserved_windows:"Fora das janelas reservadas",before_target_open:"Antes da abertura-alvo",not_yet_decided:"Decisão ainda não existe",no_active_lock:"Ledger sem lock ativo",gemini_api_key_present:"Chave configurada no backend",input_frozen:"Input congelado e íntegro",ledger_reconciles:"Carteira reconciliável"};
 function controls() {
-  ["prepare","preflight","benchmarks"].forEach(id=>$(id).disabled=busy||posting||!csrf);
+  ["prepare","preflight","benchmarks","supervised-sync"].forEach(id=>$(id).disabled=busy||posting||!csrf);
   $("execute").disabled=busy||posting||!report?.ready||!report?.confirmation_token;
 }
 function renderReport() {
@@ -295,7 +415,7 @@ async function pollStatus(schedule=true) {
     const j=state.job;
     if(j) {
       const progress=j.progress;
-      $("job").innerHTML=`<p>${chip(j.command)} ${chip(j.state==="RUNNING" && j.command==="run"?"EXECUTANDO":j.state)} · ${esc(j.session)}</p><p>${esc(j.stage)}${j.error?` · <span class="bad">${esc(j.error)}</span>`:""}</p>${progress?`<p class="muted">Progresso observado no journal: ${progress.unavailable?esc(progress.message):`${progress.recorded} respostas gravadas / ${progress.reserved} chamadas reservadas. Total final depende dos gates do tratamento.`}</p>${(progress.stages||[]).map(s=>chip(`#${s.sequence} ${s.stage||"reservada / em andamento"} · ${s.status||"sem resposta gravada"}`)).join(" ")}`:""}${j.recovery_note?`<details><summary>Interrupção e recuperação</summary><p>${esc(j.recovery_note)}</p></details>`:""}${j.benchmarks?Object.entries(j.benchmarks).map(([k,v])=>`<p class="muted">${esc(k)}: ${esc(v)}</p>`).join(""):""}`;
+      $("job").innerHTML=`<p>${chip(j.command)} ${chip(j.state==="RUNNING" && j.command==="run"?"EXECUTANDO":j.state)} · ${esc(j.session)}</p><p>${esc(j.stage)}${j.error?` · <span class="bad">${esc(j.error)}</span>`:""}</p>${progress?`<p class="muted">Progresso observado no journal: ${progress.unavailable?esc(progress.message):`${progress.recorded} respostas gravadas / ${progress.reserved} chamadas reservadas. Total final depende dos gates do tratamento.`}</p>${(progress.stages||[]).map(s=>chip(`#${s.sequence} ${s.stage||"reservada / em andamento"} · ${s.status||"sem resposta gravada"}`)).join(" ")}`:""}${j.recovery_note?`<details><summary>Interrupção e recuperação</summary><p>${esc(j.recovery_note)}</p></details>`:""}${j.benchmarks?Object.entries(j.benchmarks).map(([k,v])=>`<p class="muted">${esc(k)}: ${esc(v)}</p>`).join(""):""}${j.supervised?`<p class="muted">Carteira supervisionada: ${esc(j.supervised)}</p>`:""}`;
       if(j.command==="preflight" && j.state==="COMPLETE") { report=j.report; renderReport(); }
       if(j.state!=="RUNNING" && completedJob!==j.id) { completedJob=j.id; await refresh(); }
     } else if(busy) $("job").textContent="Bloqueio persistente sem job disponível: recuperação local necessária. Nenhuma inferência será repetida.";
@@ -306,6 +426,7 @@ async function pollStatus(schedule=true) {
 $("prepare").addEventListener("click",()=>submit("prepare"));
 $("preflight").addEventListener("click",()=>submit("preflight"));
 $("benchmarks").addEventListener("click",()=>submit("benchmarks"));
+$("supervised-sync").addEventListener("click",()=>submit("supervision/sync"));
 $("execute").addEventListener("click",()=>{
   if(!report?.ready||busy||posting) return;
   confirmationToken=report.confirmation_token;
