@@ -82,7 +82,7 @@ function walletCard(w) {
   return `<article class="card wallet" style="--series:${COLORS[w.key]}">${head}
     <div class="value">${money(w.equity)}</div>
     <p class="delta ${tone(w.return)}">${signed(w.return, pct)} · ${signed(w.pnl, money)}</p>
-    ${facts([["PETR4 investido",money(w.marked_value)],["Caixa",money(w.cash)],["Exposição",pct(w.exposure)],["Custos",money(w.costs)],["Operações",num(w.trades.length)],["Última operação",last ? `${day(last.session)} · ${last.type === "BUY" ? "compra" : "venda"}` : "Nenhuma"],["Drawdown máx.",w.max_drawdown == null ? `${ND} <small>· requer 2+ fechamentos</small>` : pct(w.max_drawdown)]],"mini")}
+    ${facts([["PETR4 investido",money(w.marked_value)],["Caixa",money(w.cash)],["Exposição",pct(w.exposure)],["Custos",money(w.costs)],["Operações",num(w.trades.length)],["Última operação",last ? `${day(last.session)} · ${last.type === "BUY" ? "compra" : "venda"}` : "Nenhuma"],["Drawdown máx.",w.max_drawdown == null ? `${ND} <small>(2+ fechamentos)</small>` : pct(w.max_drawdown)]],"mini")}
     <small class="${stale || w.comparable === false ? "warn" : "muted"}">${stale ? "Sem novos dados desde" : "Marcação"} ${day(w.mark?.session)}${w.comparable === false ? " · fora da comparação" : ""}</small></article>`;
 }
 function renderOverviewChart() {
