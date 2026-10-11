@@ -2,19 +2,27 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Gestor de Carteira · Hedge-Fund-Lab Premium V5</title>
+  <title>Gestor Global · Hedge-Fund-Lab Premium V6</title>
   <link rel="stylesheet" href="/radar.css"><link rel="stylesheet" href="/portfolio.css">
-  <script src="/vendor/chart.umd.js" defer></script><script src="/portfolio.js" defer></script>
+  <link rel="stylesheet" href="/global-pm.css">
+  <script src="/vendor/chart.umd.js" defer></script><script src="/portfolio.js" defer></script><script src="/global-pm.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Pular para o conteúdo</a>
   <header>
-    <div class="topline"><a class="brand" href="/paper">HEDGE-FUND<span>LAB</span><small>PREMIUM V5 / GESTÃO GLOBAL MULTIATIVOS</small></a><span class="pill">DEMONSTRAÇÃO · OFFLINE</span></div>
+    <div class="topline"><a class="brand" href="/paper">HEDGE-FUND<span>LAB</span><small>PREMIUM V6 / AI GLOBAL PORTFOLIO MANAGER</small></a><a class="pill" href="#ai-proposal">PROPOSTA DA IA · CONSULTIVO</a></div>
     <nav aria-label="Áreas do laboratório"><a href="/paper">Operação Paper</a><a href="/radar">Radar de Ativos</a><a href="/portfolio" aria-current="page">Gestor de Carteira</a><a href="/h2">Histórico H2 v6</a></nav>
   </header>
   <main id="main">
+    <section class="card ai-card" id="ai-proposal" aria-labelledby="ai-title">
+      <div class="section-head"><div><p class="eyebrow">GLOBAL INTELLIGENCE / NOVO EXPERIMENTO V6</p><h1 id="ai-title">Proposta da IA</h1><p class="lead">Uma decisão global. O capital tem prioridades.</p></div><span class="pill">HFL-MULTIASSET-GLOBAL-PM-V1</span></div>
+      <p class="notice">Área consultiva. Exemplos A–F usam respostas roteirizadas, sem inferência real do Gemini. Carteiras hipotéticas independentes da demonstração contábil V5. Uma proposta não constitui operação.</p>
+      <div class="ai-toolbar"><div id="ai-cases" class="case-buttons" role="group" aria-label="Exemplos offline V6 A a F"></div><button id="ai-simulate" type="button" disabled>Simular proposta sem executar</button></div>
+      <div id="ai-error" role="alert" hidden></div><div id="ai-content" aria-live="polite"><p class="muted">Consultando propostas já registradas…</p></div>
+      <details class="ai-selection"><summary>Selecionar pareceres do Radar · prévia de custo</summary><p class="muted small">Selecione a fonte e empresas da mesma sessão. Esta consulta não prepara dados nem chama agentes.</p><div class="ai-selection-fields"><label for="ai-mode">Fonte<select id="ai-mode"><option value="CONSULTATIVE_SANDBOX">Oficial · carteira hipotética</option><option value="SYNTHETIC_DEMO">Sintética · demonstração V4</option></select></label><label for="ai-day">Sessão<input id="ai-day" type="date" value="2026-10-09"></label></div><fieldset id="ai-universe"><legend>Empresas para comparar</legend><label><input type="checkbox" value="PETR4" checked>PETR4</label><label><input type="checkbox" value="VALE3" checked>VALE3</label><label><input type="checkbox" value="ITUB4" checked>ITUB4</label><label><input type="checkbox" value="WEGE3" checked>WEGE3</label><label><input type="checkbox" value="BBAS3" checked>BBAS3</label></fieldset><button id="ai-preview" type="button">Verificar seleção e custos offline</button><div id="ai-selection-result" aria-live="polite"></div><p class="muted small">Após preparar explicitamente um contexto pelo CLI, o preflight vincula dados e orçamento. A autorização de inferência Gemini é separada da autorização dos comitês. Execução financeira não está disponível.</p><a href="/radar">Abrir Radar e consultar pareceres por empresa →</a></details>
+    </section>
     <div class="heading"><div><p class="eyebrow">01 / VISÃO DO PATRIMÔNIO</p><h1>Uma carteira.<br><span>Decisões coordenadas.</span></h1><p class="lead">Comprar, reduzir, rebalancear ou esperar. O caixa também faz parte da estratégia.</p></div><div class="identity"><span class="dot"></span> MOTOR DETERMINÍSTICO<small>HFL-MULTIASSET-PORTFOLIO-V1</small><small id="session">Carregando demonstração…</small></div></div>
-    <p class="notice">Todos os preços, pareceres, aprovações e operações desta área são sintéticos. Capital inicial: R$ 100.000 virtuais. Resultados contábeis ilustram o motor e não medem desempenho da IA.</p>
+    <p class="notice">Demonstração contábil V5 preservada abaixo. Seus preços, pareceres, aprovações e operações são sintéticos. Capital inicial: R$ 100.000 virtuais. Ela não é a carteira da proposta V6.</p>
     <div id="error" role="alert" hidden></div>
     <div class="metrics"><article><span>PATRIMÔNIO CONSOLIDADO</span><strong id="equity">—</strong></article><article><span>CAIXA DISPONÍVEL</span><strong id="available">—</strong></article><article><span>CAIXA RESERVADO</span><strong id="reserved">—</strong></article><article><span>VALORES A RECEBER</span><strong id="receivable">—</strong></article></div>
     <div class="overview">
@@ -29,7 +37,7 @@
       <div id="plan" aria-live="polite"><p class="muted">Selecione um cenário para explorar o plano.</p></div>
     </section>
     <section class="card" aria-labelledby="audit-title"><div class="section-head"><div><p class="eyebrow">06 / RASTREABILIDADE</p><h2 id="audit-title">Cada movimento deixa uma evidência.</h2></div><span id="integrity" class="pill">Verificando…</span></div><p class="muted small" id="audit-summary"></p><details><summary>Eventos, contratos e hashes</summary><pre id="audit"></pre></details><p class="muted small">Política contábil e limites desta demonstração precisam de aprovação própria para um piloto. Execução prospectiva está indisponível nesta versão.</p></section>
-    <footer><span>HEDGE-FUND-LAB / PREMIUM V5</span><span>Vender não implica comprar · Gemini: 0 chamadas · Ordens reais: 0</span></footer>
+    <footer><span>HEDGE-FUND-LAB / PREMIUM V6</span><span>Vender não implica comprar · Qualificação offline · Execução prospectiva indisponível</span></footer>
   </main>
 </body>
 </html>

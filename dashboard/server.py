@@ -25,6 +25,7 @@ import json
 import logging
 import re
 import socketserver
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -32,6 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import forward_api
 import forward_jobs
+import global_pm_api
 import h2_api
 import market_api
 import portfolio_api
@@ -92,6 +94,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._handle_radar()
         if self.path.startswith("/api/portfolio/"):
             return self._handle_portfolio()
+        if self.path.startswith("/api/global-pm/"):
+            return self._handle_global_pm()
         if self.path == "/api/logs":
             return self._handle_logs_sse()
         if self.path.startswith("/api/h2/"):
@@ -172,6 +176,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/portfolio.html",
             "/portfolio.css",
             "/portfolio.js",
+            "/global-pm.js",
+            "/global-pm.css",
             "/data.json",
             "/vendor/chart.umd.js",
         }
@@ -330,6 +336,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             )
         except (ValueError, KeyError, OSError, TypeError, ArithmeticError):
             return self._send_json({"error": "portfolio_integrity_or_query_failed"}, 400)
+
+    def _handle_global_pm(self):
+        url = urlsplit(self.path)
+        try:
+            query = parse_qs(url.query, keep_blank_values=True)
+            if any(len(v) != 1 for v in query.values()):
+                raise ValueError("invalid_query")
+            return self._send_json(
+                global_pm_api.get(
+                    url.path.removeprefix("/api/global-pm/"),
+                    {k: v[0] for k, v in query.items()},
+                )
+            )
+        except (ValueError, KeyError, OSError, TypeError, ArithmeticError, sqlite3.Error):
+            return self._send_json({"error": "global_pm_integrity_or_query_failed"}, 400)
 
     def _handle_radar(self, body=None):
         url = urlsplit(self.path)

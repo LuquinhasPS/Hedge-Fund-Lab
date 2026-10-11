@@ -32,6 +32,7 @@ data/runs/
 data/forward/
 data/radar/
 data/portfolio/
+data/global_pm/
 hedgefundlab.db
 
 # Dashboard data (generated)

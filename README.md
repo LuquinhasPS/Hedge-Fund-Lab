@@ -360,6 +360,11 @@ O dashboard possui duas abas principais:
 
 ## Qualidade de Código & Testes
 
+Premium V6: [AI Global Portfolio Manager consultivo](docs/HFL_PREMIUM_V6_GLOBAL_PM.md).
+Uma proposta coordenada, contrato Gemini próprio, Risk/validador V5 em memória,
+CallBank durável, preflight e exemplos A–F offline. Nenhuma chamada real ou
+execução prospectiva. [Evidências](docs/evidence/hfl_global_pm/).
+
 Premium V5: [Gestor Global Multiativos offline](docs/HFL_PREMIUM_V5_PORTFOLIO.md).
 Motor Decimal, carteira compartilhada sintética, risco por covariância, propostas
 validadas, aprovações de demonstração e nova área `/portfolio`. Sem Gemini ou
