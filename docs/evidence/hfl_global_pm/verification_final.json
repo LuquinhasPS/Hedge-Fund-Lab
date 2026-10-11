@@ -143,11 +143,19 @@
   "prospective_operations": 0,
   "portfolio_writes": 0,
   "push_performed": false,
-  "git_clean_identity_gate": "pending local commits",
+  "git_clean_identity_gate": {
+    "passed": true,
+    "manifest_sha256": "dc118ce9841df612d030f40e5993858eacc6d06e41eff173706fc3a72d3acb98",
+    "assessed_commit": "ad64764f9ed718cde4dfd8ecd6a4c83dc8386412",
+    "git_status_porcelain": "",
+    "checked_at": "2026-10-11T22:38:49.837056+00:00"
+  },
   "limitations": [
     "V5 limits are didactic fixtures, not pilot policy",
     "V5 synthetic-only calculation bridge is explicit and read-only",
     "FakeGlobalPortfolioManager qualifies contracts, not the real model",
     "Prospective execution unavailable; requires independent future phase"
-  ]
+  ],
+  "local_implementation_commit": "ad64764f9ed718cde4dfd8ecd6a4c83dc8386412",
+  "qualification_commit_note": "A follow-up local commit records this clean-tree verification; no code changes or push."
 }

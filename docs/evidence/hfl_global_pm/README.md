@@ -16,7 +16,8 @@ comandos futuros: [guia V6](../../HFL_PREMIUM_V6_GLOBAL_PM.md).
   aprovada. `git diff --check` aprovado.
 - **11.027 arquivos protegidos** conferidos por SHA-256: nenhuma alteração.
   Manifesto original e 73 fontes congeladas preservados. O gate com Git limpo
-  é registrado depois do commit de implementação.
+  passou após o commit local `ad64764` de implementação. Um segundo commit
+  local registra essa verificação; nenhum código foi alterado nessa etapa.
 - V5 preservada: 22 eventos, cadeia íntegra. A–E V6 válidos; F rejeitado por
   pesos somando 120%. Todas as propostas têm `portfolio_changed=false`.
 - Chrome: cenários A–F, venda/recebíveis, rotação condicionada, não operação,
