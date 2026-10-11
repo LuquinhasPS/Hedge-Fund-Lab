@@ -5,6 +5,11 @@
 [Arquitetura, contratos, política, limites e comandos](../../HFL_PREMIUM_V5_PORTFOLIO.md).
 Sem execução prospectiva, ordem real ou chamada real ao Gemini.
 
+Implementação registrada no commit local `f76eaa3`. Após esse commit, a checagem
+original `run_h2_v6_forward.identity(clean=True)` passou com árvore Git limpa,
+manifesto científico intacto e cadeia sintética de 22 eventos verificada.
+O commit seguinte registra essa qualificação; nenhum push foi realizado.
+
 | Evidência | Conteúdo |
 |---|---|
 | `verification.json` | Preservação dos 10.922 arquivos, manifesto original, carteira final, cadeia e SHA do arquivo ZIP |
