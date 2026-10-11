@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gestor de Carteira · Hedge-Fund-Lab Premium V5</title>
+  <link rel="stylesheet" href="/radar.css"><link rel="stylesheet" href="/portfolio.css">
+  <script src="/vendor/chart.umd.js" defer></script><script src="/portfolio.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Pular para o conteúdo</a>
+  <header>
+    <div class="topline"><a class="brand" href="/paper">HEDGE-FUND<span>LAB</span><small>PREMIUM V5 / GESTÃO GLOBAL MULTIATIVOS</small></a><span class="pill">DEMONSTRAÇÃO · OFFLINE</span></div>
+    <nav aria-label="Áreas do laboratório"><a href="/paper">Operação Paper</a><a href="/radar">Radar de Ativos</a><a href="/portfolio" aria-current="page">Gestor de Carteira</a><a href="/h2">Histórico H2 v6</a></nav>
+  </header>
+  <main id="main">
+    <div class="heading"><div><p class="eyebrow">01 / VISÃO DO PATRIMÔNIO</p><h1>Uma carteira.<br><span>Decisões coordenadas.</span></h1><p class="lead">Comprar, reduzir, rebalancear ou esperar. O caixa também faz parte da estratégia.</p></div><div class="identity"><span class="dot"></span> MOTOR DETERMINÍSTICO<small>HFL-MULTIASSET-PORTFOLIO-V1</small><small id="session">Carregando demonstração…</small></div></div>
+    <p class="notice">Todos os preços, pareceres, aprovações e operações desta área são sintéticos. Capital inicial: R$ 100.000 virtuais. Resultados contábeis ilustram o motor e não medem desempenho da IA.</p>
+    <div id="error" role="alert" hidden></div>
+    <div class="metrics"><article><span>PATRIMÔNIO CONSOLIDADO</span><strong id="equity">—</strong></article><article><span>CAIXA DISPONÍVEL</span><strong id="available">—</strong></article><article><span>CAIXA RESERVADO</span><strong id="reserved">—</strong></article><article><span>VALORES A RECEBER</span><strong id="receivable">—</strong></article></div>
+    <div class="overview">
+      <section class="card" aria-labelledby="wallet-title"><div class="section-head"><div><p class="eyebrow">02 / MINHA CARTEIRA</p><h2 id="wallet-title">Capital distribuído. Caixa preservado.</h2></div><span class="pill">BRL · PREÇOS BRUTOS</span></div><div class="wallet-grid"><div class="chart"><canvas id="wallet-chart" role="img" aria-label="Distribuição atual por ativo e caixa; valores na tabela ao lado"></canvas></div><div id="wallet-legend" class="legend"></div></div><div class="table-scroll" tabindex="0" role="region" aria-label="Posições, rolável horizontalmente"><table class="positions"><thead><tr><th>Ativo</th><th>Unidades / disponíveis</th><th>Custo médio</th><th>Marca bruta</th><th>Peso</th><th>PnL não realizado</th></tr></thead><tbody id="positions"></tbody></table></div></section>
+      <aside class="card risk-card" aria-labelledby="risk-title"><p class="eyebrow">03 / RISCO GLOBAL</p><h2 id="risk-title">A carteira inteira conta.</h2><div id="risk" class="risk-facts"></div><p class="muted small">Covariância amostral de 60 retornos ajustados alinhados, anualização de 252 sessões. Histórico ausente bloqueia a métrica; não vira risco zero. Setores só com fonte confiável.</p><div class="pnl" id="pnl"></div></aside>
+    </div>
+    <section class="card" aria-labelledby="opportunities-title"><div class="section-head"><div><p class="eyebrow">04 / PARECERES INDIVIDUAIS</p><h2 id="opportunities-title">Oportunidades disponíveis</h2></div><span class="muted small">Parecer favorável ≠ autorização de compra</span></div><div id="opportunities" class="opportunities"></div><p class="muted small">Pareceres sintéticos de comitês completos, com cinco votos por ativo. Nenhuma chamada ao Gemini. Confiança não define pesos; cada proposta vincula os pareceres e preços da sua própria sessão.</p></section>
+    <section class="card" aria-labelledby="plan-title"><div class="section-head"><div><p class="eyebrow">05 / LABORATÓRIO DE ALOCAÇÃO</p><h2 id="plan-title">Carteira atual → Carteira sugerida</h2></div><span class="pill">DEMO_RULE_BASED</span></div>
+      <div class="scenario-controls"><label for="scenario">Simular um movimento<select id="scenario"><option value="buy">Comprar usando caixa</option><option value="sell_cash">Vender uma posição e manter caixa</option><option value="partial">Vender parcialmente</option><option value="rebalance">Rebalancear</option><option value="hold">Não fazer nada</option><option value="rotation">Vender e esperar liquidação antes de comprar</option></select></label><button id="simulate" type="button">Simular cenário offline</button></div>
+      <p class="muted small">Simulações são cálculos em memória. Nenhuma ordem ou aprovação é criada ao consultar esta página.</p>
+      <div id="case-buttons" class="case-buttons" role="group" aria-label="Exemplos A a E persistidos"></div>
+      <div id="plan" aria-live="polite"><p class="muted">Selecione um cenário para explorar o plano.</p></div>
+    </section>
+    <section class="card" aria-labelledby="audit-title"><div class="section-head"><div><p class="eyebrow">06 / RASTREABILIDADE</p><h2 id="audit-title">Cada movimento deixa uma evidência.</h2></div><span id="integrity" class="pill">Verificando…</span></div><p class="muted small" id="audit-summary"></p><details><summary>Eventos, contratos e hashes</summary><pre id="audit"></pre></details><p class="muted small">Política contábil e limites desta demonstração precisam de aprovação própria para um piloto. Execução prospectiva está indisponível nesta versão.</p></section>
+    <footer><span>HEDGE-FUND-LAB / PREMIUM V5</span><span>Vender não implica comprar · Gemini: 0 chamadas · Ordens reais: 0</span></footer>
+  </main>
+</body>
+</html>

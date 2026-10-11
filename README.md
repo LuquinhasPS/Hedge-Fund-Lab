@@ -360,6 +360,11 @@ O dashboard possui duas abas principais:
 
 ## Qualidade de Código & Testes
 
+Premium V5: [Gestor Global Multiativos offline](docs/HFL_PREMIUM_V5_PORTFOLIO.md).
+Motor Decimal, carteira compartilhada sintética, risco por covariância, propostas
+validadas, aprovações de demonstração e nova área `/portfolio`. Sem Gemini ou
+execução prospectiva. [Evidências](docs/evidence/hfl_multiasset_portfolio/).
+
 Em 08/09/2026, a coleta leve da suíte encontrou **312 testes**. Esse número é
 uma fotografia do repositório, não uma garantia de que todos foram executados
 nesta reorganização documental.

@@ -34,6 +34,7 @@ import forward_api
 import forward_jobs
 import h2_api
 import market_api
+import portfolio_api
 import radar_api
 
 logger = logging.getLogger("hedgefund.dashboard")
@@ -89,6 +90,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._handle_forward()
         if self.path.startswith("/api/radar/"):
             return self._handle_radar()
+        if self.path.startswith("/api/portfolio/"):
+            return self._handle_portfolio()
         if self.path == "/api/logs":
             return self._handle_logs_sse()
         if self.path.startswith("/api/h2/"):
@@ -101,6 +104,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._serve_static("paper.html")
         if self.path in ("/radar", "/radar/"):
             return self._serve_static("radar.html")
+        if self.path in ("/portfolio", "/portfolio/"):
+            return self._serve_static("portfolio.html")
         if self._static_allowed():
             return super().do_GET()
         return self._send_json(None, 404)
@@ -138,6 +143,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "/radar",
                     "/radar/",
                     "/radar.html",
+                    "/portfolio",
+                    "/portfolio/",
+                    "/portfolio.html",
                     "/logs",
                     "/logs.html",
                     "/index.html",
@@ -161,6 +169,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/radar.html",
             "/radar.css",
             "/radar.js",
+            "/portfolio.html",
+            "/portfolio.css",
+            "/portfolio.js",
             "/data.json",
             "/vendor/chart.umd.js",
         }
@@ -304,6 +315,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._send_json(
                 {"error": code or "invalid_payload_or_local_state"}, 400
             )
+
+    def _handle_portfolio(self):
+        url = urlsplit(self.path)
+        try:
+            query = parse_qs(url.query, keep_blank_values=True)
+            if any(len(v) != 1 for v in query.values()):
+                raise ValueError("invalid_query")
+            return self._send_json(
+                portfolio_api.get(
+                    url.path.removeprefix("/api/portfolio/"),
+                    {k: v[0] for k, v in query.items()},
+                )
+            )
+        except (ValueError, KeyError, OSError, TypeError, ArithmeticError):
+            return self._send_json({"error": "portfolio_integrity_or_query_failed"}, 400)
 
     def _handle_radar(self, body=None):
         url = urlsplit(self.path)
