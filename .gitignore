@@ -30,6 +30,7 @@ data/cache/
 data/snapshots/
 data/runs/
 data/forward/
+data/radar/
 hedgefundlab.db
 
 # Dashboard data (generated)

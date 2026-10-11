@@ -34,6 +34,7 @@ import forward_api
 import forward_jobs
 import h2_api
 import market_api
+import radar_api
 
 logger = logging.getLogger("hedgefund.dashboard")
 
@@ -86,6 +87,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._send_json({"error": "local_origin_required"}, 403)
         if self.path.startswith("/api/forward/"):
             return self._handle_forward()
+        if self.path.startswith("/api/radar/"):
+            return self._handle_radar()
         if self.path == "/api/logs":
             return self._handle_logs_sse()
         if self.path.startswith("/api/h2/"):
@@ -96,6 +99,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._serve_static("h2.html")
         if self.path in ("/paper", "/paper/"):
             return self._serve_static("paper.html")
+        if self.path in ("/radar", "/radar/"):
+            return self._serve_static("radar.html")
         if self._static_allowed():
             return super().do_GET()
         return self._send_json(None, 404)
@@ -130,6 +135,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "/paper",
                     "/paper/",
                     "/paper.html",
+                    "/radar",
+                    "/radar/",
+                    "/radar.html",
                     "/logs",
                     "/logs.html",
                     "/index.html",
@@ -150,6 +158,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/h2.js",
             "/paper.js",
             "/paper.css",
+            "/radar.html",
+            "/radar.css",
+            "/radar.js",
             "/data.json",
             "/vendor/chart.umd.js",
         }
@@ -226,6 +237,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         ):
             return self._send_json({"error": "invalid_csrf"}, 403)
         url = urlsplit(self.path)
+        if url.path.startswith("/api/radar/"):
+            return self._handle_radar(body)
         command = url.path.removeprefix("/api/forward/")
         if (
             url.query
@@ -291,6 +304,51 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._send_json(
                 {"error": code or "invalid_payload_or_local_state"}, 400
             )
+
+    def _handle_radar(self, body=None):
+        url = urlsplit(self.path)
+        command = url.path.removeprefix("/api/radar/")
+        try:
+            if self.command == "GET":
+                query = parse_qs(url.query, keep_blank_values=True)
+                if any(len(v) != 1 for v in query.values()):
+                    raise ValueError("invalid_query")
+                return self._send_json(
+                    radar_api.get(
+                        command,
+                        {k: v[0] for k, v in query.items()},
+                        forward_jobs.JOBS.csrf,
+                    )
+                )
+            if (
+                url.query
+                or body is None
+                or len(body) > 4096
+                or self.headers.get("Content-Type") != "application/json"
+            ):
+                raise ValueError("invalid_payload")
+
+            def unique(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError("duplicate_key")
+                    result[key] = value
+                return result
+
+            payload = json.loads(
+                body,
+                object_pairs_hook=unique,
+                parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
+            )
+            return self._send_json(radar_api.post(command, payload))
+        except (ValueError, TypeError, OSError, KeyError) as exc:
+            code = (
+                str(exc)
+                if re.fullmatch(r"[a-z_0-9]+", str(exc))
+                else "invalid_radar_state_or_payload"
+            )
+            return self._send_json({"error": code}, 400)
 
     def _handle_h2(self) -> None:
         """Read-only H2 v6 API; every parameter is checked against a fixed set."""

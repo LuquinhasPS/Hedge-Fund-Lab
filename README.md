@@ -2,6 +2,10 @@
 
 Laboratório Quantitativo de Backtesting baseado em Sistemas Multiagentes.
 
+**Premium V4:** [Radar multiativos consultivo](docs/HFL_PREMIUM_V4_RADAR.md)
+em `/radar`, com até cinco ações, preparação, preflight e auditoria isolados.
+[Projeto do gestor global](docs/HFL_MULTIASSET_PORTFOLIO_DESIGN.md).
+
 > **Estado do projeto:** protótipo técnico em evolução. O pipeline, cinco
 > benchmarks clássicos, dashboard e uma primeira estratégia LLM de três estágios
 > existem. Um runner diário persistente e um calendário B3 local também já
