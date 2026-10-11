@@ -59,6 +59,8 @@ threads HTTP. Há um único lock de operações compartilhado entre processos.
 | GET | `/api/forward/decision?session=YYYY-MM-DD` | Projeção do trace/decisão e execução observada |
 | GET | `/api/forward/portfolios` | Ledgers prospectivos, composição e comparação compatível |
 | GET | `/api/forward/agents` | Catálogo de 32 posições e observabilidade dos agentes ([Premium UI v1](H2_V6_PREMIUM_UI.md)) |
+| GET | `/api/forward/supervision` | Carteira supervisionada, propostas e auditoria ([Premium V2](H2_V6_PREMIUM_V2.md)) |
+| POST | `/api/forward/supervision/{approve,reject,cancel,sync}` | Ação humana write-once ou sincronização gratuita; nunca chama o Gemini |
 | GET | `/api/forward/status?job=<32 hex>` | Job persistido, progresso observado e CSRF desta instância |
 | POST | `/api/forward/prepare` | `prepare` original; payload `{}` |
 | POST | `/api/forward/preflight` | `preflight` original offline; payload `{}` |
