@@ -25,8 +25,17 @@ const STATES = {AGUARDANDO_APROVACAO:["Aguardando aprovação","warn"],APROVADA:
 const stateChip = (v) => `<span class="chip sig-${STATES[v]?.[1] || "none"}" title="${esc(v)}">${esc(STATES[v]?.[0] || v)}</span>`;
 const LIMITS = {max_buy_price:["Preço máximo de compra (R$)",0.01],min_sell_price:["Preço mínimo de venda (R$)",0.01],max_gap_up:["Gap de alta máximo (%)",0.1],max_gap_down:["Gap de baixa máximo (%)",0.1],max_concentration:["Concentração máxima (%)",1],max_volatility:["Volatilidade máxima (%)",0.1]};
 const PRICE_LIMITS = ["max_buy_price","min_sell_price"];
+const LIMIT_HELP = {
+  max_buy_price:["Preço bruto máximo por ação na abertura. Acima dele, a compra é bloqueada.","Ex.: 56 = até R$ 56,00 por ação."],
+  min_sell_price:["Preço bruto mínimo por ação na abertura. Abaixo dele, a venda é bloqueada.","Ex.: 55 = a partir de R$ 55,00 por ação."],
+  max_gap_up:["Alta máxima da abertura contra o fechamento bruto de referência. Uma alta maior bloqueia a operação.","Ex.: 2 = alta de até 2%."],
+  max_gap_down:["Queda máxima da abertura contra a referência. Uma queda maior também bloqueia a compra, mesmo com preço mais barato.","Ex.: 2 = queda de até 2%."],
+  max_concentration:["Peso máximo de PETR4 no patrimônio logo após a compra e os custos. Se já estiver no limite, não compra.","Ex.: 5 = 5%, cerca de R$ 5.000 em uma carteira de R$ 100.000; não é 50%."],
+  max_volatility:["Volatilidade anualizada gravada pelo Risk Manager. Acima do máximo, ou sem esse dado, a operação é bloqueada.","Ex.: 40 = até 40% ao ano; não é a oscilação de hoje."]
+};
 const ROLE = {SUPPORTS_COMPRA:["Suporte à COMPRA","buy"],SUPPORTS_VENDA:["Suporte à VENDA","sell"],CAUTION:["Cautela","warn"],NEUTRAL:["Neutro","hold"]};
 let supervisionView = null, pendingAction = null, wallets = [], latest = null, agentsData = null, records = [], selectedAgent = "TA-01", visible = null, charts = {}, decisionVersion = 0, refreshVersion = 0;
+let scenarioTimer, scenarioController, marketController;
 
 async function api(path, options) {
   const r = await fetch(`/api/forward/${path}`, {cache:"no-store",...options});
@@ -41,12 +50,13 @@ function error(e) {
 }
 
 /* ── Navegação ─────────────────────────────────────────────── */
-const VIEWS = ["visao","sala","carteiras","agentes"], LEGACY = {room:"sala",wallets:"carteiras"};
+const VIEWS = ["visao","sala","mercado","carteiras","agentes"], LEGACY = {room:"sala",wallets:"carteiras"};
 function route() {
   const hash = (typeof location === "undefined" ? "" : location.hash).slice(1);
   const view = VIEWS.includes(hash) ? hash : LEGACY[hash] || "visao";
   document.querySelectorAll("[data-view]").forEach(s => s.hidden = s.id !== view);
   document.querySelectorAll("[data-tab]").forEach(a => a.dataset.tab === view ? a.setAttribute("aria-current","page") : a.removeAttribute("aria-current"));
+  if (view === "mercado") loadMarket();
 }
 
 /* ── Gráfico de patrimônio: 0, 1 ou 2+ observações ─────────── */
@@ -199,43 +209,89 @@ function renderSupervision(d) {
       <li><small>Status da ordem</small><div>${stateChip(p.order_state)}</div></li>
       <li><small>Resultado da reconciliação</small><div>${o ? `${esc(o.reason)}${o.prices ? `<br/><span class="muted small">Abertura bruta ${money(o.prices.raw_open)} (${esc(o.prices.raw_source)}) · ajustada ${money(o.prices.adjusted_open)} · gap bruto ${pct(o.prices.raw_gap)}</span>` : ""}` : "Ainda não reconciliada"}</div></li>
     </ol>
-    ${open ? limitsForm(p, s) : ""}
+    ${["COMPRA","VENDA"].includes(p.direction) && p.recommended_target != null ? limitsForm(p, s, open) : ""}
     ${["APROVADA","AJUSTADA_CONCENTRACAO"].includes(p.order_state) && new Date(s.now) < new Date(p.deadline) ? '<div class="row"><button type="button" data-action="cancel">Cancelar aprovação</button><span class="muted small">Registra um evento de cancelamento; a aprovação original permanece.</span></div>' : ""}
     <p class="muted small">${s.audit.ok ? `Cadeia de auditoria íntegra · ${s.audit.events} eventos` : `<span class="bad">Auditoria com divergências: ${esc(s.audit.errors.join("; "))}</span>`}</p></article>`;
-  if (open) preview();
+  preview(false);
 }
-function limitsForm(p, s) {
+function limitsForm(p, s, open) {
   const fields = Object.entries(s.limits_schema).filter(([, v]) => !v.direction || v.direction === p.direction);
-  return `<form id="sup-form" class="limits" novalidate><h3>Limites opcionais</h3><div class="limit-grid">${fields.map(([k]) => `<label>${esc(LIMITS[k][0])}<input type="number" data-limit="${esc(k)}" min="0" step="${LIMITS[k][1]}" inputmode="decimal" /></label>`).join("")}</div>
-    <p id="sup-preview" class="preview" role="status"></p>
-    <div class="row"><button type="button" class="primary" data-action="approve">APROVAR RECOMENDAÇÃO</button><button type="button" data-action="reject">REJEITAR RECOMENDAÇÃO</button></div></form>`;
+  return `<form id="sup-form" class="limits" novalidate><div class="card-head"><h3>Limites e cenários de abertura</h3>${chip("HIPOTÉTICO · SEM GRAVAÇÃO","sig-warn")}</div>
+    <p class="muted">Campos vazios não acrescentam restrições. Testar cenários é independente da aprovação real.${!open ? " Os limites abaixo são uma cópia para testes; não editam a ação já registrada." : " A aprovação exige a confirmação humana ao final."}</p>
+    <div class="limit-grid">${fields.map(([k]) => `<label for="limit-${k}">${esc(LIMITS[k][0])}<input id="limit-${k}" type="number" data-limit="${k}" min="0" max="${PRICE_LIMITS.includes(k) ? s.limits_schema[k].max : s.limits_schema[k].max * 100}" step="${LIMITS[k][1]}" value="${p.approval?.limits?.[k] == null ? "" : p.approval.limits[k] * (PRICE_LIMITS.includes(k) ? 1 : 100)}" inputmode="decimal" aria-describedby="help-${k}" /><span id="help-${k}" class="limit-help">${esc(LIMIT_HELP[k][0])}<small>${esc(LIMIT_HELP[k][1])}</small></span><span id="applied-${k}" class="applied">Aplicado: ${p.approval?.limits?.[k] == null ? "sem limite adicional" : PRICE_LIMITS.includes(k) ? money(p.approval.limits[k]) : pct(p.approval.limits[k])}</span></label>`).join("")}</div>
+    <div id="sup-preview" class="preview" role="status"></div>
+    <div class="scenario-entry"><label for="hypothetical-open">Abertura hipotética bruta (R$ por ação)<input id="hypothetical-open" type="number" min="0.01" max="1000000" step="0.01" inputmode="decimal" placeholder="${esc(p.raw_close)}" /></label><button type="button" id="simulate-opening">Testar abertura · grátis</button></div>
+    <div id="scenario-result" aria-live="polite"></div>
+    <p class="muted small">Nenhuma chamada LLM, aprovação ou ordem é criada pelo simulador. Os limites usam preços brutos; os valores financeiros usam a base ajustada do ledger.</p>
+    ${open ? '<div class="row"><button type="button" class="primary" data-action="approve">APROVAR RECOMENDAÇÃO</button><button type="button" data-action="reject">REJEITAR RECOMENDAÇÃO</button></div>' : ""}</form>`;
 }
 function readLimits() {
   const limits = {};
   for (const input of document.querySelectorAll("#sup-form [data-limit]")) {
     if (input.value === "") continue;
     const key = input.dataset.limit, value = Number(input.value);
+    if (input.max && value > Number(input.max)) return {error:`${LIMITS[key][0]}: máximo permitido ${input.max}.`};
     if (!Number.isFinite(value) || value <= 0) return {error:`${LIMITS[key][0]}: informe um número positivo.`};
     limits[key] = PRICE_LIMITS.includes(key) ? value : value / 100;
   }
   return {limits};
 }
-function preview() {
-  const box = $("sup-preview"), p = supervisionView?.selected;
-  if (!box || !p) return;
-  const {limits: L, error: problem} = readLimits();
-  if (problem) { box.innerHTML = `<span class="warn">${esc(problem)}</span>`; return; }
-  const close = p.raw_close, lines = [];
-  if (L.max_buy_price) lines.push(`Compra só se a abertura bruta for ≤ ${money(L.max_buy_price)} (${signed(L.max_buy_price / close - 1, pct)} sobre o fechamento bruto ${money(close)}).`);
-  if (L.min_sell_price) lines.push(`Venda só se a abertura bruta for ≥ ${money(L.min_sell_price)} (${signed(L.min_sell_price / close - 1, pct)} sobre o fechamento bruto ${money(close)}).`);
-  if (L.max_gap_up || L.max_gap_down) lines.push(`Executa só com abertura bruta entre ${L.max_gap_down ? money(close * (1 - L.max_gap_down)) : "sem piso"} e ${L.max_gap_up ? money(close * (1 + L.max_gap_up)) : "sem teto"}.`);
-  if (L.max_concentration) {
-    const target = Math.min(L.max_concentration, p.recommended_target);
-    lines.push(target >= p.recommended_target ? "Concentração acima do alvo recomendado: sem efeito." : p.weight_at_close >= target ? `Exposição já atinge ${pct(target)}: nenhuma ordem.` : `Alvo ajustado para ${pct(target)}; estimativa ao fechamento ≈ ${money((target - p.weight_at_close) * supervisionView.position.equity)} em PETR4. A quantidade real depende da abertura.`);
+function preview(query=true) {
+  const box = $("sup-preview");
+  if (!box || !supervisionView?.selected) return;
+  const {limits, error: problem} = readLimits();
+  box.innerHTML = problem ? `<span class="bad">${esc(problem)}</span>` : '<span class="muted">Preencha os limites para consultar a faixa permitida. Valores em %: digite 5 para aplicar 5%.</span>';
+  if (!query) return;
+  clearTimeout(scenarioTimer); scenarioController?.abort();
+  $("scenario-result").innerHTML = "";
+  if (!problem) scenarioTimer = setTimeout(() => evaluateScenario(null), 300);
+}
+function openingBand(band) {
+  const lo = band.lower > 0 ? money(band.lower) : "Sem piso adicional", hi = band.upper == null ? "Sem teto adicional" : money(band.upper);
+  return `<div class="opening-band ${band.empty ? "blocked" : ""}" role="img" aria-label="${esc(band.empty ? "Faixa vazia, limites contraditórios" : `Faixa inclusiva: ${lo} a ${hi}`)}"><span>${band.empty ? "Nenhum preço permitido" : "Faixa bruta permitida · extremos inclusivos"}</span><div class="band-line"></div><div class="band-ends"><strong>${lo}</strong><strong>${hi}</strong></div></div>`;
+}
+function renderScenario(r, previewOnly) {
+  const box = $("sup-preview");
+  box.innerHTML = openingBand(r.band) + (r.band.redundant_gap_up ? '<span>O preço máximo de compra já é mais restritivo: o gap de alta é redundante nesta combinação.</span>' : "") + (r.limits.max_gap_down ? '<span>O gap de baixa também bloqueia preços mais baratos quando a queda supera o limite.</span>' : "") + (r.limits.max_concentration ? `<span>Concentração aplicada: ${pct(r.limits.max_concentration)}. Valor máximo aproximado ao fechamento: ${money(r.concentration_amount_at_mark)}, sobre ${money(r.current_position.equity)}. A compra adicional desconta a posição existente e os custos.</span>` : "") + `<span class="muted">${esc(r.pre_open_effect?.reason || r.reason)}</span>`;
+  for (const key of Object.keys(LIMITS)) {
+    const field = $("applied-" + key);
+    if (field) field.textContent = r.limits[key] == null ? "Aplicado: sem limite adicional" : `Aplicado: ${PRICE_LIMITS.includes(key) ? money(r.limits[key]) : pct(r.limits[key])}`;
   }
-  if (L.max_volatility) lines.push(p.recent_volatility == null || p.recent_volatility > L.max_volatility ? `Volatilidade registrada ${pct(p.recent_volatility)} acima do limite: a aprovação ficaria bloqueada.` : `Volatilidade registrada ${pct(p.recent_volatility)} dentro do limite.`);
-  if (!lines.length) lines.push("Sem limites adicionais: executa na abertura oficial seguinte pela convenção da H2 v6.");
-  box.innerHTML = lines.map(t => `<span>${esc(t)}</span>`).join("") + '<span class="muted">Prévia informativa: o preço de abertura ainda não é conhecido e nada aqui é uma execução.</span>';
+  if (previewOnly) return;
+  const e = r.estimate || {};
+  $("scenario-result").innerHTML = `<article class="scenario-output"><div class="card-head"><h3>Cenário hipotético · ${esc(r.direction)}</h3>${chip(r.allowed ? "PERMITIDA NO CENÁRIO" : "BLOQUEADA NO CENÁRIO",r.allowed ? "sig-buy" : "sig-sell")}</div><p>${esc(r.reason)}</p>
+    <div class="pair">${facts([["Fechamento bruto de referência",money(r.reference)],["Abertura hipotética bruta",money(r.hypothetical_open)],["Gap hipotético",signed(r.gap,pct)],["Exposição-alvo",pct(r.target_weight)],["Valor estimado da ordem",money(e.order_value)],["Quantidade fracionária estimada",num(e.quantity)]])}${facts([["Custos estimados",money(e.cost)],["Caixa após o cenário",money(e.cash_after)],["Patrimônio na abertura após custos",money(e.equity_after)],["Concentração após custos",pct(e.concentration_after_costs,6)],["Preço ajustado estimado",money(e.adjusted_open)],["Fator ajustado / bruto conhecido",num(e.adjustment_factor)]])}</div>
+    ${r.band.checks.length ? table(["Condição","Valor aplicado","Estado"],r.band.checks.map(c=>[esc(LIMITS[c.key]?.[0] || c.key),PRICE_LIMITS.includes(c.key) ? money(c.limit) : pct(c.limit),chip(c.passed === true ? "Dentro do limite" : c.passed === false ? "Fora do limite" : "Dados insuficientes",c.passed === true ? "sig-buy" : c.passed === false ? "sig-sell" : "sig-warn")])) : '<p class="muted">Sem limites adicionais.</p>'}
+    <p class="muted small">${esc(r.assumption)}</p><small>${esc(e.source || "Valores financeiros indisponíveis para este cenário.")}</small></article>`;
+}
+async function evaluateScenario(price) {
+  const p = supervisionView?.selected, version = decisionVersion;
+  const {limits, error: problem} = readLimits();
+  if (!p || problem) { preview(false); return; }
+  if (!csrf) { $("sup-preview").textContent = "Aguardando conexão local para consultar o cenário."; return; }
+  scenarioController?.abort(); scenarioController = new AbortController();
+  const controller = scenarioController;
+  if (price !== null) $("scenario-result").innerHTML = '<p class="muted">Calculando cenário hipotético…</p>';
+  try {
+    const r = await api("scenario", {method:"POST", signal:controller.signal, headers:{"Content-Type":"application/json","X-CSRF-Token":csrf}, body:JSON.stringify({decision_session:p.decision_session,decision_sha256:p.decision_sha256,limits,hypothetical_open:price})});
+    if (controller.signal.aborted || version !== decisionVersion) return;
+    renderScenario(r, price === null);
+  } catch(e) { if (e.name !== "AbortError" && version === decisionVersion) $("sup-preview").innerHTML = `<span class="bad">Cenário indisponível: ${esc(e.message)}</span>`; }
+}
+async function loadMarket() {
+  marketController?.abort(); marketController = new AbortController();
+  const controller = marketController;
+  $("market-content").innerHTML = '<p class="state">Consultando registros locais…</p>';
+  try {
+    const m = await api("market", {signal:controller.signal});
+    if (controller.signal.aborted) return;
+    const c = m.official_close || {}, q = m.intraday || {}, i = m.indicators || {};
+    const classification = {realtime_verified:"Tempo real comprovado",delayed:"Atrasada",official_close:"Fechamento oficial",unknown:"Desconhecida"};
+    $("market-content").innerHTML = `<div class="market-grid"><article class="card"><div class="card-head"><h2>${esc(m.ticker)} · fechamento de referência</h2>${chip("FECHAMENTO OFICIAL","sig-hold")}</div><p class="market-price">${money(c.price)}</p>${facts([["Sessão do fechamento",day(c.session)],["Procedência",esc(c.source)],["Coleta registrada",stamp(c.timestamp)],["Próxima abertura prevista",stamp(m.session.expected_open)],["Próxima sessão B3",day(m.session.next_session)],["Sessão pelo relógio",chip(m.session.state,"sig-warn")]])}<p class="muted small">${esc(c.timestamp_basis || m.data_issue)}</p><p class="muted small">${esc(m.session.basis)}</p>${c.stale ? '<p class="warn">Fechamento local desatualizado para a última sessão encerrada.</p>' : ""}</article>
+    <article class="card"><div class="card-head"><h2>Cotação intradiária</h2>${chip(classification[q.classification],"sig-warn")}</div>${q.price == null ? empty("Cotação intradiária indisponível","O fechamento histórico ao lado não é uma cotação em tempo real.") : `<p class="market-price">${money(q.price)}</p>${facts([["Timestamp do provider",stamp(q.timestamp)],["Variação contra fechamento",signed(q.change_vs_close,pct)]])}`}${facts([["Fonte",esc(q.source)],["Atualização",esc(classification[q.classification])],["Consulta local",stamp(m.as_of)]])}${q.stale ? '<p class="warn">Informação desatualizada.</p>' : ""}<p class="muted">${esc(m.refresh)}</p><p class="muted small">Uma cotação atrasada não identifica o preço oficial do leilão nem confirma execução.</p></article></div>
+    <article class="card"><div class="card-head"><h2>Condições aprovadas</h2>${chip("SOMENTE INFORMATIVO","sig-warn")}</div>${m.approved_conditions.length ? m.approved_conditions.map(p=>`<h3>${esc(p.direction)} · abertura-alvo ${day(p.target_session)} ${chip(p.state,p.state === "Fora do limite" ? "sig-sell" : "sig-warn")}</h3>${openingBand(p.band)}${table(["Limite aprovado","Valor","Cotação observada"],p.band.checks.map(c=>[esc(LIMITS[c.key]?.[0]),PRICE_LIMITS.includes(c.key) ? money(c.limit) : pct(c.limit),c.passed === true ? "Dentro do limite" : c.passed === false ? "Fora do limite" : "Dados insuficientes"]))}<p class="muted small">${esc(p.note)}</p>`).join("") : empty("Nenhuma condição aprovada ativa","A primeira recomendação continua dependendo da decisão humana na Sala de Decisão.")}<p class="muted">${esc(m.execution_authority)}</p>${m.audit && !m.audit.ok ? '<p class="bad">Auditoria com divergências; não use estes registros para decidir.</p>' : ""}</article>
+    <article class="card"><div class="card-head"><h2>Indicadores do fechamento</h2>${chip("HISTÓRICO · BASE AJUSTADA","sig-hold")}</div>${facts([["Sessão de referência",day(i.session)],["SMA50 · R$ ajustados",money(i.sma50)],["SMA200 · R$ ajustados",money(i.sma200)],["RSI14 · pontos de 0 a 100",num(i.rsi,2)],["MACD 12/26 · R$ ajustados",num(i.macd,4)],["Sinal MACD9 · R$ ajustados",num(i.macd_signal,4)],["Volatilidade anualizada gravada",pct(i.volatility)]])}<p class="muted small provenance">${esc(i.source || m.data_issue)}</p><p class="muted small">Indicadores derivados da série congelada; não são recalculados com cotações intradiárias.</p></article>`;
+  } catch(e) { if (e.name !== "AbortError") $("market-content").innerHTML = empty("Mercado indisponível",esc(e.message)); }
 }
 function askSupervision(action) {
   const p = supervisionView?.selected;
@@ -273,6 +329,7 @@ function renderHistory() {
   $("history").innerHTML = records.length ? table(["Sessão","Estado","COMPRA / VENDA / MANTER","Sinal técnico","Decisão final","Alvo",""], records.slice().reverse().map(r=>[day(r.session),chip(r.status),r.vote_counts ? `${r.vote_counts.COMPRA ?? 0} / ${r.vote_counts.VENDA ?? 0} / ${r.vote_counts.MANTER ?? 0}` : ND,signal(r.technical_outcome),signal(r.final_decision),pct(r.target_weight),r.has_decision ? `<button data-session="${esc(r.session)}">Abrir</button>` : ""])) : empty("Nenhuma deliberação registrada");
 }
 async function loadDecision(session="") {
+  scenarioController?.abort(); clearTimeout(scenarioTimer);
   const version = ++decisionVersion;
   const query = session ? `?session=${encodeURIComponent(session)}` : "";
   try {
@@ -380,8 +437,21 @@ $("overview-series").addEventListener("change", (e) => { const k = e.target.data
 $("catalog").addEventListener("click", (e) => { const id = e.target.closest?.("[data-agent]")?.dataset.agent; if (id) { selectedAgent = id; renderAgents(); } });
 $("sim-form").addEventListener("input", simulate);
 $("sim-form").addEventListener("submit", (e) => e.preventDefault());
-$("decision").addEventListener("click", (e) => { const action = e.target.dataset?.action; if (action) askSupervision(action); });
-$("decision").addEventListener("input", (e) => { if (e.target.dataset?.limit) preview(); });
+$("decision").addEventListener("click", (e) => {
+  const action = e.target.dataset?.action;
+  if (action) askSupervision(action);
+  if (e.target.id === "simulate-opening") {
+    clearTimeout(scenarioTimer);
+    const input = $("hypothetical-open"), value = Number(input.value);
+    if (!input.value || !Number.isFinite(value) || value <= 0 || value > 1000000) {
+      $("scenario-result").innerHTML = '<p class="bad">Informe um preço hipotético positivo, até R$ 1.000.000.</p>'; return;
+    }
+    evaluateScenario(value);
+  }
+});
+$("decision").addEventListener("submit", e => e.preventDefault());
+$("market-refresh").addEventListener("click", loadMarket);
+$("decision").addEventListener("input", (e) => { if (e.target.dataset?.limit) preview(); if (e.target.id === "hypothetical-open") { clearTimeout(scenarioTimer); scenarioController?.abort(); $("scenario-result").innerHTML = ""; } });
 $("sup-accept").addEventListener("change", () => $("sup-submit").disabled = !$("sup-accept").checked);
 $("sup-dismiss").addEventListener("click", () => { pendingAction = null; $("sup-dialog").close(); });
 $("sup-submit").addEventListener("click", confirmSupervision);

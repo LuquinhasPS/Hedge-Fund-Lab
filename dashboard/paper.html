@@ -16,6 +16,7 @@
     <nav class="tabs" aria-label="Áreas da operação">
       <a href="#visao" data-tab="visao">Visão Geral</a>
       <a href="#sala" data-tab="sala">Sala de Decisão</a>
+      <a href="#mercado" data-tab="mercado">Mercado</a>
       <a href="#carteiras" data-tab="carteiras">Carteiras</a>
       <a href="#agentes" data-tab="agentes">Agentes</a>
     </nav>
@@ -43,6 +44,13 @@
         <div class="row"><button id="prepare">1. Atualizar dados</button><button id="preflight">2. Preflight</button><button id="execute" class="primary" disabled>3. Confirmar e executar agentes</button><button id="benchmarks">Sincronizar SMA e Bollinger · grátis</button><button id="supervised-sync">Sincronizar carteira supervisionada · grátis</button></div>
         <div id="job" aria-live="polite"></div><div id="preflight-report"></div>
       </div>
+    </section>
+
+    <section id="mercado" data-view aria-labelledby="mercado-title" hidden>
+      <div class="section-head"><div><p class="eyebrow">PREÇOS OBSERVADOS · MONITORAMENTO INFORMATIVO</p><h1 id="mercado-title">Mercado</h1></div><button id="market-refresh">Consultar mercado</button></div>
+      <p class="lead">Acompanhe PETR4 e os limites aprovados. Cotações e cenários não confirmam execução: somente a reconciliação oficial registra resultados na carteira virtual.</p>
+      <div id="market-content" aria-live="polite"><p class="state">Abra esta área para consultar os registros locais.</p></div>
+      <div class="row"><a href="#sala">Testar cenário na Sala de Decisão →</a><a href="#carteiras">Consultar carteiras →</a></div>
     </section>
 
     <section id="carteiras" data-view aria-labelledby="carteiras-title" hidden>

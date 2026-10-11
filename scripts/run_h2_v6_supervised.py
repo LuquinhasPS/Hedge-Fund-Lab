@@ -561,6 +561,140 @@ def prices(proposal, bars, forward_root, latest):
     return result, None
 
 
+def opening_conditions(proposal, limits, raw_open=None):
+    """Pure raw-price intersection and checks, shared with informational views."""
+    reference = proposal.get("raw_close")
+    low, high, checks = 0.0, None, []
+    bounds = {
+        "max_gap_up": reference * (1 + limits["max_gap_up"])
+        if reference and "max_gap_up" in limits
+        else None,
+        "max_gap_down": reference * (1 - limits["max_gap_down"])
+        if reference and "max_gap_down" in limits
+        else None,
+        "max_buy_price": limits.get("max_buy_price"),
+        "min_sell_price": limits.get("min_sell_price"),
+    }
+    for key in ("max_gap_up", "max_gap_down", "max_buy_price", "min_sell_price"):
+        if key not in limits:
+            continue
+        bound = bounds[key]
+        upper = key in ("max_gap_up", "max_buy_price")
+        if bound is not None:
+            if upper:
+                high = min(high, bound) if high is not None else bound
+            else:
+                low = max(low, bound)
+        # Inclusive bounds: a ratio like 54.88 / 56 - 1 can round below -2%.
+        passed = (
+            None
+            if raw_open is None or bound is None
+            else (raw_open <= bound if upper else raw_open >= bound)
+            or math.isclose(raw_open, bound, rel_tol=1e-12, abs_tol=1e-12)
+        )
+        checks.append(
+            {
+                "key": key,
+                "limit": limits[key],
+                "raw_bound": bound,
+                "observed": raw_open,
+                "passed": passed,
+            }
+        )
+    if "max_volatility" in limits:
+        observed = proposal.get("recent_volatility")
+        checks.append(
+            {
+                "key": "max_volatility",
+                "limit": limits["max_volatility"],
+                "observed": observed,
+                "passed": observed is not None and observed <= limits["max_volatility"],
+            }
+        )
+    return {
+        "lower": low,
+        "upper": high,
+        "inclusive": True,
+        "empty": high is not None and (high < low or high <= 0),
+        "redundant_gap_up": bounds["max_buy_price"] is not None
+        and bounds["max_gap_up"] is not None
+        and bounds["max_buy_price"] <= bounds["max_gap_up"],
+        "checks": checks,
+    }
+
+
+def evaluate_opening(state, proposal, limits, target, found, bars, latest):
+    """Pure dry run. Only resolve may install the returned pending order."""
+    gap, raw_open = found["raw_gap"], found["raw_open"]
+    conditions = opening_conditions(proposal, limits, raw_open)
+    for check in conditions["checks"]:
+        key = check["key"]
+        if check["passed"] is False and key in ("max_gap_up", "max_gap_down"):
+            name = "alta" if key == "max_gap_up" else "baixa"
+            return (
+                {
+                    "state": "NAO_EXECUTADA_GAP",
+                    "reason": f"Gap de {name} {abs(gap):.2%} acima do limite {limits[key]:.2%}.",
+                },
+                None,
+                None,
+            )
+    pending = {
+        "decision_session": proposal["decision_session"],
+        "target_session": proposal["target_session"],
+        "target_weight": target,
+    }
+    if proposal["direction"] == "COMPRA" and "max_concentration" in limits:
+        # ponytail: closed-form sizing for this frozen single-asset proportional
+        # cost model; nonlinear costs would require solving against _settle.
+        ratio = state["mark"]["close"] / float(
+            bars.at[fwd._timestamp(state["mark"]["session"]), "fechamento"]
+        )
+        invested = state["portfolio"]["units"] * ratio * found["adjusted_open"]
+        equity = state["portfolio"]["cash"] + invested
+        rate = fwd.BASE_COSTS.build().apply_buy(1.0)
+        pending["target_weight"] = (
+            target * (1 + rate * invested / equity) / (1 + target * rate)
+        )
+    dry = copy.deepcopy(state)
+    dry["pending"] = pending
+    trades = fwd.reconcile(dry, bars, fwd._timestamp(latest))[0]["trades"]
+    side = SIDE[proposal["direction"]]
+    if not trades or any(t["type"] != side for t in trades):
+        return (
+            {
+                "state": "SEM_ORDEM_NECESSARIA",
+                "reason": "A abertura não exigiu operação na direção aprovada.",
+            },
+            None,
+            None,
+        )
+    for check in conditions["checks"]:
+        if check["passed"] is False and check["key"] in (
+            "max_buy_price",
+            "min_sell_price",
+        ):
+            return (
+                {
+                    "state": "NAO_EXECUTADA_LIMITE_PRECO",
+                    "reason": f"Abertura bruta R$ {raw_open:.2f} viola o limite de preço R$ {check['limit']:.2f}.",
+                },
+                None,
+                None,
+            )
+    return (
+        {
+            "state": "EXECUTADA",
+            "target_weight": target,
+            "settlement_target_weight": pending["target_weight"],
+            "reason": "Execução virtual confirmada pela abertura oficial reconciliada.",
+            "trades": trades,
+        },
+        pending,
+        dry,
+    )
+
+
 def resolve(state, session, bars, latest, root, forward_root, at):
     """Decide se a proposta de S executa na abertura de T; nunca liquida aqui."""
     proposal = state["proposals"][session]
@@ -589,68 +723,19 @@ def resolve(state, session, bars, latest, root, forward_root, at):
     out["prices"] = found
     if problem:
         return {**out, "state": "BLOQUEADA_BASE_PRECOS", "reason": problem}
-    limits, gap = approval["limits"], found["raw_gap"]
-    if gap > limits.get("max_gap_up", math.inf):
-        return {
-            **out,
-            "state": "NAO_EXECUTADA_GAP",
-            "reason": f"Gap de alta {gap:.2%} acima do limite {limits['max_gap_up']:.2%}.",
-        }
-    if -gap > limits.get("max_gap_down", math.inf):
-        return {
-            **out,
-            "state": "NAO_EXECUTADA_GAP",
-            "reason": f"Gap de baixa {-gap:.2%} acima do limite {limits['max_gap_down']:.2%}.",
-        }
-    target = approval["effect"]["target_weight"]
-    pending = {
-        "decision_session": session,
-        "target_session": proposal["target_session"],
-        "target_weight": target,
-    }
-    if proposal["direction"] == "COMPRA" and "max_concentration" in limits:
-        # ponytail: closed-form sizing for this frozen single-asset proportional
-        # cost model; nonlinear costs would require solving against _settle.
-        ratio = state["mark"]["close"] / float(
-            bars.at[fwd._timestamp(state["mark"]["session"]), "fechamento"]
-        )
-        invested = state["portfolio"]["units"] * ratio * found["adjusted_open"]
-        equity = state["portfolio"]["cash"] + invested
-        rate = fwd.BASE_COSTS.build().apply_buy(1.0)
-        pending["target_weight"] = (
-            target * (1 + rate * invested / equity) / (1 + target * rate)
-        )
-    dry = copy.deepcopy(state)
-    dry["pending"] = pending
-    trades = fwd.reconcile(dry, bars, fwd._timestamp(latest))[0]["trades"]
-    side = SIDE[proposal["direction"]]
-    if not trades or any(t["type"] != side for t in trades):
-        return {
-            **out,
-            "state": "SEM_ORDEM_NECESSARIA",
-            "reason": "A abertura não exigiu operação na direção aprovada.",
-        }
-    raw_open = found["raw_open"]
-    if side == "BUY" and raw_open > limits.get("max_buy_price", math.inf):
-        return {
-            **out,
-            "state": "NAO_EXECUTADA_LIMITE_PRECO",
-            "reason": f"Abertura bruta R$ {raw_open:.2f} acima do máximo de compra R$ {limits['max_buy_price']:.2f}.",
-        }
-    if side == "SELL" and raw_open < limits.get("min_sell_price", 0):
-        return {
-            **out,
-            "state": "NAO_EXECUTADA_LIMITE_PRECO",
-            "reason": f"Abertura bruta R$ {raw_open:.2f} abaixo do mínimo de venda R$ {limits['min_sell_price']:.2f}.",
-        }
+    result, pending, _ = evaluate_opening(
+        state,
+        proposal,
+        approval["limits"],
+        approval["effect"]["target_weight"],
+        found,
+        bars,
+        latest,
+    )
     state["pending"] = pending
-    return {
-        **out,
-        "state": "EXECUTADA",
-        "target_weight": target,
-        "settlement_target_weight": pending["target_weight"],
-        "reason": "Execução virtual confirmada pela abertura oficial reconciliada.",
-    }
+    # The official reconciliation records trades; the dry run is never persisted.
+    result.pop("trades", None)
+    return {**out, **result}
 
 
 def sync(root=OUTPUT, forward_root=fwd.OUTPUT, clock=fwd.now):

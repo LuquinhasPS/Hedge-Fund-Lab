@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 import forward_api
 import forward_jobs
 import h2_api
+import market_api
 
 logger = logging.getLogger("hedgefund.dashboard")
 
@@ -53,6 +54,7 @@ POST_FIELDS = {
     "supervision/approve": SUPERVISION | {"limits"},
     "supervision/reject": SUPERVISION,
     "supervision/cancel": SUPERVISION,
+    "scenario": {"decision_session", "decision_sha256", "limits", "hypothetical_open"},
 }
 SUPERVISION_ACTIONS = {
     "supervision/approve": "APPROVE",
@@ -187,6 +189,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._send_json(forward_api.portfolios())
             if url.path == "/api/forward/agents" and not q:
                 return self._send_json(forward_api.agents())
+            if url.path == "/api/forward/market" and not q:
+                return self._send_json(market_api.market())
             if url.path == "/api/forward/supervision":
                 return self._send_json(
                     forward_api.supervision(q.get("session", [None])[0])
@@ -258,7 +262,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if (
                 not isinstance(payload, dict)
                 or set(payload) != fields
-                or (fields and payload["confirm"] is not True)
+                or ("confirm" in fields and payload["confirm"] is not True)
                 or (
                     command == "run"
                     and not isinstance(payload["confirmation_token"], str)
@@ -266,6 +270,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             ):
                 raise ValueError("invalid_payload")
             action = SUPERVISION_ACTIONS.get(command)
+            if command == "scenario":
+                return self._send_json(market_api.scenario(payload))
             if action:
                 # Order approval never authorizes a model call; it only writes
                 # one immutable record for the supervised paper wallet.
