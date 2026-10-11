@@ -186,6 +186,27 @@ def test_reject_expire_cancel_deadline_and_tampered_hash(world):
         sync(SimpleNamespace(**{**vars(w), "root": w.root.parent / "late"}), TUE)
 
 
+def test_concentration_cap_includes_costs_and_existing_position(world):
+    w = world
+    s, digest = close_session(w, SAT)
+    sync(w, SAT)
+    act(w, "APPROVE", s, digest, {"max_concentration": 0.4})
+    t, digest = close_session(w, TUE, "ACTION_BUY")
+    state = sync(w, TUE)
+    trade = outcome(state, s)["trades"][0]
+    invested = trade["price"] * trade["quantity"]
+    assert invested / (invested + state["portfolio"]["cash"]) <= 0.4 + 1e-12
+    act(w, "APPROVE", t, digest, {"max_concentration": 0.8}, at=clock("2026-10-13 20:00"))
+    close_session(w, WED, "TECH_EXPLICIT_HOLD")
+    state = sync(w, WED)
+    done = outcome(state, t)
+    assert done["state"] == "EXECUTADA" and done["target_weight"] == 0.8
+    invested = state["portfolio"]["units"] * done["prices"]["adjusted_open"]
+    assert invested / (invested + state["portfolio"]["cash"]) == pytest.approx(
+        0.8, abs=1e-12
+    )
+
+
 @pytest.mark.parametrize("action,expected", [("REJECT", "REJEITADA"), (None, "EXPIRADA")])
 def test_rejection_and_expiry_keep_cash(world, action, expected):
     w = world

@@ -92,6 +92,13 @@ ao preço de abertura de T se todos os limites passarem; senão não executa
 naquele dia. Não há inferência de preenchimento intradiário pela máxima/mínima.
 Um feed intradiário futuro seria fonte separada e só informativa.
 
+Concentração limita o peso **logo após a liquidação, descontados os custos**.
+Para uma compra com posição inicial A, patrimônio E na abertura, alvo t e custo
+proporcional c, o notional adicional é `(t * E - A) / (1 + t * c)`.
+Somente a supervisionada ajusta o peso enviado ao motor congelado; preços,
+custos e liquidação continuam os mesmos. Deriva posterior no fechamento pode
+ultrapassar o peso de abertura e não provoca rebalanceamento automático.
+
 ## 6. Máquina de estados
 
 ```text

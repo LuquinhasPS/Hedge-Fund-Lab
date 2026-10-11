@@ -608,6 +608,18 @@ def resolve(state, session, bars, latest, root, forward_root, at):
         "target_session": proposal["target_session"],
         "target_weight": target,
     }
+    if proposal["direction"] == "COMPRA" and "max_concentration" in limits:
+        # ponytail: closed-form sizing for this frozen single-asset proportional
+        # cost model; nonlinear costs would require solving against _settle.
+        ratio = state["mark"]["close"] / float(
+            bars.at[fwd._timestamp(state["mark"]["session"]), "fechamento"]
+        )
+        invested = state["portfolio"]["units"] * ratio * found["adjusted_open"]
+        equity = state["portfolio"]["cash"] + invested
+        rate = fwd.BASE_COSTS.build().apply_buy(1.0)
+        pending["target_weight"] = (
+            target * (1 + rate * invested / equity) / (1 + target * rate)
+        )
     dry = copy.deepcopy(state)
     dry["pending"] = pending
     trades = fwd.reconcile(dry, bars, fwd._timestamp(latest))[0]["trades"]
@@ -636,6 +648,7 @@ def resolve(state, session, bars, latest, root, forward_root, at):
         **out,
         "state": "EXECUTADA",
         "target_weight": target,
+        "settlement_target_weight": pending["target_weight"],
         "reason": "Execução virtual confirmada pela abertura oficial reconciliada.",
     }
 
