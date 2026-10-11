@@ -382,6 +382,33 @@ def test_audit_chain_detects_tampering(world):
     assert any("chain broken" in e for e in sup.verify(w.root, w.forward)["errors"])
 
 
+@pytest.mark.parametrize("changed", ["approval", "decision", "input", "journal"])
+def test_integrity_failure_blocks_actions_and_settlement(world, changed):
+    w = world
+    s, digest = close_session(w, SAT)
+    sync(w, SAT)
+    act(w, "APPROVE", s, digest, {"max_buy_price": 999})
+    close_session(w, TUE, "TECH_EXPLICIT_HOLD")
+    path = {
+        "approval": w.root / "approvals" / f"{s}.json",
+        "decision": w.forward / "sessions" / s / "decision.json",
+        "input": w.forward / "sessions" / s / "input.json",
+        "journal": w.root / "audit.jsonl",
+    }[changed]
+    if changed == "journal":
+        # Alter a complete event, rather than a recoverable incomplete append.
+        path.write_bytes(path.read_bytes().replace(b"PROPOSED", b"CORRUPTED"))
+    else:
+        path.write_bytes(path.read_bytes() + b" ")
+    before = tree(w.root), tree(w.forward)
+    assert not sup.verify(w.root, w.forward)["ok"]
+    with pytest.raises(sup.Conflict, match="supervision_integrity_failed"):
+        act(w, "CANCEL", s, digest)
+    with pytest.raises(sup.Conflict, match="supervision_integrity_failed"):
+        sync(w, TUE)
+    assert (tree(w.root), tree(w.forward)) == before
+
+
 @pytest.mark.parametrize(
     "limits",
     [

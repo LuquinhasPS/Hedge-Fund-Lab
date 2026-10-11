@@ -282,14 +282,15 @@ def journal(root, repair_tail=True):
         return []
     data = path.read_bytes()
     if data and not data.endswith(b"\n"):
-        if not repair_tail:
+        if repair_tail is False:
             raise ValueError("audit journal has an incomplete tail")
         # ponytail: a torn append is re-derived from the immutable records below.
         data = data[: data.rfind(b"\n") + 1]
-        with path.open("r+b") as stream:
-            stream.truncate(len(data))
-            stream.flush()
-            os.fsync(stream.fileno())
+        if repair_tail:
+            with path.open("r+b") as stream:
+                stream.truncate(len(data))
+                stream.flush()
+                os.fsync(stream.fileno())
     return [json.loads(line) for line in data.decode("utf-8").splitlines()]
 
 
@@ -338,11 +339,13 @@ def repair(root, state):
     return events
 
 
-def verify(root=OUTPUT, forward_root=fwd.OUTPUT, state=None):
+def verify(root=OUTPUT, forward_root=fwd.OUTPUT, state=None, allow_missing=False):
     """Offline e somente leitura: cadeia, registros, hashes e prazos."""
     errors = []
     try:
-        events = journal(root, repair_tail=False)
+        # Recovery may ignore a torn tail, but must verify complete events before
+        # repair writes anything. The ordinary offline verifier stays strict.
+        events = journal(root, repair_tail=None if allow_missing else False)
     except ValueError as exc:
         return {"ok": False, "events": 0, "errors": [str(exc)]}
     previous = None
@@ -366,7 +369,9 @@ def verify(root=OUTPUT, forward_root=fwd.OUTPUT, state=None):
             errors.append(f"duplicate event {key}")
         seen[key] = event["record_sha256"]
     errors += [
-        f"missing or altered event {k}" for k, d in expected.items() if seen.get(k) != d
+        f"missing or altered event {k}"
+        for k, d in expected.items()
+        if (k in seen or not allow_missing) and seen.get(k) != d
     ]
     errors += [f"event without record {k}" for k in seen if k not in expected]
     for session, proposal in state["proposals"].items():
@@ -376,6 +381,11 @@ def verify(root=OUTPUT, forward_root=fwd.OUTPUT, state=None):
             not decision.exists() or fwd.sha_file(decision) != proposal["decision_sha256"]
         ):
             errors.append(f"{session}: original decision changed")
+        source = forward_root / "sessions" / session / "input.json"
+        if proposal.get("input_sha256") and (
+            not source.exists() or fwd.sha_file(source) != proposal["input_sha256"]
+        ):
+            errors.append(f"{session}: original input changed")
         for record in (approval, cancel):
             if record and (
                 record["decision_sha256"] != proposal.get("decision_sha256")
@@ -426,6 +436,8 @@ def act(
         raise Conflict("supervision_busy; retry") from exc
     try:
         state = fwd.read(root / "state.json")
+        if not verify(root, forward_root, state, allow_missing=True)["ok"]:
+            raise Conflict("supervision_integrity_failed")
         events = repair(root, state)
         proposal = state["proposals"].get(session)
         if proposal is None:
@@ -677,6 +689,8 @@ def sync(root=OUTPUT, forward_root=fwd.OUTPUT, clock=fwd.now):
                 proposals={},
                 outcomes={},
             )
+        if not verify(root, forward_root, state, allow_missing=True)["ok"]:
+            raise Conflict("supervision_integrity_failed")
         repair(root, state)
         before = canonical(state)
         if state["mark"] is None:

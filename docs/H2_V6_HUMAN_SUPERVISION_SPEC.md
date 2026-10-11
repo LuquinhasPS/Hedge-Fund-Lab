@@ -1,4 +1,4 @@
-# H2 v6 supervisionada — especificação técnica (revisão 2)
+# H2 v6 supervisionada — especificação técnica (revisão 3)
 
 **Estado:** implementada no Premium V2 por
 [`scripts/run_h2_v6_supervised.py`](../scripts/run_h2_v6_supervised.py).
@@ -161,6 +161,12 @@ salva, e repetir `sync` na mesma sessão não escreve nada novo. Nenhum comando
 apaga aprovações, decisões ou reservas. `verify` confere offline a cadeia, a
 correspondência evento ↔ registro, o SHA da decisão, prazos e execuções sem
 aprovação.
+
+Antes de aceitar uma ação humana ou reconciliar a carteira, o backend recupera
+eventos ausentes e exige auditoria íntegra, incluindo os hashes da decisão e do
+input original. Adulteração bloqueia a operação com
+`supervision_integrity_failed`; não basta mostrar o erro na consulta. A
+recuperação só completa eventos ausentes, nunca legitima registros alterados.
 
 ## 9. Endpoints
 
