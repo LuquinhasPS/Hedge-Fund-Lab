@@ -2,6 +2,12 @@
 
 Laboratório Quantitativo de Backtesting baseado em Sistemas Multiagentes.
 
+**Premium V7:** [plataforma local unificada](docs/HFL_PLATFORM_ARCHITECTURE.md)
+em `/`, com cinco carteiras prospectivas separadas, integração Radar → Global PM
+e [runbook para 13/10](docs/HFL_OPERATIONS_RUNBOOK.md).
+Iniciar: `.venv/Scripts/python.exe -B dashboard/server.py 8081`.
+Diagnóstico somente leitura: `.venv/Scripts/python.exe -B scripts/check_platform.py`.
+
 **Premium V4:** [Radar multiativos consultivo](docs/HFL_PREMIUM_V4_RADAR.md)
 em `/radar`, com até cinco ações, preparação, preflight e auditoria isolados.
 [Projeto do gestor global](docs/HFL_MULTIASSET_PORTFOLIO_DESIGN.md).

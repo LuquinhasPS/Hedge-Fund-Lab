@@ -20,6 +20,7 @@ Endpoints (somente leitura; servidor escuta apenas em 127.0.0.1):
     /api/logs            — SSE stream do arquivo de logs
 """
 
+import html
 import http.server
 import json
 import logging
@@ -36,6 +37,7 @@ import forward_jobs
 import global_pm_api
 import h2_api
 import market_api
+import platform_api
 import portfolio_api
 import radar_api
 
@@ -60,6 +62,51 @@ POST_FIELDS = {
     "supervision/cancel": SUPERVISION,
     "scenario": {"decision_session", "decision_sha256", "limits", "hypothetical_open"},
 }
+SHELL_LINKS = {
+    "operation": [
+        ("/paper#sala", "Sala de Decisão"),
+        ("/paper#visao", "Paper Trading"),
+        ("/paper#carteiras", "Carteiras"),
+        ("/paper#supervisao", "Supervisão Humana"),
+        ("/paper#mercado", "Mercado e Abertura"),
+    ],
+    "lab": [
+        ("/radar", "Radar Multiativos"),
+        ("/portfolio#global-workflow", "Gestor Global"),
+        ("/paper#agentes", "Agentes"),
+        ("/portfolio#ai-proposal", "Propostas e Simulações"),
+    ],
+    "research": [
+        ("/h2", "Histórico H2 v6"),
+        ("/#audit", "Auditoria Operacional"),
+        ("/logs", "Logs Técnicos"),
+        ("/legacy", "Backtests Legados"),
+    ],
+    "overview": [
+        ("/#wallets", "Carteiras Prospectivas"),
+        ("/#readiness", "Prontidão para 13/10"),
+        ("/#audit", "Processos e Auditoria"),
+        ("/radar", "Continuar no Radar"),
+    ],
+}
+
+
+def strict_json(body):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate_key")
+            result[key] = value
+        return result
+
+    return json.loads(
+        body,
+        object_pairs_hook=unique,
+        parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
+    )
+
+
 SUPERVISION_ACTIONS = {
     "supervision/approve": "APPROVE",
     "supervision/reject": "REJECT",
@@ -74,6 +121,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=str(DIR), **kwargs)
 
     def end_headers(self):
+        self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header(
             "Content-Security-Policy",
@@ -96,20 +144,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._handle_portfolio()
         if self.path.startswith("/api/global-pm/"):
             return self._handle_global_pm()
+        if self.path.startswith("/api/platform/"):
+            return self._handle_platform()
         if self.path == "/api/logs":
             return self._handle_logs_sse()
         if self.path.startswith("/api/h2/"):
             return self._handle_h2()
-        if self.path in ("/logs", "/logs.html"):
+        path = urlsplit(self.path).path
+        if path == "/":
+            return self._serve_static("platform.html")
+        if path in ("/legacy", "/legacy/"):
+            return self._serve_static("index.html")
+        if path in ("/logs", "/logs.html"):
             return self._serve_static("logs.html")
-        if self.path in ("/h2", "/h2/"):
+        if path in ("/h2", "/h2/", "/h2.html"):
             return self._serve_static("h2.html")
-        if self.path in ("/paper", "/paper/"):
+        if path in ("/paper", "/paper/", "/paper.html"):
             return self._serve_static("paper.html")
-        if self.path in ("/radar", "/radar/"):
+        if path in ("/radar", "/radar/", "/radar.html"):
             return self._serve_static("radar.html")
-        if self.path in ("/portfolio", "/portfolio/"):
+        if path in ("/portfolio", "/portfolio/", "/portfolio.html"):
             return self._serve_static("portfolio.html")
+        if path == "/index.html":
+            return self._serve_static("index.html")
         if self._static_allowed():
             return super().do_GET()
         return self._send_json(None, 404)
@@ -153,6 +210,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "/logs",
                     "/logs.html",
                     "/index.html",
+                    "/legacy",
+                    "/legacy/",
                 )
             )
         return True
@@ -178,6 +237,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/portfolio.js",
             "/global-pm.js",
             "/global-pm.css",
+            "/shell.css",
+            "/shell.js",
+            "/platform.css",
+            "/platform.js",
+            "/global-workflow.js",
             "/data.json",
             "/vendor/chart.umd.js",
         }
@@ -190,6 +254,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_HEAD(self):
         if not self._local_request():
             return self.send_error(403)
+        path = urlsplit(self.path).path
+        pages = {
+            "/": "platform.html",
+            "/legacy": "index.html",
+            "/legacy/": "index.html",
+            "/index.html": "index.html",
+        }
+        for name in ("h2", "paper", "radar", "portfolio", "logs"):
+            pages.update(
+                {
+                    f"/{name}": f"{name}.html",
+                    f"/{name}/": f"{name}.html",
+                    f"/{name}.html": f"{name}.html",
+                }
+            )
+        if path in pages:
+            return self._serve_static(pages[path])
         if not self._static_allowed():
             return self.send_error(404)
         return super().do_HEAD()
@@ -256,6 +337,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         url = urlsplit(self.path)
         if url.path.startswith("/api/radar/"):
             return self._handle_radar(body)
+        if url.path.startswith("/api/platform/"):
+            return self._handle_platform(body)
         command = url.path.removeprefix("/api/forward/")
         if (
             url.query
@@ -336,6 +419,51 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             )
         except (ValueError, KeyError, OSError, TypeError, ArithmeticError):
             return self._send_json({"error": "portfolio_integrity_or_query_failed"}, 400)
+
+    def _handle_platform(self, body=None):
+        url = urlsplit(self.path)
+        command = url.path.removeprefix("/api/platform/")
+        try:
+            if self.command == "GET":
+                query = parse_qs(url.query, keep_blank_values=True)
+                if any(len(v) != 1 for v in query.values()):
+                    raise ValueError("invalid_query")
+                return self._send_json(
+                    platform_api.get(command, {k: v[0] for k, v in query.items()})
+                )
+            if command not in {"global-prepare", "global-run", "global-replay"}:
+                return self._send_json(None, 404)
+            if (
+                url.query
+                or body is None
+                or not 0 < len(body) <= 4096
+                or self.headers.get("Content-Type") != "application/json"
+            ):
+                raise ValueError("invalid_payload")
+            return self._send_json(
+                platform_api.GLOBAL_JOBS.start(
+                    command.removeprefix("global-"), strict_json(body)
+                ),
+                202,
+            )
+        except forward_jobs.Conflict:
+            return self._send_json(
+                {"error": "global_job_exists_or_busy_consult_recovery"}, 409
+            )
+        except (
+            ValueError,
+            KeyError,
+            TypeError,
+            OSError,
+            ArithmeticError,
+            sqlite3.Error,
+        ) as exc:
+            code = (
+                str(exc)
+                if re.fullmatch(r"[a-z_0-9]+", str(exc))
+                else "platform_record_or_request_invalid"
+            )
+            return self._send_json({"error": code}, 400)
 
     def _handle_global_pm(self):
         url = urlsplit(self.path)
@@ -456,12 +584,50 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404, "Not found")
             return
 
-        content = path.read_bytes()
+        content = path.read_text(encoding="utf-8")
+        if "<!-- platform-shell -->" in content:
+            group = (
+                "operation"
+                if filename == "paper.html"
+                else "lab"
+                if filename in ("radar.html", "portfolio.html")
+                else "overview"
+                if filename == "platform.html"
+                else "research"
+            )
+            environment = {
+                "operation": "PROSPECTIVO REAL — PAPER",
+                "lab": "CONSULTIVO / SINTÉTICO · FONTE EM CADA REGISTRO",
+                "research": "HISTÓRICO CIENTÍFICO · SOMENTE LEITURA",
+                "overview": "QUATRO AMBIENTES · REGISTROS SEPARADOS",
+            }[group]
+            shell = (DIR / "shell.html").read_text(encoding="utf-8")
+            links = "".join(
+                f'<a href="{html.escape(url)}" data-section="{section}" {"hidden" if section != group else ""}>{html.escape(label)}</a>'
+                for section, entries in SHELL_LINKS.items()
+                for url, label in entries
+            )
+            shell = (
+                shell.replace("{{links}}", links)
+                .replace(
+                    "{{breadcrumb}}",
+                    {
+                        "overview": "Laboratório / Visão Geral",
+                        "operation": "Laboratório / Operação",
+                        "lab": "Laboratório / Pesquisa Multiativos",
+                        "research": "Laboratório / Pesquisa e Auditoria",
+                    }[group],
+                )
+                .replace("{{environment}}", environment)
+            )
+            content = content.replace("<!-- platform-shell -->", shell)
+        content = content.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(content)))
         self.end_headers()
-        self.wfile.write(content)
+        if self.command != "HEAD":
+            self.wfile.write(content)
 
     def _handle_logs_sse(self) -> None:
         """SSE endpoint: envia linhas do arquivo de log em tempo real."""
@@ -546,7 +712,8 @@ def main():
         logger.info("Servidor iniciado em http://localhost:%d", port)
         logger.info("  H2 v6     : http://localhost:%d/h2", port)
         logger.info("  Paper     : http://localhost:%d/paper", port)
-        logger.info("  Legado    : http://localhost:%d/", port)
+        logger.info("  Plataforma: http://localhost:%d/", port)
+        logger.info("  Legado    : http://localhost:%d/legacy", port)
         logger.info("  Logs      : http://localhost:%d/logs", port)
         logger.info("  Ctrl+C para parar")
         try:

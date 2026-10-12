@@ -50,13 +50,14 @@ function error(e) {
 }
 
 /* ── Navegação ─────────────────────────────────────────────── */
-const VIEWS = ["visao","sala","mercado","carteiras","agentes"], LEGACY = {room:"sala",wallets:"carteiras"};
+const VIEWS = ["visao","sala","mercado","carteiras","agentes"], LEGACY = {room:"sala",wallets:"carteiras",supervisao:"sala"};
 function route() {
   const hash = (typeof location === "undefined" ? "" : location.hash).slice(1);
   const view = VIEWS.includes(hash) ? hash : LEGACY[hash] || "visao";
   document.querySelectorAll("[data-view]").forEach(s => s.hidden = s.id !== view);
   document.querySelectorAll("[data-tab]").forEach(a => a.dataset.tab === view ? a.setAttribute("aria-current","page") : a.removeAttribute("aria-current"));
   if (view === "mercado") loadMarket();
+  if (hash === "supervisao") focusSupervision();
 }
 
 /* ── Gráfico de patrimônio: 0, 1 ou 2+ observações ─────────── */
@@ -167,14 +168,16 @@ function renderDecision(d) {
   $("decision").innerHTML = `<div class="meta">${chip(d.status)} ${chip(d.ticker || "PETR4.SA")} <span>Referência <strong>${day(d.session)}</strong></span><span>Fechamento usado <strong>${money(d.close_used)}</strong></span><span>Abertura-alvo <strong>${day(d.target_session)} ${esc(d.target_open_deadline?.slice(11,16) || "")}</strong></span><span class="muted">${d.replayed_from_journal ? "Replay offline do journal" : "Gerada em"} ${stamp(d.generated_at)}</span></div>
     ${d.failure ? `<p class="callout bad">${esc(d.failure)}</p>` : ""}
     <ol class="flow" aria-label="Fluxo da decisão">${flow}</ol>
-    <div id="supervision-panel"></div>
-    <div class="room-grid"><div><h2>Comitê técnico · ${n} analistas</h2><div class="analysts">${Array.from({length:n}, (_,i) => analystCard(i + 1, d.analysts.filter(a => Number(a.analyst_id) === i + 1))).join("")}</div></div>${quorumCard(d)}</div>
+    ${quorumCard(d)}
     ${synthesis(d)}
     <div class="pair"><article class="card"><h2>Risk Manager</h2><p>${signal(risk.verdict)} ${chip(risk.risk_source)} ${risk.veto_effect ? chip(`Veto ${risk.veto_effect}`) : ""}</p><p>${esc(risk.analysis)}</p>${table(["Regra","Valor","Limite","Estado"], (risk.rules || []).map(r=>[esc(r.rule),num(r.value),`${esc(r.operator)} ${num(r.limit)}`,chip(r.status, r.status === "PASSOU" ? "sig-buy" : r.status === "DISPAROU" ? "sig-sell" : "")]))}</article>
     <article class="card"><h2>Portfolio Manager</h2><p>${signal(p.decision)} ${chip(p.final_cause)}</p><p>${esc(p.reasoning)}</p>
       <h3>Da recomendação à execução</h3>${facts([["Sinal técnico",signal(d.consensus.technical_outcome)],["Decisão final",signal(p.decision)],["Ordem pretendida",d.intent_weight == null ? "Nenhuma" : `Alvo ${pct(d.intent_weight)} PETR4`],["Ordem pendente",d.pending ? `Sim · abertura ${day(d.pending.target_session)}` : "Não"],["Ordem executada",d.execution ? `${day(d.execution.session)} · ${d.execution.trades.length} operação(ões)` : "Ainda não observada"],["Não executável",d.status === "LATE_NOT_EXECUTABLE" ? "Sim · decisão após a abertura" : "Não"],["Posição no fechamento",pct(p.observed_weight)]])}
-      <p class="muted small">A posição-alvo é uma recomendação para a próxima abertura. A composição financeira atual está em Carteiras.</p></article></div>`;
+      <p class="muted small">A posição-alvo é uma recomendação para a próxima abertura. A composição financeira atual está em Carteiras.</p></article></div>
+    <div id="supervision-panel"></div>
+    <details class="card"><summary>Comitê técnico · ${n} analistas · votos individuais</summary><div class="analysts">${Array.from({length:n}, (_,i) => analystCard(i + 1, d.analysts.filter(a => Number(a.analyst_id) === i + 1))).join("")}</div></details>`;
   renderSupervision(d);
+  focusSupervision();
 }
 
 /* ── Supervisão Humana ─────────────────────────────────────── */
@@ -184,6 +187,10 @@ function remaining(deadline, now) {
 }
 function limitText(key, value) {
   return `${esc(LIMITS[key]?.[0].replace(/ \(.*\)/, "") || key)} ${PRICE_LIMITS.includes(key) ? money(value) : pct(value)}`;
+}
+function focusSupervision() {
+  const box = $("supervision-panel");
+  if (location.hash === "#supervisao" && box) { box.tabIndex=-1; box.focus(); box.scrollIntoView({block:"start"}); }
 }
 function renderSupervision(d) {
   const box = $("supervision-panel");

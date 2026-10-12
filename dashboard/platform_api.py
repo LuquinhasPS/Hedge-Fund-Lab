@@ -1,0 +1,579 @@
+"""V7 aggregates existing authorities; only explicit global commands can write.
+
+Never calls reconciliation, order approval, market downloads or shell commands.
+"""
+
+import os
+import re
+import sqlite3
+import threading
+
+import forward_api as forward
+import forward_jobs
+import global_pm_api as global_api
+import h2_api
+import market_api
+import portfolio_api
+import radar_api
+
+b, pm, cli, radar = global_api.b, global_api.pm, global_api.cli, global_api.radar
+ROOT = forward.ROOT
+OPERATIONS = ROOT / "data/platform/v7"
+ID = re.compile(r"v7-[0-9a-f]{32}")
+FIELDS = {
+    "prepare": {
+        "id",
+        "mode",
+        "session",
+        "tickers",
+        "capital",
+        "confirm_hypothetical",
+        "ack_fixture_policy",
+    },
+    "run": {"id", "max_usd", "confirmation_token", "authorize_paid", "confirm"},
+    "replay": {"id", "confirm"},
+}
+COMMON = {
+    "NO_PROPOSAL": "NOT_PREPARED",
+    "AWAITING_PREFLIGHT": "PREPARED",
+    "READY_FOR_INFERENCE": "READY",
+    "DECIDED": "DECISION_EXISTS",
+    "INFERENCE_RUNNING": "RUNNING",
+    "RUNNING": "RUNNING",
+    "COMPLETE": "COMPLETED",
+    "COMPLETED": "COMPLETED",
+    "VALID_PROPOSAL": "COMPLETED",
+    "PROPOSALS_AVAILABLE": "COMPLETED",
+    "PREPARED": "PREPARED",
+    "NOT_PREPARED": "NOT_PREPARED",
+    "READY": "READY",
+    "DECISION_EXISTS": "DECISION_EXISTS",
+    "FAILED": "FAILED",
+    "PROVIDER_FAILED": "FAILED",
+    "RECOVERY_REQUIRED": "RECOVERY_REQUIRED",
+    "FAILED_REPLAY_ONLY": "RECOVERY_REQUIRED",
+    "INTERRUPTED_REVIEW_LOCK_AND_REPLAY": "RECOVERY_REQUIRED",
+    "PROPOSAL_EXPIRED": "EXPIRED",
+    "EXPIRED": "EXPIRED",
+    "EXPIRADA": "EXPIRED",
+    "AGUARDANDO_APROVACAO": "PREPARED",
+    "APROVADA": "READY",
+    "AJUSTADA_CONCENTRACAO": "READY",
+    "PENDENTE_ABERTURA": "READY",
+    "EXECUTADA": "COMPLETED",
+    "BLOCKED": "BLOCKED",
+    "REJECTED_BY_VALIDATOR": "BLOCKED",
+    "INTEGRITY_ERROR": "BLOCKED",
+    "INSUFFICIENT_DATA": "BLOCKED",
+    "REJEITADA": "BLOCKED",
+    "CANCELADA": "BLOCKED",
+}
+
+
+def visual_state(native):
+    return {"native_state": native, "state": COMMON.get(native, "BLOCKED")}
+
+
+def analysis_root(value):
+    if not isinstance(value, str) or not ID.fullmatch(value):
+        raise ValueError("invalid_analysis_id")
+    return pm.root_path(pm.OUTPUT / value)
+
+
+def source_root(mode):
+    if mode not in pm.MODES:
+        raise ValueError("invalid_analysis_mode")
+    return (
+        global_api.SYNTHETIC_RADAR
+        if mode == "SYNTHETIC_DEMO"
+        else global_api.OFFICIAL_RADAR
+    )
+
+
+def attempt(call):
+    try:
+        return {"available": True, "data": call()}
+    except (ValueError, TypeError, KeyError, OSError, ArithmeticError, sqlite3.Error):
+        return {
+            "available": False,
+            "state": "BLOCKED",
+            "error": "local_record_unavailable_or_integrity_failed",
+        }
+
+
+def forward_integrity(root):
+    """Check recorded references, without opening any reserved scientific data."""
+    radar.frozen_sources()
+    manifest = forward.fwd.CANDIDATE.with_suffix(".sha256").read_text().strip()
+    state = forward.fwd.load_state(root, manifest)
+    if not (root / "state.json").exists():
+        return {"ok": False, "state": "NOT_PREPARED", "scope": "recorded_references"}
+    count = 0
+    for entry in state["decisions"]:
+        folder = root / "sessions" / forward.session_name(entry["session"])
+        d = forward.read(folder / "decision.json")
+        if not d or b.sha_file(folder / "decision.json") != entry["decision_sha256"]:
+            raise ValueError("original_decision_changed")
+        data = forward.read(folder / "input.json")
+        if (
+            b.sha_file(folder / "input.json") != d["input_sha256"]
+            or b.sha_file(folder / "bars.csv") != data["history"]["sha256"]
+            or b.sha_file(folder / "llm_trace.jsonl") != d["llm_trace_sha256"]
+            or b.sha_file(folder / "provider_journal.jsonl")
+            != d["provider_journal_sha256"]
+            or d["manifest_sha256"] != manifest
+            or d["participant_sha256"] != forward.fwd.PARTICIPANT_SHA256
+        ):
+            raise ValueError("original_references_changed")
+        count += 1
+    return {
+        "ok": True,
+        "decisions": count,
+        "manifest_sha256": manifest,
+        "scope": "identity_and_recorded_input_bars_trace_journal_hashes",
+    }
+
+
+def global_records():
+    result = []
+    for path in sorted(
+        pm.OUTPUT.glob("v7-*/context.json"),
+        key=lambda p: p.stat().st_mtime_ns,
+        reverse=True,
+    ):
+        if not ID.fullmatch(path.parent.name):
+            continue
+        entry = attempt(lambda path=path: global_api.public_detail(path.parent))
+        if entry["available"]:
+            d = entry["data"]
+            result.append(
+                {
+                    "id": path.parent.name,
+                    **visual_state(d["status"]),
+                    "mode": d["mode"],
+                    "created_at": d["created_at"],
+                    "expires_at": d["expires_at"],
+                    "context_sha256": d["context_sha256"],
+                    "cost_usd": (d["result"] or {}).get("cost_usd"),
+                    "href": "/portfolio?analysis=" + path.parent.name,
+                }
+            )
+        else:
+            result.append(
+                {
+                    "id": path.parent.name,
+                    **visual_state("INTEGRITY_ERROR"),
+                    "error": entry["error"],
+                }
+            )
+    return result
+
+
+def jobs_status():
+    result = []
+    # ponytail: local JSON jobs are scanned on demand; archive/index if this grows
+    # beyond a local laboratory. Existing runners remain the state authority.
+    for path in sorted(
+        forward_jobs.JOBS.root.glob("job-*.json"),
+        key=lambda p: p.stat().st_mtime_ns,
+        reverse=True,
+    ):
+        job = forward_jobs.JOBS.status(path.stem.removeprefix("job-"))["job"]
+        if not job:
+            continue
+        native = job["state"]
+        if native == "RUNNING" and job["id"] not in forward_jobs.JOBS.active:
+            native = "RECOVERY_REQUIRED"
+        progress = job.get("progress") or {}
+        result.append(
+            {
+                "module": "H2",
+                **forward.pick(
+                    job, "id", "command", "session", "stage", "started_at", "finished_at"
+                ),
+                **visual_state(native),
+                "native_state": job["state"],
+                "error": "runner_failed_consult_local_diagnostics"
+                if job.get("error")
+                else None,
+                "calls_reserved": progress.get("reserved"),
+                "calls_recorded": progress.get("recorded"),
+                "cost_usd": None,
+                "href": "/paper#sala",
+            }
+        )
+    rjob = radar_api.job()
+    if rjob:
+        result.append(
+            {
+                "module": "Radar",
+                **forward.pick(rjob, "id", "command", "started_at", "finished_at"),
+                **visual_state(rjob["status"]),
+                "cost_usd": None,
+                "href": "/radar",
+            }
+        )
+    result += GLOBAL_JOBS.status()
+    return sorted(result, key=lambda j: j.get("started_at", ""), reverse=True)
+
+
+def overview(at=None):
+    at = at or forward.fwd.now()
+    wallets = attempt(forward.portfolios)
+    decision = attempt(forward.decision)
+    supervision = attempt(lambda: forward.supervision(clock=lambda: at))
+    integrity = attempt(lambda: forward_integrity(forward.OUTPUT))
+    live_radar = attempt(lambda: radar.status(global_api.OFFICIAL_RADAR))
+    day = str(forward.fwd.last_closed_session(at).date())
+    universe = (live_radar.get("data") or {}).get("universe") or list(radar.EXAMPLES)
+    selection = attempt(
+        lambda: global_api.selection("CONSULTATIVE_SANDBOX", day, universe)
+    )
+    v5 = attempt(lambda: portfolio_api.get("status", {}))
+    v6 = attempt(lambda: global_api.get("status", {}))
+    science = attempt(h2_api.status)
+    selected = (supervision.get("data") or {}).get("selected") or {}
+    current = decision.get("data") or {}
+    records = global_records()
+    processes = attempt(jobs_status)
+    alerts = []
+    for name, value in [
+        ("Carteiras", wallets),
+        ("Decisão H2", decision),
+        ("Supervisão", supervision),
+        ("Integridade H2", integrity),
+        ("Radar", live_radar),
+        ("Global PM", v6),
+    ]:
+        if not value["available"]:
+            alerts.append(name + ": registro indisponível ou integridade divergente.")
+    if selected.get("order_state") == "AGUARDANDO_APROVACAO":
+        alerts.append("Supervisão aguarda ação humana até " + selected["deadline"] + ".")
+    missing = (selection.get("data") or {}).get("missing")
+    if missing:
+        alerts.append(
+            "Pareceres oficiais completos ausentes: " + ", ".join(missing) + "."
+        )
+    if (integrity.get("data") or {}).get("ok") is False:
+        alerts.append("H2 sem ledger inicializado; consulta não cria carteira.")
+    for job in processes.get("data") or []:
+        if job["state"] in ("RUNNING", "FAILED", "RECOVERY_REQUIRED", "BLOCKED"):
+            alerts.append(job["module"] + ": " + job["state"] + "; consultar processo.")
+    observations = [
+        w.get("mark", {}).get("session")
+        for w in (wallets.get("data") or {}).get("wallets", [])
+        if w.get("mark")
+    ]
+    inputs = sorted((forward.OUTPUT / "sessions").glob("????-??-??/input.json"))
+    latest_input = forward.read(inputs[-1]) if inputs else None
+    return {
+        "identity": "HFL-PLATFORM-V7",
+        "observed_at": at.isoformat(),
+        "read_only": True,
+        "state": "BLOCKED"
+        if not integrity["available"]
+        else "COMPLETED"
+        if current.get("status") == "DECIDED"
+        else "NOT_PREPARED",
+        "wallets": wallets,
+        "decision": decision,
+        "supervision": supervision,
+        "integrity": integrity,
+        "radar": live_radar,
+        "official_selection": selection,
+        "global_records": records,
+        "synthetic_v5": v5,
+        "synthetic_v6": v6,
+        "jobs": processes,
+        "calendar": market_api.session_clock(at),
+        "last_observed_session": max(observations) if observations else None,
+        "last_input_observed_at": (latest_input or {}).get("fetched_at"),
+        "last_closed_session": day,
+        "intraday": {
+            "available": False,
+            "reason": "Consulta local sem provider intradiário; verificar Mercado.",
+        },
+        "alerts": alerts,
+        "scientific": {
+            "validation": "Validation OA-1 provisória · "
+            + (
+                (science.get("data") or {})
+                .get("phases", {})
+                .get("VALIDATION", {})
+                .get("provisional", "indisponível")
+            ),
+            "academic": ((science.get("data") or {}).get("governance") or {}).get(
+                "academic", "Governança indisponível"
+            ),
+            "final_test": ((science.get("data") or {}).get("phases") or {}).get(
+                "FINAL_TEST", "Final Test bloqueado"
+            ),
+            "interpretation": "Resultados descritivos, não confirmatórios",
+        },
+        "manual_next_steps": [
+            "Consultar a decisão de 09/10; não repetir sua inferência.",
+            "Revisar a supervisão antes de 13/10 às 10h BRT; não há aprovação automática.",
+            "Após dados oficiais de 13/10 disponíveis, preparar e conferir reconciliação no runner original; cada nova inferência exige autorização.",
+            "Conferir SMA/Bollinger e supervisionada com os mesmos inputs observados, mediante ação explícita.",
+            "Autorizar comitês Radar separadamente; só depois preparar contexto Global PM dentro de sua validade de 24 h.",
+        ],
+        "execution_multiasset_available": False,
+        "provider_calls": 0,
+    }
+
+
+def public_global(value):
+    root = analysis_root(value)
+    d = global_api.public_detail(root)
+    if d["status"] == "NO_PROPOSAL":
+        return {"id": value, **d, **visual_state(d["status"])}
+    return {
+        "id": value,
+        **d,
+        **visual_state(d["status"]),
+        "model": pm.CONFIG["model"],
+        "classification": "DEMONSTRAÇÃO SINTÉTICA"
+        if d["mode"] == "SYNTHETIC_DEMO"
+        else "CONSULTIVO COM GEMINI",
+        "planner": (d["result"] or {}).get("planner"),
+        "execution_enabled": False,
+    }
+
+
+class GlobalJobs:
+    def __init__(self, root=OPERATIONS):
+        self.root = root
+        self.active = set()
+        self.mutex = threading.Lock()
+
+    def status(self):
+        result = []
+        for path in sorted(
+            self.root.glob("v7-*.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True
+        ):
+            job = b.check_seal(b.read(path))
+            native = job["state"]
+            if native == "RUNNING" and job["job_id"] not in self.active:
+                native = "RECOVERY_REQUIRED"
+            result.append(
+                {
+                    **forward.pick(
+                        job,
+                        "module",
+                        "job_id",
+                        "id",
+                        "command",
+                        "started_at",
+                        "finished_at",
+                        "result_state",
+                        "cost_usd",
+                    ),
+                    **visual_state(native),
+                    "native_state": job["state"],
+                    "error": "global_operation_failed_consult_record_no_automatic_retry"
+                    if job.get("error")
+                    else None,
+                    "href": "/portfolio?analysis=" + job["id"],
+                }
+            )
+        return result
+
+    def start(self, command, payload):
+        if (
+            command not in FIELDS
+            or not isinstance(payload, dict)
+            or set(payload) != FIELDS[command]
+        ):
+            raise ValueError("invalid_payload")
+        root = analysis_root(payload["id"])
+        if command == "prepare":
+            if (
+                payload["confirm_hypothetical"] is not True
+                or payload["ack_fixture_policy"] is not True
+            ):
+                raise ValueError("explicit_hypothetical_and_fixture_ack_required")
+            source_root(payload["mode"])
+            radar.session(payload["session"])
+            radar.tickers(payload["tickers"], empty=False)
+            if not isinstance(payload["capital"], str) or not 0 < b.amount(
+                payload["capital"], positive=True
+            ) <= b.dec("1000000000"):
+                raise ValueError("invalid_hypothetical_capital")
+            if root.exists():
+                raise forward_jobs.Conflict("analysis_already_prepared_no_overwrite")
+            # Eligibility is checked together, not merely one ticker at a time.
+            pm.load_opinions(
+                source_root(payload["mode"]),
+                payload["tickers"],
+                payload["session"],
+                payload["mode"],
+                pm.now(),
+            )
+        elif payload["confirm"] is not True:
+            raise ValueError("explicit_confirmation_required")
+        elif command == "run":
+            if type(payload["authorize_paid"]) is not bool or not isinstance(
+                payload["max_usd"], str
+            ):
+                raise ValueError("invalid_payload")
+            report = cli.preflight(root, payload["max_usd"])
+            if (
+                not report["ready"]
+                or payload["confirmation_token"] != report["confirmation_token"]
+            ):
+                raise ValueError("preflight_or_confirmation_changed")
+            if report["paid"] and (
+                payload["authorize_paid"] is not True
+                or not os.environ.get("GEMINI_API_KEY", "").strip()
+            ):
+                raise ValueError("new_explicit_paid_authorization_and_key_required")
+            if not report["paid"] and payload["authorize_paid"]:
+                raise ValueError("synthetic_is_not_paid_inference")
+        else:
+            cli.context_for(root)
+            if (
+                not (root / "claim.json").exists()
+                or not (root / "private/calls.sqlite").exists()
+            ):
+                raise ValueError("missing_claim_journal")
+        job_id = payload["id"] + "-" + command
+        path = self.root / (job_id + ".json")
+        with self.mutex:
+            if self.active or path.exists():
+                raise forward_jobs.Conflict("global_job_exists_or_busy_consult_recovery")
+            job = {
+                "module": "Global PM",
+                "job_id": job_id,
+                "id": payload["id"],
+                "command": command,
+                "state": "RUNNING",
+                "started_at": pm.now(),
+                "cost_usd": None,
+            }
+            b.write(path, b.sealed(job), immutable=True)
+            self.active.add(job_id)
+            try:
+                threading.Thread(
+                    target=self._work,
+                    args=(command, dict(payload), job, path),
+                    daemon=True,
+                ).start()
+            except RuntimeError as exc:
+                self.active.discard(job_id)
+                job.update(
+                    state="FAILED",
+                    error="global_worker_start_failed",
+                    finished_at=pm.now(),
+                )
+                b.write(path, b.sealed(job))
+                raise OSError("global_worker_start_failed") from exc
+        return {**job, "execution_enabled": False}
+
+    def _work(self, command, payload, job, path):
+        try:
+            root = analysis_root(payload["id"])
+            if command == "prepare":
+                at = pm.now()
+                opinions, histories = pm.load_opinions(
+                    source_root(payload["mode"]),
+                    payload["tickers"],
+                    payload["session"],
+                    payload["mode"],
+                    at,
+                )
+                snapshot = pm.make_snapshot(
+                    payload["id"],
+                    payload["mode"],
+                    payload["session"],
+                    {
+                        t: str(b.money(o["raw_close"]))
+                        if payload["mode"] == "SYNTHETIC_DEMO"
+                        else o["raw_close"]
+                        for t, o in opinions.items()
+                    },
+                    cash=payload["capital"],
+                    at=at,
+                )
+                cli.prepare(
+                    root, snapshot, opinions, histories, at=at, ack_fixture_policy=True
+                )
+            else:
+                # Fake E is the existing all-cash proposal, valid for any observed
+                # fixture prices; the original A fixture has fixed share counts.
+                cli.run(
+                    root,
+                    payload.get("confirmation_token"),
+                    payload.get("max_usd", "0.25"),
+                    authorize_paid=payload.get("authorize_paid", False),
+                    replay=command == "replay",
+                    fake_case="E",
+                )
+            data = cli.detail(root)
+            state = (
+                "COMPLETED"
+                if command == "prepare"
+                else visual_state(data["status"])["state"]
+            )
+            job.update(
+                state=state,
+                result_state=data["status"],
+                cost_usd=(data["result"] or {}).get("cost_usd"),
+            )
+        except Exception:
+            # No provider exception, credential, raw envelope or prompt is public.
+            root = analysis_root(payload["id"])
+            job.update(
+                state="RECOVERY_REQUIRED" if (root / "claim.json").exists() else "FAILED",
+                error="global_operation_failed_consult_record_no_automatic_retry",
+            )
+        finally:
+            job["finished_at"] = pm.now()
+            try:
+                b.write(path, b.sealed(job))
+            finally:
+                with self.mutex:
+                    self.active.discard(job["job_id"])
+
+
+GLOBAL_JOBS = GlobalJobs()
+
+
+def get(command, query):
+    if command in ("overview", "readiness") and not query:
+        return overview()
+    if command == "jobs" and not query:
+        return {
+            "jobs": jobs_status(),
+            "global_records": global_records(),
+            "read_only": True,
+        }
+    if command == "global" and set(query) == {"id"}:
+        return public_global(query["id"])
+    if command == "global-preflight" and set(query) == {"id", "max_usd"}:
+        report = cli.preflight(analysis_root(query["id"]), query["max_usd"])
+        return {
+            **report,
+            **visual_state(
+                "READY_FOR_INFERENCE"
+                if report["ready"]
+                else "PROPOSAL_EXPIRED"
+                if "context_expired_or_future" in report["errors"]
+                else "BLOCKED"
+            ),
+        }
+    if command == "radar-view" and set(query) == {"mode"}:
+        mutable = (
+            query["mode"] == "CONSULTATIVE_SANDBOX"
+            and radar_api.ROOT.resolve() == global_api.OFFICIAL_RADAR.resolve()
+        )
+        return {
+            **radar.status(source_root(query["mode"])),
+            "mode_view": query["mode"],
+            "job": radar_api.job() if mutable else None,
+            "csrf_token": forward_jobs.JOBS.csrf,
+            "read_only": True,
+            "mutation_available": mutable,
+        }
+    if command == "radar-detail" and set(query) == {"mode", "ticker", "session"}:
+        return radar.detail(query["ticker"], query["session"], source_root(query["mode"]))
+    raise ValueError("invalid_platform_query")

@@ -55,6 +55,7 @@ const state = run("state");
   run(`loadDecision("L01", "2024-09-04"); loadAnalysis()`);
   const decision = take("session=2024-09-04"), analysis = take("analysis?source=provisional");
   run(`setSource("demo")`);
+  assert.equal(state.loading, true);
   assert.ok(decision.signal.aborted && analysis.signal.aborted);
   assert.equal(state.decision, null);
   decision.reply({ slot: "L01", session: "2024-09-04", source: "provisional" });

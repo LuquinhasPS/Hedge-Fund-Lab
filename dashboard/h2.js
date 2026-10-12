@@ -89,7 +89,7 @@ function setSource(source) {
   history.replaceState(null, "", `#${source}/${state.tab}`);
   document.querySelectorAll("[data-source]").forEach((x) => x.setAttribute("aria-pressed", x.dataset.source === source));
   // never mix sources: drop everything the previous source produced before rendering
-  Object.assign(state, { source, status: null, data: null, detail: null, trace: null, session: null, analysis: undefined, decision: null, pending: null, bollEvent: null, cycle: null });
+  Object.assign(state, { source, loading: true, status: null, data: null, detail: null, trace: null, session: null, analysis: undefined, decision: null, pending: null, bollEvent: null, cycle: null });
   render();
   return load().then(() => {
     if (source !== state.source || !state.data) return;

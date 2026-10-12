@@ -3,17 +3,21 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Radar de Ativos · Hedge-Fund-Lab Premium V4</title>
-  <link rel="stylesheet" href="/radar.css"><script src="/radar.js" defer></script>
+  <link rel="stylesheet" href="/radar.css?v=7"><script src="/radar.js?v=7" defer></script>
+<link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
 </head>
-<body>
+<body class="hfl-platform">
+<!-- platform-shell -->
   <a class="skip" href="#main">Pular para o conteúdo</a>
-  <header>
+  <header class="module-header">
     <div class="topline"><a class="brand" href="/paper">HEDGE-FUND<span>LAB</span><small>PREMIUM V4 / PESQUISA EXPLORATÓRIA</small></a><a class="back" href="/paper">← Operação PETR4</a></div>
     <nav aria-label="Áreas do laboratório"><a href="/paper">Operação Paper</a><a href="/radar" aria-current="page">Radar de Ativos</a><a href="/portfolio#ai-proposal">Gestor Global</a><a href="/h2">Histórico H2 v6</a></nav>
   </header>
   <main id="main">
     <div class="heading"><div><p class="eyebrow">01 / INTELIGÊNCIA MULTIATIVOS</p><h1>Um universo.<br><span>Cinco perspectivas por ativo.</span></h1><p class="lead">Investigue os sinais de diferentes empresas com comitês independentes e evidências rastreáveis.</p></div><div class="identity"><span class="dot"></span> CONSULTIVO<small>HFL-MULTIASSET-RADAR-V1</small><small>Sem ordens ou alocação de carteira</small></div></div>
     <p class="notice">Este radar é exploratório e separado da Validation OA-1 e do Final Test. A confiança dos agentes é qualitativa; não representa retorno esperado ou qualidade da empresa.</p>
+    <div class="controls"><label>Registros consultados<select id="radar-view"><option value="CONSULTATIVE_SANDBOX">Oficiais · comitês Gemini</option><option value="SYNTHETIC_DEMO">Demonstração sintética V4 · somente leitura</option></select></label><p id="radar-source" class="notice"></p></div>
+    <p><a id="radar-to-global" class="back" href="/portfolio#global-workflow">Levar seleção ao Gestor Global →</a></p>
     <div id="error" role="alert" hidden></div>
     <div class="metrics"><article><span>UNIVERSO</span><strong id="universe-count">0 <small>/ 5 ativos</small></strong></article><article><span>ÚLTIMA SESSÃO ENCERRADA</span><strong id="closed">—</strong></article><article><span>RESERVAS GLOBAIS · USD</span><strong id="budget-used">0.00 <small>/ 5.00</small></strong></article></div>
     <section class="card" aria-labelledby="universe-title">
