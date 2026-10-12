@@ -163,3 +163,67 @@ não confirmação de leilão. Não há cotação intradiária no diagnóstico o
 Os pareceres oficiais das cinco empresas ainda estão ausentes/incompletos;
 ITUB4 tem um bloqueio de consistência entre fontes já registrado no Radar.
 Resolver dados e autorizar custo permanece trabalho explícito do operador.
+
+## V7.3 — execuções Radar (multi-run)
+
+Uma **execução Radar** é uma instância operacional do mesmo tratamento
+`HFL-MULTIASSET-RADAR-V1`: uma raiz direta de `data/radar/` com sessão, universo,
+inputs, claims, journals, reservas e orçamento próprios. Os arquivos selados
+(`multiasset_radar.py`, `run_multiasset_radar.py`, `radar_api.py`, Global PM,
+V5 e `radar_corporate_events.py`, cujo hash entra na proveniência dos inputs) não
+mudam: todos já recebem a raiz como parâmetro.
+
+| Peça | Papel |
+|---|---|
+| `data/radar/registry.json` | Allowlist e índice versionado (`schema_version`, `revision`, histórico, selo). Não é autoridade. Arquivo operacional local (fora do Git, como `data/radar/`). |
+| `scripts/radar_runs.py` | Validação do registry (IDs, caminho `data/radar/<nome>`, sem `..`, symlink/junção, aliasing; falha fechada sem fallback), inventário somente leitura, estados conceituais, comparação econômica entre execuções, orçamento por execução e agregado, gates de `prepare`/`run`, autorização de orçamento separada e CLI. |
+| `platform_api.py` | `radar-runs`, `radar-view?run=`, `radar-readiness?run=…`, `radar-detail?run=…`, `radar-selection?run=…` (GET); `radar_post_gate` antes do `radar_api.post` selado; registro de origem do Global PM. As rotas `?mode=` anteriores continuam. |
+| `server.py` | `radar_runs.bind()` na inicialização: a execução **selecionada**, se aceitar novas chamadas, vira a raiz do worker Radar (o `radar_api` selado tem uma raiz por processo). POST `prepare`/`run` exige cabeçalho `X-HFL-Radar-Run` igual a essa execução. |
+| `network_scope.py` | `qualified()`: dispatcher nos três atributos e nenhum módulo com o guard selado; `install()` recusa instalar sobre um patch ativo. `run` exige `qualified()`. |
+
+Autoridade: manifesto, inputs, claims, journals, reservas e resultados de cada
+raiz. Uma instância (`--instance-of`) precisa do mesmo manifesto (modelo, prompts,
+parâmetros, contratos); manifesto diferente é recusado como nova instância. Nada
+é copiado: uma raiz nova precisa estar vazia. Um incidente (catálogo
+`INCIDENTS`) é sempre somente leitura e nunca vira execução operacional.
+
+Orçamento: o ledger selado continua por raiz (até US$ 5). `radar_runs.budget`
+soma as reservas de todas as execuções oficiais e compara com o limite local
+original (US$ 5), pois não há política aprovada de teto agregado. Acima dele, o
+lote pago exige `budget_authorizations/<budget_token>.json`, gravado por decisão
+humana explícita e vinculado às reservas de todas as execuções no momento; nunca
+libera nem copia reservas. Custos: estimado, reservado, incerto, observado pelos
+tokens, faturado confirmado (desconhecido) — sempre separados.
+
+Comparação econômica (`radar_runs.compare`) da mesma sessão: sessões, volume,
+barra bruta, último ajustado, eventos corporativos, fatores herdados e manifesto
+idênticos; série ajustada dentro de `FACTOR_NEIGHBOR_TOLERANCE` (1e-6, a mesma do
+pipeline) e features/métricas a ≤ 2e-6 (canônicas em 6 casas). Três níveis:
+`IDENTICAL`, `EQUIVALENT_WITHIN_TOLERANCE` (cada diferença listada) e
+`MATERIAL_DIVERGENCE`, que bloqueia a execução (`BLOCKED`). Nada é corrigido.
+
+```mermaid
+flowchart LR
+  REG[registry: IDs permitidos] --> SEL[/radar?run=ID/]
+  SEL --> VIEW[radar-view / readiness / detail: só a raiz do ID]
+  SEL -->|execução operacional| GATE[radar_post_gate + runs.gate]
+  GATE -->|prepare/run| SEALED[radar_api.post selado]
+  SEL --> GSEL[radar-selection?run: relê pareceres na raiz]
+  GSEL --> GPREP[global-prepare + radar_run + hashes]
+  GPREP --> ORIG[radar_origins/ID.json selado]
+  ORIG --> CTX[contexto V6 imutável]
+  CTX --> GRUN[global-run exige origem VERIFIED]
+```
+
+Global PM: `global-prepare` aceita os campos anteriores mais `radar_run` e
+`opinion_hashes`. Modo oficial sem `radar_run` é recusado (`radar_run_required`).
+O backend relê todos os pareceres na raiz autorizada (`pm.load_opinions`, selado),
+recusa sessão diferente da execução, mistura oficial/sintético, ativos fora do
+universo, menos de cinco pareceres íntegros e hashes do navegador diferentes dos
+lidos. Antes do contexto, grava `data/platform/v7/radar_origins/<id>.json` (selado,
+imutável) com execução, tratamento, sessão, universo, fonte, hashes dos pareceres,
+dos inputs e dos resultados e referências dos inputs. `global?id=` mostra a
+origem (`VERIFIED`, `MISMATCH`, `MISSING`); `global-run` pago exige `VERIFIED`.
+Trocar a execução selecionada não altera contexto nem origem congelados.
+`global_pm_api.py` é fixado pelo baseline V7, por isso a seleção por raiz explícita
+fica em `platform_api.run_selection` (mesma checagem e prévia de custos).

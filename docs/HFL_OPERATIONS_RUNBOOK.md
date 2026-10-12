@@ -1,4 +1,4 @@
-# HFL V7.2 — runbook operacional
+# HFL V7.3 — runbook operacional
 
 Executar no diretório do projeto, em PowerShell. Cada comando abaixo traz uma
 classe:
@@ -9,7 +9,153 @@ classe:
 | **GRAVA** | Gratuita, mas baixa dados e/ou escreve inputs, ledgers ou registros. Só por ação explícita. |
 | **PAGA** | Chama Gemini. Exige preflight, token e autorização própria. |
 
-Nenhum comando GRAVA ou PAGA foi executado nas raízes oficiais para qualificar a V7.2.
+Nenhum comando PAGA foi executado. Na V7.3, os únicos GRAVA executados foram o
+registro das execuções Radar (`data/radar/registry.json`), o preparo dos cinco
+inputs da nova raiz de recuperação e snapshots de preservação; a raiz do
+incidente não foi alterada (seção V7.3 abaixo).
+
+## V7.3 — execuções Radar, incidente e recuperação
+
+Cada **execução Radar** é uma raiz própria em `data/radar/` (sessão, universo,
+inputs, claims, journals, reservas e orçamento próprios), catalogada em
+`data/radar/registry.json`. O registry é **índice e allowlist**, não autoridade:
+estados, contagens e orçamento são sempre recalculados dos registros de cada raiz
+por `scripts/radar_runs.py`. O navegador só envia IDs, nunca caminhos.
+
+| ID | Raiz | Estado em 12/10/2026 |
+|---|---|---|
+| `radar-2026-10-09-original` | `data/radar/hfl_multiasset_v1` | `INCIDENT_PRESERVED` — `INCIDENT_2026_10_12_NETWORK_GUARD`: **Falha local confirmada — lote preservado — não reutilizável para novas chamadas.** 5 inputs, 5 claims, 5 falhas, 25 chamadas reservadas, 0 respostas; reserva local US$ 3,31776 (não é custo faturado; cobrança no provedor não confirmada). |
+| `radar-2026-10-09-recovery-01` | `data/radar/hfl_multiasset_v1_recovery_01` | `INPUTS_READY` — 5 inputs oficiais preparados em 12/10 12:59, 0 claims; nova instância operacional do **mesmo tratamento** (manifesto `77d75777…`); orçamento próprio US$ 3,32; **selecionada** e execução operacional do servidor. Pago bloqueado até a autorização de orçamento agregado (E). |
+| `radar-demo-v4` | `data/radar/demo-v4` | `COMPLETED` — demonstração sintética, somente leitura. |
+
+Estados conceituais (`radar_runs.status`):
+
+| Estado | Significado |
+|---|---|
+| `INCIDENT_PRESERVED` | incidente catalogado; nunca alvo de chamadas |
+| `INPUTS_READY` | inputs completos; a exposição agregada exige autorização de orçamento separada |
+| `AWAITING_AUTHORIZATION` | falta só o preflight e a autorização paga do lote |
+| `RUNNING` | `operation.lock` presente (pode ser lock órfão: consultar) |
+| `COMPLETED` | todos os pareceres do universo íntegros |
+| `PARTIAL` | parte concluída, parte com claim sem resultado |
+| `RECOVERY_REQUIRED` | claims sem resultado: só replay offline |
+| `BLOCKED` | inputs ausentes, execução somente leitura, análises fora da sessão/universo da execução ou divergência material com a execução de referência |
+| `INTEGRITY_ERROR` | input, journal, reserva ou autorização divergente |
+
+Nos jobs e na landing, os estados comuns da V7 (`COMMON` em `platform_api.py`)
+continuam valendo.
+
+**Orçamento.** Valores distintos na UI e no diagnóstico: estimado
+(planejamento), reserva conservadora, custo observado pelos tokens do provedor
+(estimativa, não fatura), faturado confirmado (sempre "desconhecido": não há
+fonte de fatura local), reserva de resultado incerto, orçamento da execução e
+exposição agregada das execuções oficiais. Não existe política aprovada de teto
+agregado: o limite local original de **US$ 5** vale para a soma. Incidente
+(US$ 3,31776) + lote de recuperação (US$ 3,31776) = **US$ 6,63552**: o lote pago
+fica bloqueado até uma **autorização de orçamento separada**, gravada pelo
+operador e vinculada à exposição atual (qualquer nova reserva em qualquer
+execução a invalida). Reservas antigas nunca são liberadas nem copiadas.
+
+**Limite conhecido.** Os CLIs selados (`run_multiasset_radar.py --root`,
+`radar_corporate_events.py prepare --root`, `run_global_pm.py`) não consultam o
+registry nem o orçamento agregado. Use os comandos abaixo; o servidor só aceita
+`prepare`/`run` na execução operacional registrada.
+
+### A. Reiniciar a plataforma
+
+| # | Passo | Comando | Classe |
+|---|---|---|---|
+| 1 | Descobrir quem escuta (12/10 12:22: PID 51508 em 8081, anterior à V7.3; nada em 8090). | `Get-NetTCPConnection -State Listen -LocalPort 8081,8090 -ErrorAction SilentlyContinue \| Select-Object LocalPort,OwningProcess` | CONSULTA |
+| 2 | Confirmar que o PID é o servidor HFL (`…\.venv\Scripts\python.exe dashboard/server.py`). **Não encerrar processo desconhecido.** | `Get-CimInstance Win32_Process -Filter "ProcessId=<PID>" \| Select-Object ProcessId,CreationDate,CommandLine` | CONSULTA |
+| 3 | Conferir que não há job Radar/Global em `RUNNING` (encerrar no meio de um lote exige replay offline). | `.venv/Scripts/python.exe -B scripts/check_platform.py` (seção Jobs) | CONSULTA |
+| 4 | Encerrar o servidor antigo: Ctrl+C no terminal dele; sem terminal, `Stop-Process -Id <PID>` **somente** para o PID confirmado no passo 2. Não reutilizar processo antigo: pode manter o guard selado vazado. | Ctrl+C / `Stop-Process -Id <PID>` | GRAVA (estado do processo; nenhum registro) |
+| 5 | Iniciar a versão corrigida. Log esperado: `Radar runner: radar-2026-10-09-recovery-01`. Sem registry válido: `Radar runner: nenhum` e preparo/execução recusados (sem fallback). | `.venv/Scripts/python.exe -B dashboard/server.py 8081` | CONSULTA (serve a UI) |
+| 6 | Em `/radar`: execução selecionada no seletor, "Execução operacional do servidor", sem aviso de isolamento. Com aviso: reiniciar de novo — o botão pago fica desabilitado e o backend recusa `run` (`network_isolation_not_qualified_restart_server`). | `http://localhost:8081/radar` | CONSULTA |
+
+### B. Consultar o incidente (somente leitura)
+
+| Comando | Classe |
+|---|---|
+| `.venv/Scripts/python.exe -B scripts/radar_runs.py status --run radar-2026-10-09-original` | CONSULTA |
+| `http://localhost:8081/radar?run=radar-2026-10-09-original` (botões desabilitados) | CONSULTA |
+| `.venv/Scripts/python.exe -B scripts/check_platform.py` (seção "Execuções Radar") | CONSULTA |
+| Forense: [incidente](evidence/hfl_incident_2026_10_12/README.md); hashes dos 45 arquivos: [incident_root_sha256.json](evidence/hfl_radar_v73/incident_root_sha256.json) | CONSULTA |
+
+Replay do incidente não reconstrói nada (não há envelopes) e a plataforma não
+aceita comandos nessa execução. Nunca apagar claims, journals, `failure.json` ou
+a reserva.
+
+### C. Preparar a nova execução (executado em 12/10/2026; referência)
+
+```powershell
+$P = '.venv/Scripts/python.exe'; $T = 'PETR4','VALE3','ITUB4','WEGE3','BBAS3'
+& $P -B scripts/check_preservation.py --snapshot data/platform/antes-v73-recovery-prepare.json   # GRAVA (só o snapshot)
+& $P -B scripts/radar_runs.py register --run radar-2026-10-09-original --path data/radar/hfl_multiasset_v1 --session 2026-10-09 --tickers $T --existing --incident INCIDENT_2026_10_12_NETWORK_GUARD   # GRAVA (registry)
+& $P -B scripts/radar_runs.py register --run radar-demo-v4 --path data/radar/demo-v4 --session 2026-10-09 --tickers PETR4 VALE3 ITUB4 BBAS3 WEGE3 --mode SYNTHETIC_DEMO --existing --read-only   # GRAVA (registry)
+& $P -B scripts/radar_runs.py register --run radar-2026-10-09-recovery-01 --path data/radar/hfl_multiasset_v1_recovery_01 --session 2026-10-09 --tickers $T --budget-usd 3.32 --instance-of radar-2026-10-09-original --select   # GRAVA (registry)
+& $P -B scripts/radar_runs.py prepare --run radar-2026-10-09-recovery-01   # GRAVA (inputs da nova raiz; B3 + yfinance; sem Gemini)
+& $P -B scripts/check_preservation.py --since data/platform/antes-v73-recovery-prepare.json   # CONSULTA
+& $P -B scripts/radar_runs.py compare --run radar-2026-10-09-recovery-01 --with radar-2026-10-09-original   # CONSULTA; exit 1 se divergência material
+```
+
+`register` recusa raiz já registrada (aliasing), raiz nova não vazia (nada é
+copiado), caminho fora de `data/radar/<nome>`, symlink/junção e instância com
+manifesto diferente. `prepare` usa o mesmo caminho normalizado do botão de
+`/radar` (`radar_corporate_events.install()` + `radar.prepare`) com a sessão e o
+universo da execução. Resultado: 5 `PREPARED`; comparação sem divergência
+material ([evidências V7.3](evidence/hfl_radar_v73/README.md)).
+
+### D. Conferir preservação
+
+| Comando | Esperado | Classe |
+|---|---|---|
+| `& $P -B scripts/check_preservation.py` | `violations: []`; só `job.json` e `last_prepare.json` da raiz do incidente como OPERATIONAL (mudaram em 12/10 02:41 e 02:59, antes da V7.3) | CONSULTA |
+| `& $P -B scripts/check_preservation.py --since <snapshot>` | nenhuma VIOLATION | CONSULTA |
+| `& $P -B -m pytest -q tests/test_radar_runs.py -k real` | incidente idêntico aos 45 hashes; recuperação com 5 inputs válidos | CONSULTA |
+| `& $P -B scripts/radar_runs.py compare --run radar-2026-10-09-recovery-01 --with radar-2026-10-09-original` | `material: false` | CONSULTA |
+
+### E. Preflight e orçamento
+
+| # | Passo | Comando | Classe |
+|---|---|---|---|
+| 1 | Reservas por execução (com situação forense), orçamento da execução, chamadas máximas/planejadas (30/29: BBAS3 tem veto determinístico, sem Risk), exposição agregada e `budget_token`. | `& $P -B scripts/radar_runs.py budget --run radar-2026-10-09-recovery-01` | CONSULTA |
+| 2 | **Decisão humana separada** sobre a exposição agregada acima do limite local (US$ 6,63552 > US$ 5): grava `budget_authorizations/<token>.json` na raiz da recuperação. Não chama provedor e não libera a reserva antiga. Sem este passo o lote pago continua bloqueado. | `& $P -B scripts/radar_runs.py authorize-budget --run radar-2026-10-09-recovery-01 --confirm <budget_token>` | GRAVA |
+| 3 | Preflight completo: preflight selado do lote + orçamento agregado + bloqueios + frase de consentimento + `confirmation_token`. Exige `$env:GEMINI_API_KEY` no mesmo terminal (sem ela: `gemini_api_key_missing`). Exit 0 só sem bloqueios. | `& $P -B scripts/radar_runs.py preflight --run radar-2026-10-09-recovery-01` | CONSULTA |
+
+### F. Autorizar o Gemini (procedimento futuro — **não executado** nesta entrega)
+
+```powershell
+$env:GEMINI_API_KEY = '<chave somente neste terminal; nunca em arquivo, log ou relatório>'
+& $P -B scripts/radar_runs.py preflight --run radar-2026-10-09-recovery-01   # CONSULTA: copiar confirmation_token
+& $P -B scripts/radar_runs.py run --run radar-2026-10-09-recovery-01 --confirm <confirmation_token> --authorize-paid   # PAGA: até 30 chamadas, reserva US$ 3,31776
+```
+
+Preferir o CLI (processo próprio, `network_scope` instalado explicitamente).
+Pela UI: servidor reiniciado (A) com a chave no ambiente do terminal do servidor,
+`/radar?run=radar-2026-10-09-recovery-01` → "2. Verificar preflight" → marcar o
+consentimento → "3. Confirmar e executar". O backend repete todas as checagens.
+Token, preflight ou autorização de outra execução nunca valem aqui.
+
+### G. Consultar resultados
+
+`/radar?run=radar-2026-10-09-recovery-01` (tabela, Sala de Decisão por ativo e
+comparação), `& $P -B scripts/radar_runs.py status --run radar-2026-10-09-recovery-01`
+e `scripts/check_platform.py` — todos CONSULTA. Falha parcial (`PARTIAL`,
+`RECOVERY_REQUIRED`): só replay offline, nunca repetir chamadas do claim.
+
+### H. Enviar ao Gestor Global (R$ 100.000 hipotéticos)
+
+| # | Passo | Local | Classe |
+|---|---|---|---|
+| 1 | Com 5/5 pareceres completos, "Levar seleção ao Gestor Global" em `/radar?run=…` abre `/portfolio?run=radar-2026-10-09-recovery-01&…#global-workflow`. | UI | CONSULTA |
+| 2 | "Verificar pareceres": o backend relê os cinco pareceres **na raiz da execução** (mesma sessão, oficial, íntegros) e devolve seus hashes. | UI | CONSULTA |
+| 3 | Capital `100000`, os dois reconhecimentos, "Preparar contexto": grava o registro de origem selado (`data/platform/v7/radar_origins/<id>.json`: execução, tratamento, sessão, universo, fonte, hashes dos pareceres, referências dos inputs) e o contexto imutável. Hashes do navegador divergentes bloqueiam. | UI | GRAVA |
+| 4 | Preflight global (estimativa, teto US$ 0,159744, validade 24 h, token). | UI | CONSULTA |
+| 5 | Autorizar **apenas** a inferência global (exige origem `VERIFIED`; a autorização Radar não vale aqui). | UI | **PAGA** |
+
+Trocar depois a execução selecionada não altera um contexto congelado nem sua
+origem. Contextos do CLI V6 (`run_global_pm.py prepare --radar-root …`) não têm
+registro de origem V7.3; a plataforma recusa sua inferência paga.
 
 ## Iniciar e consultar
 
@@ -94,12 +240,12 @@ autorização paga do lote. Fluxo para uma sessão encerrada `S`:
 | # | Passo | Comando | Classe |
 |---|---|---|---|
 | 0 | Registrar hashes antes (arquivo novo, nunca sobrescrito). | `scripts/check_preservation.py --snapshot data/platform/antes-S.json` | GRAVA (só o snapshot) |
-| 1 | Preparar os cinco: reutiliza inputs existentes sem regravar; congela os ausentes. | `/radar` → "1. Preparar dados", ou `scripts/radar_corporate_events.py prepare --session S --tickers PETR4 VALE3 ITUB4 WEGE3 BBAS3` | GRAVA |
+| 1 | Preparar os cinco na execução registrada: reutiliza inputs existentes sem regravar; congela os ausentes. | `/radar?run=ID` → "1. Preparar dados", ou `scripts/radar_runs.py prepare --run ID` | GRAVA |
 | 2 | Antes/depois: só `last_prepare.json`, `job.json`, cache COTAHIST (OPERATIONAL) e arquivos novos (NEW); `violations` vazio. | `scripts/check_preservation.py --since data/platform/antes-S.json` | CONSULTA |
 | 3 | Conferir inputs, normalização, risco individual e preflight por ticker. | `/radar` (Conferência dos inputs) ou `scripts/check_platform.py` | CONSULTA |
 | 4 | Opcional: eventos, histórico e equivalência com o extrator original. | `scripts/radar_corporate_events.py diagnose --session S` | CONSULTA (lê rede) |
-| 5 | Preflight do lote Radar: estimativa, reserva, orçamento, token. | `/radar` ("2. Verificar preflight") ou `scripts/run_multiasset_radar.py preflight --session S` | CONSULTA |
-| 6 | Autorizar o **lote Radar** (até 6 chamadas por ativo, sem retry). Preferir o CLI (processo próprio); pela UI, só com servidor reiniciado após 12/10 (sem aviso de isolamento em `/radar`). | `scripts/run_multiasset_radar.py run --root R --session S --confirm <token> --authorize-paid` ou `/radar` | **PAGA** |
+| 5 | Preflight do lote Radar: estimativa, reserva, orçamento próprio e agregado, token. | `/radar?run=ID` ("2. Verificar preflight") ou `scripts/radar_runs.py preflight --run ID` | CONSULTA |
+| 6 | Autorizar o **lote Radar** (até 6 chamadas por ativo, sem retry) na execução registrada; ver V7.3 E–F. | `scripts/radar_runs.py run --run ID --confirm <token> --authorize-paid` ou `/radar?run=ID` | **PAGA** |
 | 7 | Elegibilidade conjunta (mesma fonte/sessão, todos os pareceres). | `/portfolio#global-workflow` ou `scripts/check_platform.py` | CONSULTA |
 | 8 | Preparar contexto com snapshot hipotético **perto do uso** (validade 24 h). | `/portfolio#global-workflow` | GRAVA |
 | 9 | Preflight global (Risk conjunto, estimativa, teto US$ 0,159744). | idem | CONSULTA |
@@ -194,7 +340,7 @@ hashes. Logs brutos ficam locais.
 
 ## Qualificação
 
-Ver [evidências V7.2](evidence/hfl_platform_v72/README.md),
+Ver [evidências V7.3](evidence/hfl_radar_v73/README.md), [evidências V7.2](evidence/hfl_platform_v72/README.md),
 [evidências V7.1](evidence/hfl_platform_v71/README.md),
 [evidências V7](evidence/hfl_platform_v7/README.md) e
 [arquitetura](HFL_PLATFORM_ARCHITECTURE.md). Nenhum passo desta entrega executou
