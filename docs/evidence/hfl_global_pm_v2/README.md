@@ -350,9 +350,8 @@ pelos testes sobre os inputs oficiais congelados (BBAS3).
 
 ## 13. Regressão
 
-Ver [regression.txt](regression.txt) e [regression_before_v74.txt](regression_before_v74.txt)
-(suíte completa, `pytest -q`). Resultado e classificação das falhas na seção
-"Regressão final" abaixo.
+1703 aprovados, 15 falhas, nenhuma ligada à V7.4; as duas legadas de preservação
+continuam vermelhas. Classificação completa na seção "Regressão final".
 
 ## 14. Preservação
 
@@ -362,7 +361,7 @@ Ver [regression.txt](regression.txt) e [regression_before_v74.txt](regression_be
 - `check_preservation.py --since preservation_before.json`: `changes: []`,
   `violations: []` (Radar, ledgers H2/forward, registry e execuções).
 - Baselines históricos: `violations: []`; só as duas mudanças OPERATIONAL
-  legadas (seção 13 abaixo).
+  legadas (seção "Regressão final").
 - Nenhum arquivo selado editado: `multiasset_global_pm.py`, `run_global_pm.py`,
   `global_pm_api.py`, motor V5, Radar, H2 v6 e `docs/HFL_PREMIUM_V6_GLOBAL_PM.md`
   inalterados.
@@ -406,6 +405,25 @@ Inferência oficial V2 futura (**não executada**; exige decisão humana nova):
 
 Uma V2 qualificada não autoriza piloto, política de investimento nem execução
 de ordens; o resultado continua consultivo (`execution_enabled: false`).
+
+## Regressão final
+
+Suíte completa (`poetry run pytest -q`, árvore limpa após os commits):
+**1703 aprovados, 15 falhas** ([regression.txt](regression.txt)). Antes da V7.4
+(mesma suíte sem os 31 testes novos, árvore suja pelos arquivos novos ainda não
+versionados): 1672 aprovados, 15 falhas ([regression_before_v74.txt](regression_before_v74.txt)).
+A suíte **não** está totalmente aprovada. Nenhuma falha envolve código da V7.4:
+
+| Falhas | Causa | Relação com a V7.4 |
+|---|---|---|
+| `test_global_pm.py::test_31_original_ledgers_preserved`, `test_multiasset_portfolio.py::test_original_scientific_radar_and_ledger_preservation` | **As duas falhas legadas:** `data/radar/hfl_multiasset_v1/job.json` e `last_prepare.json` (OPERATIONAL) mudaram por ações do operador em 12/10, antes da V7.3; os testes comparam o hash exato de todos os arquivos dos baselines V6/V5. `violations: []`. Baselines não foram alterados. | nenhuma; idênticas antes e depois |
+| `test_radar_runs.py::test_real_recovery_has_five_official_inputs_equivalent_to_original`, `::test_real_itub4_bonus_normalized_and_bbas3_restricted` | Afirmam o estado de `radar-2026-10-09-recovery-01` **antes** do lote oficial (0 claims, plano 30/29). O lote oficial foi executado em 12/10 (5 claims), então esses testes do V7.3 ficaram desatualizados em relação aos dados locais. | nenhuma; idênticas antes e depois |
+| `tests/pipeline/test_flows.py` (7) | PostgreSQL em `127.0.0.1:5435` indisponível (`connection refused`). | ambiente |
+| `test_cal_b4_safety`, `test_spec` (estratégias `*_h2_proposed` extras no registro), `test_v6_phase_routing` | Divergências antigas de código/teste H2 não tocado aqui. | nenhuma; idênticas antes e depois |
+| `test_h2_v6_provisional::test_oa1_validation_seal_and_dashboard` × `tests/pipeline/test_snapshot.py::test_manifest_adulterado_e_rejeitado[code]` | Par complementar: o primeiro exige árvore limpa ("evaluation requires a clean repository"); o segundo muta `git_dirty=False` e só detecta a mutação com árvore suja. Um dos dois sempre falha. Antes: falhou o primeiro (árvore suja); agora, o segundo. Confirmado com um arquivo não versionado temporário: com ele, `test_snapshot` passa. | nenhuma |
+
+Testes mais acoplados à entrega (V2, V1 Global PM, plataforma V7, UI):
+87 aprovados, 1 falha (a legada `test_31`).
 
 ## Restrições respeitadas
 
