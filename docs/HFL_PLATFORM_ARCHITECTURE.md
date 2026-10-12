@@ -56,7 +56,8 @@ conjunto nem usa os valores V5/V6 como substitutos.
 | `multiasset_portfolio.py` / `multiasset_manager.py` / `run_multiasset_portfolio.py` | contratos V5, caixa/reservas/recebíveis, validação, projeção e demonstração contábil |
 | `multiasset_global_pm.py` / `run_global_pm.py` | contexto e snapshot hipotéticos, opiniões elegíveis, Risk conjunto, uma proposta global, validação e journal durável |
 | `dashboard/platform_api.py` | projeções somente leitura e jobs que invocam explicitamente prepare/run/replay do Global PM existente |
-| `scripts/check_platform.py` | diagnóstico offline somente leitura, stdout UTF-8 e exit code 2 para integridade H2 ausente/divergente |
+| `scripts/check_platform.py` | diagnóstico offline somente leitura por seção (`--json` completo), stdout UTF-8 e exit code 2 para integridade H2 ausente/divergente |
+| `scripts/radar_corporate_events.py` | V7.1: preparo Radar normalizado para bonificação/desdobramento corroborado pela B3, e diagnóstico por ticker |
 
 O catálogo permanece o existente: cinco Technical Analysts ativos e 25
 slots técnicos livres (30 no total), mais Risk e Portfolio Manager. Nenhum agente novo é criado. A
@@ -113,6 +114,7 @@ leitura; os novos comandos explícitos ficam em `/api/platform/`.
 | `global-preflight?id=&max_usd=` | GET; preflight nativo sem reserva, claim ou chamada |
 | `radar-view?mode=` | GET; status da raiz oficial/sintética fixa |
 | `radar-detail?mode=&ticker=&session=` | GET; parecer público da mesma raiz |
+| `radar-readiness?session=&tickers=` | GET; V7.1, motivo e próxima ação por ticker oficial (sem gravar nem inferir) |
 | `global-prepare` | POST; ID, modo, sessão, tickers, capital e reconhecimentos explícitos |
 | `global-run` | POST; ID, orçamento, token do preflight, autorização paga própria e confirmação |
 | `global-replay` | POST; ID e confirmação; exige claim e journal existentes, sem chamada nova |
