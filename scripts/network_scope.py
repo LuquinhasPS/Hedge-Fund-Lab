@@ -16,8 +16,15 @@ every loaded ``no_network`` name (including the sealed module's) to it.
 Context variables follow ``asyncio`` tasks and ``asyncio.to_thread``; plain
 threads start outside the offline scope, so a worker is never blocked by a
 check running in another request.
+
+``qualified()`` is what the server reports and what paid Radar commands require:
+all three attributes carry the dispatcher and no loaded module still holds the
+sealed guard. Ceiling: on interpreters where ``threading.Thread`` inherits the
+caller's context (free-threaded 3.14 default), a thread started *inside* an
+offline scope would inherit it; no worker is started from inside one today.
 """
 
+import _socket
 import contextvars
 import ipaddress
 import socket
@@ -56,9 +63,40 @@ def _local(sock, address):
     return sock.family == getattr(socket, "AF_UNIX", object())
 
 
+def _genuine():
+    """True when the three attributes are the interpreter's own (no patch active)."""
+    return (
+        socket.socket.connect is _socket.socket.connect
+        and socket.socket.connect_ex is _socket.socket.connect_ex
+        and getattr(socket.create_connection, "__module__", None) == "socket"
+        and getattr(socket.create_connection, "__qualname__", None) == "create_connection"
+    )
+
+
+def qualified():
+    """Scoped guard on all three attributes and no loaded module left on the sealed one."""
+    # ``is True``: a MagicMock (the sealed guard) answers any attribute truthily.
+    installed = all(
+        getattr(value, "_hfl_scoped", False) is True
+        for value in (
+            socket.socket.connect,
+            socket.socket.connect_ex,
+            socket.create_connection,
+        )
+    )
+    return installed and not any(
+        getattr(module, "no_network", None) is SEALED
+        for module in list(sys.modules.values())
+    )
+
+
 def install():
-    """Idempotent; call once at server startup, before serving requests."""
-    if not getattr(socket.create_connection, "_hfl_scoped", False):
+    """Idempotent; call once at server/CLI startup, before serving requests."""
+    if getattr(socket.create_connection, "_hfl_scoped", False) is not True:
+        if not _genuine():
+            # A sealed guard (or any patch) is active right now: capturing it as the
+            # "original" would make the block permanent. Refuse; restart the process.
+            raise RuntimeError("network_patch_active_at_install")
         connect, connect_ex, create = (
             socket.socket.connect,
             socket.socket.connect_ex,
@@ -71,6 +109,7 @@ def install():
                     raise RuntimeError(MESSAGE)
                 return original(sock, address)
 
+            call._hfl_scoped = True
             return call
 
         def create_connection(*args, **kwargs):
