@@ -134,6 +134,76 @@ def forward_integrity(root):
     }
 
 
+NORMALIZED_PREPARE = (
+    ".venv/Scripts/python.exe -B scripts/radar_corporate_events.py prepare "
+    "--session {day} --tickers {ticker}"
+)
+
+
+def radar_readiness(day, symbols, root=None):
+    """Why each official opinion is (not) usable by the Global PM, and the next step."""
+    root = root or global_api.OFFICIAL_RADAR
+    selection = global_api.selection("CONSULTATIVE_SANDBOX", day, symbols)
+    last = root / "last_prepare.json"
+    blocked = {
+        i["ticker"]: i.get("error", "")
+        for i in (radar.read(last)["items"] if last.exists() else [])
+        if i["session"] == day and i["status"] == "BLOCKED"
+    }
+    items = []
+    for entry in selection["items"]:
+        ticker = entry["ticker"]
+        item = {"ticker": ticker, "session": day}
+        if entry["status"] == "ELIGIBLE":
+            item.update(state="ELIGIBLE", action="Parecer completo e íntegro.")
+        elif not (radar.folder_for(root, ticker, day) / "input.json").exists():
+            error = blocked.get(ticker)
+            item.update(
+                state="INPUT_BLOCKED" if error else "NO_INPUT",
+                error=error,
+                action="Evento corporativo (bonificação/desdobramento): preparar com "
+                + NORMALIZED_PREPARE.format(day=day, ticker=ticker)
+                if error and "split-like mismatch" in error
+                else "Investigar o bloqueio de dados; não há parecer a solicitar."
+                if error
+                else "Preparar dados oficiais (gratuito, grava inputs): "
+                + NORMALIZED_PREPARE.format(day=day, ticker=ticker),
+            )
+        else:
+            try:
+                native = radar.detail(ticker, day, root)["status"]
+                if native == "PREPARED":
+                    radar.checked_input(root, ticker, day)
+            except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+                item.update(
+                    state="INTEGRITY_ERROR",
+                    error=str(exc),
+                    action="Input divergente da identidade Radar atual; não reutilizar.",
+                )
+            else:
+                item.update(
+                    state={
+                        "PREPARED": "AWAITING_RADAR_AUTHORIZATION",
+                        "FAILED_REPLAY_ONLY": "RECOVERY_REQUIRED",
+                    }.get(native, "INELIGIBLE"),
+                    action={
+                        "PREPARED": "Input pronto: preflight Radar e autorização paga própria do lote.",
+                        "FAILED_REPLAY_ONLY": "Recuperar somente offline; nunca repetir a chamada.",
+                    }.get(
+                        native,
+                        "Parecer incompatível com sessão/fonte; consultar detalhe.",
+                    ),
+                )
+        items.append(item)
+    return {
+        "session": day,
+        "items": items,
+        "missing": selection["missing"],
+        "global_pm_ready": not selection["missing"],
+        "provider_calls": 0,
+    }
+
+
 def global_records():
     result = []
     for path in sorted(
@@ -226,9 +296,7 @@ def overview(at=None):
     live_radar = attempt(lambda: radar.status(global_api.OFFICIAL_RADAR))
     day = str(forward.fwd.last_closed_session(at).date())
     universe = (live_radar.get("data") or {}).get("universe") or list(radar.EXAMPLES)
-    selection = attempt(
-        lambda: global_api.selection("CONSULTATIVE_SANDBOX", day, universe)
-    )
+    selection = attempt(lambda: radar_readiness(day, universe))
     v5 = attempt(lambda: portfolio_api.get("status", {}))
     v6 = attempt(lambda: global_api.get("status", {}))
     science = attempt(h2_api.status)
@@ -266,7 +334,7 @@ def overview(at=None):
     ]
     inputs = sorted((forward.OUTPUT / "sessions").glob("????-??-??/input.json"))
     latest_input = forward.read(inputs[-1]) if inputs else None
-    return {
+    report = {
         "identity": "HFL-PLATFORM-V7",
         "observed_at": at.isoformat(),
         "read_only": True,
@@ -319,6 +387,131 @@ def overview(at=None):
         ],
         "execution_multiasset_available": False,
         "provider_calls": 0,
+    }
+    report["attention"] = attention(report, at)
+    return report
+
+
+def attention(d, at):
+    """Compact "Atenção necessária": derived only from the records read above."""
+    br = lambda day: "/".join(reversed(day.split("-")))  # noqa: E731
+    data = lambda key: d[key].get("data") if d[key]["available"] else None  # noqa: E731
+    decision, sup = data("decision"), (data("supervision") or {}).get("selected")
+    readiness, cal = data("official_selection"), d["calendar"]
+    observed, closed = d["last_observed_session"], d["last_closed_session"]
+    items = []
+    if not (data("integrity") or {}).get("ok"):
+        items.append(
+            (
+                "blocked",
+                "Integridade H2 indisponível ou divergente: investigar antes de qualquer ação.",
+                "/#audit",
+            )
+        )
+    for job in (d["jobs"].get("data") or []) if d["jobs"]["available"] else []:
+        if job["state"] in ("RUNNING", "FAILED", "RECOVERY_REQUIRED", "BLOCKED"):
+            items.append(
+                (
+                    "blocked",
+                    f"{job['module']} · {job.get('command')}: {job['state']}; consultar o registro, sem nova chamada.",
+                    job["href"],
+                )
+            )
+    pending = sup and sup.get("order_state") == "AGUARDANDO_APROVACAO"
+    if pending:
+        items.append(
+            (
+                "action",
+                "Aprovar ou rejeitar a supervisionada até "
+                + br(sup["deadline"][:10])
+                + " "
+                + sup["deadline"][11:16]
+                + " BRT.",
+                "/paper#supervisao",
+            )
+        )
+    if observed and observed < closed:
+        items.append(
+            (
+                "action",
+                f"Preparar o fechamento oficial de {br(closed)} no runner original (grava; sem inferência).",
+                "/paper#sala",
+            )
+        )
+    target = (decision or {}).get("target_session")
+    if target and cal.get("next_session") and target >= cal["next_session"]:
+        items.append(
+            (
+                "info",
+                f"Após o COTAHIST de {br(target)}: preparar o novo fechamento e conferir a reconciliação da intenção.",
+                "/paper#sala",
+            )
+        )
+    if readiness and readiness["missing"]:
+        blocked = [
+            i["ticker"]
+            for i in readiness["items"]
+            if i["state"] in ("INPUT_BLOCKED", "INTEGRITY_ERROR", "RECOVERY_REQUIRED")
+        ]
+        items.append(
+            (
+                "lab",
+                f"Radar oficial: {len(readiness['items']) - len(readiness['missing'])}/{len(readiness['items'])} pareceres elegíveis"
+                + (f"; bloqueados: {', '.join(blocked)}" if blocked else "")
+                + ". Global PM aguarda os cinco.",
+                "/radar",
+            )
+        )
+    for record in d["global_records"]:
+        if record["state"] in ("PREPARED", "READY") and b.instant(
+            record["expires_at"]
+        ) < b.instant(at.isoformat()):
+            items.append(
+                (
+                    "info",
+                    f"Contexto Global {record['id'][:11]}… expirou; preparar outro ID quando for usar.",
+                    record["href"],
+                )
+            )
+    rank = {"blocked": 0, "action": 1, "info": 2, "lab": 3}
+    items.sort(key=lambda x: rank[x[0]])
+    return {
+        "next_action": items[0][1] if items else "Nenhuma ação pendente nos registros.",
+        "level": items[0][0] if items else "ok",
+        "items": [{"level": a, "text": b, "href": c} for a, b, c in items],
+        "decision": None
+        if not decision
+        else {
+            "label": f"{(decision.get('portfolio') or {}).get('decision') or decision['status']} {decision.get('ticker', 'PETR4').removesuffix('.SA')}",
+            "session": decision["session"],
+            "target_session": target,
+            "status": decision["status"],
+            "votes": "{}/{}".format(
+                (decision.get("committee") or {}).get("responded", "N/D"),
+                (decision.get("committee") or {}).get("analyst_count", "N/D"),
+            ),
+            "order": (decision.get("order") or {}).get("label"),
+        },
+        "approval": None
+        if not sup
+        else {
+            "state": sup["order_state"],
+            "deadline": sup.get("deadline"),
+            "pending": bool(pending),
+        },
+        "next_session": {
+            "day": cal.get("next_session"),
+            "expected_open": cal.get("expected_open"),
+        },
+        "data": {
+            "last_observed_session": observed,
+            "last_closed_session": closed,
+            "current": bool(observed) and observed >= closed,
+            "radar_eligible": None
+            if not readiness
+            else len(readiness["items"]) - len(readiness["missing"]),
+            "radar_selected": None if not readiness else len(readiness["items"]),
+        },
     }
 
 
@@ -574,6 +767,8 @@ def get(command, query):
             "read_only": True,
             "mutation_available": mutable,
         }
+    if command == "radar-readiness" and set(query) == {"session", "tickers"}:
+        return radar_readiness(query["session"], query["tickers"].split(","))
     if command == "radar-detail" and set(query) == {"mode", "ticker", "session"}:
         return radar.detail(query["ticker"], query["session"], source_root(query["mode"]))
     raise ValueError("invalid_platform_query")

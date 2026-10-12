@@ -430,6 +430,178 @@ class PlatformChecks(unittest.TestCase):
         with patch.object(api.forward, "decision", return_value=None):
             self.assertIsNone(api.overview()["decision"]["data"])
 
+    def test_radar_readiness_explains_each_missing_opinion(self):
+        import pandas as pd
+
+        root, day = self.suite / "radar", "2026-10-09"
+        bars = api.radar.synthetic_bars(pd.Timestamp(day))
+
+        class Extractor:
+            def download(self, *args):
+                return bars
+
+            def source_description(self):
+                return {"name": "FAKE_OFFICIAL_SOURCE_OFFLINE"}
+
+            def _cotahist(self, year):
+                return self
+
+        with patch.object(api.radar, "read_cotahist", return_value=bars):
+            api.radar.prepare(
+                ["PETR4", "WEGE3", "BBAS3", "ELET3"],
+                root,
+                end=day,
+                mode="live",
+                extractor=Extractor(),
+            )
+        with patch.dict(api.os.environ, {"GEMINI_API_KEY": "offline-placeholder"}):
+            token = api.radar.preflight(["ELET3"], root, day=day)["confirmation_token"]
+            api.radar.run(
+                ["ELET3"],
+                token,
+                root,
+                day=day,
+                authorize_paid=True,
+                transport=api.radar.fake_gemini,
+            )
+        api.radar.write(
+            root / "last_prepare.json",
+            {
+                "items": [
+                    {
+                        "ticker": "ITUB4",
+                        "session": day,
+                        "status": "BLOCKED",
+                        "error": "ValueError: split-like mismatch between yfinance "
+                        "and B3 closes: {2025: 0.97}",
+                    }
+                ]
+            },
+        )
+        folder = api.radar.folder_for(root, "WEGE3", day)
+        (folder / "bars.csv").write_bytes((folder / "bars.csv").read_bytes() + b"\n")
+        api.radar.write(api.radar.folder_for(root, "BBAS3", day) / "claim.json", {})
+        before = inventory(root)
+        with patch.object(api.global_api, "OFFICIAL_RADAR", root):
+            d = api.get(
+                "radar-readiness",
+                {"session": day, "tickers": "PETR4,VALE3,ITUB4,WEGE3,BBAS3"},
+            )
+            eligible = api.radar_readiness(day, ["ELET3"])
+        states = {i["ticker"]: i["state"] for i in d["items"]}
+        self.assertEqual(
+            states,
+            {
+                "PETR4": "AWAITING_RADAR_AUTHORIZATION",
+                "VALE3": "NO_INPUT",
+                "ITUB4": "INPUT_BLOCKED",
+                "WEGE3": "INTEGRITY_ERROR",
+                "BBAS3": "RECOVERY_REQUIRED",
+            },
+        )
+        itub = next(i for i in d["items"] if i["ticker"] == "ITUB4")
+        self.assertIn(
+            "radar_corporate_events.py prepare --session 2026-10-09", itub["action"]
+        )
+        self.assertFalse(d["global_pm_ready"])
+        self.assertEqual(eligible["items"][0]["state"], "ELIGIBLE")
+        self.assertTrue(eligible["global_pm_ready"])
+        self.assertEqual(before, inventory(root))  # consulting never writes or claims
+
+    def test_radar_and_global_authorizations_are_independent(self):
+        p = self.prepare()
+        root, day = self.suite / "radar", "2026-10-09"
+        api.radar.prepare(["PETR4"], root, end=day, mode="synthetic")
+        radar_token = api.radar.preflight(["PETR4"], root, day=day)["confirmation_token"]
+        global_token = api.get("global-preflight", {"id": p["id"], "max_usd": "0.25"})[
+            "confirmation_token"
+        ]
+        self.assertNotEqual(radar_token, global_token)
+        payload = {
+            "id": p["id"],
+            "max_usd": "0.25",
+            "confirmation_token": radar_token,
+            "authorize_paid": False,
+            "confirm": True,
+        }
+        self.assertEqual(self.post("run", payload)[0], 400)
+        with self.assertRaisesRegex(ValueError, "preflight_or_confirmation_changed"):
+            api.radar.run(["PETR4"], global_token, root, day=day)
+        self.assertFalse(list(root.rglob("claim.json")))
+        self.assertFalse((api.analysis_root(p["id"]) / "claim.json").exists())
+
+    def test_get_routes_never_infer_or_write(self):
+        roots = [ROOT / "data/forward", ROOT / "data/radar", ROOT / "data/portfolio"]
+        before = [inventory(root) for root in roots]
+        for path in (
+            "/",
+            "/api/platform/overview",
+            "/api/platform/jobs",
+            "/api/platform/radar-readiness?session=2026-10-09&tickers=PETR4,ITUB4",
+            "/api/platform/radar-view?mode=CONSULTATIVE_SANDBOX",
+            "/api/radar/status",
+            "/api/global-pm/selection?mode=CONSULTATIVE_SANDBOX&session=2026-10-09&tickers=PETR4",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.request("GET", path)[0], 200)
+        self.assertEqual(before, [inventory(root) for root in roots])
+        import check_platform
+
+        text = check_platform.summary(api.overview())
+        for title in (
+            "[H2 original]",
+            "[Supervisão]",
+            "[Carteiras e benchmarks]",
+            "[Radar oficial",
+            "[Global PM]",
+            "[Mercado]",
+            "[Jobs incompletos, incertos ou bloqueados]",
+            "[Integridade]",
+            "[Ações manuais pendentes]",
+        ):
+            self.assertIn(title, text)
+        self.assertEqual(before, [inventory(root) for root in roots])
+
+    def test_attention_is_derived_and_ordered(self):
+        import pandas as pd
+
+        at = pd.Timestamp("2026-10-14 09:00", tz="America/Sao_Paulo")
+        ok = lambda data: {"available": True, "data": data}  # noqa: E731
+        d = {
+            "decision": ok(
+                {
+                    "status": "DECIDED",
+                    "session": "2026-10-09",
+                    "target_session": "2026-10-13",
+                }
+            ),
+            "supervision": ok({"selected": None}),
+            "integrity": {"available": False},
+            "official_selection": ok({"items": [], "missing": []}),
+            "jobs": ok([]),
+            "calendar": {"next_session": "2026-10-14", "expected_open": None},
+            "last_observed_session": "2026-10-09",
+            "last_closed_session": "2026-10-13",
+            "global_records": [
+                {
+                    "id": "v7-" + "a" * 32,
+                    "state": "PREPARED",
+                    # 13/10 23:30 UTC is still 13/10 in BRT: earlier than ``at``.
+                    "expires_at": "2026-10-13T23:30:00+00:00",
+                    "href": "/portfolio",
+                }
+            ],
+        }
+        a = api.attention(d, at)
+        self.assertEqual(a["level"], "blocked")
+        self.assertIn("Integridade", a["next_action"])
+        self.assertEqual([i["level"] for i in a["items"]], ["blocked", "action", "info"])
+        self.assertIn("13/10/2026", a["items"][1]["text"])  # stale close to prepare
+        self.assertIn("expirou", a["items"][2]["text"])
+        self.assertFalse(a["data"]["current"])
+        d["global_records"][0]["expires_at"] = "2026-10-14T12:30:00+00:00"  # 09:30 BRT
+        self.assertNotIn("expirou", json.dumps(api.attention(d, at), ensure_ascii=False))
+
 
 if __name__ == "__main__":
     unittest.main()

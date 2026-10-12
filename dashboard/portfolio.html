@@ -5,8 +5,8 @@
   <title>Gestor Global · Hedge-Fund-Lab Premium V6</title>
   <link rel="stylesheet" href="/radar.css?v=7"><link rel="stylesheet" href="/portfolio.css">
   <link rel="stylesheet" href="/global-pm.css?v=7">
-  <script src="/vendor/chart.umd.js" defer></script><script src="/portfolio.js" defer></script><script src="/global-pm.js?v=7" defer></script><script src="/global-workflow.js?v=7" defer></script>
-<link rel="stylesheet" href="/platform.css?v=7"><link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
+  <script src="/vendor/chart.umd.js" defer></script><script src="/portfolio.js" defer></script><script src="/global-pm.js?v=7" defer></script><script src="/global-workflow.js?v=71" defer></script>
+<link rel="stylesheet" href="/platform.css?v=71"><link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
 </head>
 <body class="hfl-platform">
 <!-- platform-shell -->
@@ -20,7 +20,7 @@
 <p class="eyebrow">LABORATÓRIO / RADAR → GESTOR GLOBAL</p><h1 id="workflow-title">Da seleção à proposta de carteira.</h1><p class="lead">Pareceres individuais, risco conjunto e uma autorização própria para o gestor.</p>
 <p class="hfl-warning">Carteira hipotética consultiva. Não importa aprovações H2/V5 nem executa operações. Limites V5 são didáticos, sem aprovação para piloto.</p>
 <div class="workflow-fields"><label>Fonte dos pareceres<select id="workflow-mode"><option value="CONSULTATIVE_SANDBOX">Oficial · consultivo com Gemini</option><option value="SYNTHETIC_DEMO">Demonstração sintética · fake offline</option></select></label><label>Sessão dos dados<input id="workflow-session" type="date" required></label><label>Caixa inicial hipotético (R$)<input id="workflow-capital" type="number" min="0.01" max="1000000000" step="0.01" value="100000.00"></label></div>
-<fieldset id="workflow-tickers" class="workflow-tickers"><legend>Carregando seleção…</legend></fieldset><button id="workflow-check" type="button">1. Verificar pareceres e custos separados</button><div id="workflow-selection" aria-live="polite"></div>
+<fieldset id="workflow-tickers" class="workflow-tickers"><legend>Carregando seleção…</legend></fieldset><button id="workflow-check" type="button">1. Verificar pareceres e custos separados</button><div id="workflow-selection" aria-live="polite"></div><ul id="workflow-readiness" class="attention-items" aria-live="polite"></ul>
 <label class="workflow-consent"><input id="workflow-hypothetical" type="checkbox"><span>Confirmo um snapshot hipotético novo, com o caixa informado e sem posições, reservas ou recebíveis. Não é uma carteira prospectiva. Snapshots completos existentes permanecem disponíveis pelo CLI.</span></label><label class="workflow-consent"><input id="workflow-fixture" type="checkbox"><span>Reconheço os limites e custos didáticos da V5. Isso não aprova uma política de operação.</span></label>
 <div class="workflow-fields"><label>Orçamento da inferência global (USD)<input id="workflow-budget" type="number" min="0.01" max="5" step="0.01" value="0.25"></label><label>Consultar contexto existente<select id="workflow-record"><option value="">Carregando registros…</option></select></label></div>
 <div class="workflow-buttons"><button id="workflow-prepare" type="button">2. Preparar snapshot e Risk · sem Gemini</button><button id="workflow-preflight" type="button" disabled>3. Preflight global</button><button id="workflow-run" type="button" disabled>4. Solicitar proposta · confirmar custo</button></div><div class="workflow-buttons"><button id="workflow-consult" type="button">Consultar registros</button><button id="workflow-replay" type="button" disabled>Recuperar somente offline</button></div>

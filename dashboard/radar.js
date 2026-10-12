@@ -65,7 +65,7 @@ async function refresh(first=false) {
   if (state.job?.status !== 'RUNNING' && poll) { clearInterval(poll); poll = null; }
   $('error').hidden=true;
   if (state.last_prepare?.items.some(i => i.status === 'BLOCKED')) {
-    $('error').textContent = state.last_prepare.items.filter(i => i.status === 'BLOCKED').map(i => `${i.ticker}: ${i.error}`).join(' · '); $('error').hidden = false;
+    $('error').textContent = state.last_prepare.items.filter(i => i.status === 'BLOCKED').map(i => `${i.ticker}: ${i.error}` + (/split-like mismatch/.test(i.error) ? ` — evento corporativo (bonificação/desdobramento) reconhecido pelo yfinance como split. Preparar este ativo pelo comando normalizado: scripts/radar_corporate_events.py prepare --session ${i.session} --tickers ${i.ticker} (grava inputs; sem Gemini).` : '')).join(' · '); $('error').hidden = false;
   }
 }
 function guarded(handler) { return async event => { $('error').hidden = true; try { await handler(event); } catch(exc) { error(exc); } }; }
