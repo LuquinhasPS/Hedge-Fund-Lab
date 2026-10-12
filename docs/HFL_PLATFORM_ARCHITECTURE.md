@@ -57,7 +57,8 @@ conjunto nem usa os valores V5/V6 como substitutos.
 | `multiasset_global_pm.py` / `run_global_pm.py` | contexto e snapshot hipotéticos, opiniões elegíveis, Risk conjunto, uma proposta global, validação e journal durável |
 | `dashboard/platform_api.py` | projeções somente leitura e jobs que invocam explicitamente prepare/run/replay do Global PM existente |
 | `scripts/check_platform.py` | diagnóstico offline somente leitura por seção (`--json` completo), stdout UTF-8 e exit code 2 para integridade H2 ausente/divergente |
-| `scripts/radar_corporate_events.py` | V7.1: preparo Radar normalizado para bonificação/desdobramento corroborado pela B3, e diagnóstico por ticker |
+| `scripts/radar_corporate_events.py` | V7.2: normalizador de bonificação confirmada pela B3 (ESPECI + DISMES); `install()` o torna o extrator padrão do Radar no processo — chamado por `server.main()` e pelo CLI `prepare`, mesmo caminho do botão; diagnóstico por ticker |
+| `scripts/check_preservation.py` | V7.2: política de ciclo de vida; baselines históricos classificados em OPERATIONAL / LEDGER / VIOLATION, e antes/depois (`--snapshot`/`--since`) de uma operação autorizada |
 
 O catálogo permanece o existente: cinco Technical Analysts ativos e 25
 slots técnicos livres (30 no total), mais Risk e Portfolio Manager. Nenhum agente novo é criado. A
@@ -114,7 +115,7 @@ leitura; os novos comandos explícitos ficam em `/api/platform/`.
 | `global-preflight?id=&max_usd=` | GET; preflight nativo sem reserva, claim ou chamada |
 | `radar-view?mode=` | GET; status da raiz oficial/sintética fixa |
 | `radar-detail?mode=&ticker=&session=` | GET; parecer público da mesma raiz |
-| `radar-readiness?session=&tickers=` | GET; V7.1, motivo e próxima ação por ticker oficial (sem gravar nem inferir) |
+| `radar-readiness?session=&tickers=` | GET; por ticker oficial: input congelado, normalização, risco individual, parecer, preflight e próxima ação; resumo "N inputs prontos; k/N pareceres oficiais" (sem gravar nem inferir) |
 | `global-prepare` | POST; ID, modo, sessão, tickers, capital e reconhecimentos explícitos |
 | `global-run` | POST; ID, orçamento, token do preflight, autorização paga própria e confirmação |
 | `global-replay` | POST; ID e confirmação; exige claim e journal existentes, sem chamada nova |

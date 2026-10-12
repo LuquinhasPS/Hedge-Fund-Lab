@@ -1,4 +1,4 @@
-# HFL V7.1 — runbook operacional
+# HFL V7.2 — runbook operacional
 
 Executar no diretório do projeto, em PowerShell. Cada comando abaixo traz uma
 classe:
@@ -9,7 +9,7 @@ classe:
 | **GRAVA** | Gratuita, mas baixa dados e/ou escreve inputs, ledgers ou registros. Só por ação explícita. |
 | **PAGA** | Chama Gemini. Exige preflight, token e autorização própria. |
 
-Nenhum comando GRAVA ou PAGA foi executado para qualificar a V7.1.
+Nenhum comando GRAVA ou PAGA foi executado nas raízes oficiais para qualificar a V7.2.
 
 ## Iniciar e consultar
 
@@ -44,9 +44,11 @@ seções mesmo com código 0. A página `/` mostra as mesmas derivações no blo
   íntegra (1 evento), nenhuma aprovação registrada.
 - Ordens para 13/10: H2, Buy & Hold e SMA. Bollinger sem ordem. SMA/Bollinger
   comparáveis.
-- Radar oficial 09/10: PETR4, VALE3, WEGE3, BBAS3 com input preparado e
-  aguardando autorização; ITUB4 bloqueado na raiz oficial (causa e correção
-  abaixo). Zero pareceres completos; Global PM oficial indisponível.
+- Radar oficial 09/10: **4 inputs prontos; 0/5 pareceres oficiais**. PETR4,
+  VALE3, WEGE3 e BBAS3 congelados; ITUB4 ainda sem input (bloqueio do extrator
+  original de 11/10, resolvido pelo preparo V7.2 — ação do operador abaixo).
+  BBAS3 tem volatilidade 21d 0,545 > 0,50: o Risk vetará por regra. Global PM
+  oficial indisponível.
 
 ## Checklist A — 13/10, antes da abertura (até 10h BRT)
 
@@ -82,30 +84,50 @@ carteiras. Não reconciliar manualmente nem editar ledgers.
 
 ## Radar → Gestor Global (laboratório, opcional)
 
-Corrigido na V7.1: o preparo normalizado trata bonificações/desdobramentos que
-o yfinance registra como split (ver "ITUB4" abaixo). Fluxo para uma sessão
-encerrada `S` (por exemplo `2026-10-13`):
+Desde a V7.2 existe **um único caminho de preparo**: o botão "1. Preparar dados"
+de `/radar` e o CLI abaixo executam a mesma chamada `radar.prepare` com o
+normalizador de bonificações instalado (`radar_corporate_events.install()`, feito
+pelo `server.py` na inicialização). Nenhum ticker tem caminho próprio.
+**Preparar dados e executar análises são ações independentes**: preparar é
+gratuito, grava inputs e nunca chama Gemini; analisar exige preflight e
+autorização paga do lote. Fluxo para uma sessão encerrada `S`:
 
 | # | Passo | Comando | Classe |
 |---|---|---|---|
-| 1 | Preparar inputs dos cinco tickers (baixa COTAHIST do ano e yfinance; pastas novas apenas). | `scripts/radar_corporate_events.py prepare --session S` | GRAVA |
-| 2 | Conferir eventos corporativos, histórico, features e equivalência com o extrator original (lê yfinance; usa o COTAHIST baixado no passo 1). | `scripts/radar_corporate_events.py diagnose --session S` | CONSULTA (lê rede) |
-| 3 | Preflight do lote Radar: estimativa, reserva, orçamento, token. | `/radar` ou `scripts/run_multiasset_radar.py preflight --session S` | CONSULTA |
-| 4 | Autorizar o **lote Radar** (até 6 chamadas por ativo, sem retry). | `/radar` ou `scripts/run_multiasset_radar.py run --session S --confirm <token> --authorize-paid` | **PAGA** |
-| 5 | Elegibilidade conjunta (mesma fonte/sessão, cinco pareceres). | `/portfolio#global-workflow` ou `scripts/check_platform.py` | CONSULTA |
-| 6 | Preparar contexto com snapshot hipotético **perto do uso** (validade 24 h, sem renovação). | `/portfolio#global-workflow` | GRAVA |
-| 7 | Preflight global (Risk conjunto, estimativa, teto US$ 0,159744). | idem | CONSULTA |
-| 8 | Autorizar a **inferência Global PM**; a autorização Radar não vale aqui. | idem | **PAGA** |
+| 0 | Registrar hashes antes (arquivo novo, nunca sobrescrito). | `scripts/check_preservation.py --snapshot data/platform/antes-S.json` | GRAVA (só o snapshot) |
+| 1 | Preparar os cinco: reutiliza inputs existentes sem regravar; congela os ausentes. | `/radar` → "1. Preparar dados", ou `scripts/radar_corporate_events.py prepare --session S --tickers PETR4 VALE3 ITUB4 WEGE3 BBAS3` | GRAVA |
+| 2 | Antes/depois: só `last_prepare.json`, `job.json`, cache COTAHIST (OPERATIONAL) e arquivos novos (NEW); `violations` vazio. | `scripts/check_preservation.py --since data/platform/antes-S.json` | CONSULTA |
+| 3 | Conferir inputs, normalização, risco individual e preflight por ticker. | `/radar` (Conferência dos inputs) ou `scripts/check_platform.py` | CONSULTA |
+| 4 | Opcional: eventos, histórico e equivalência com o extrator original. | `scripts/radar_corporate_events.py diagnose --session S` | CONSULTA (lê rede) |
+| 5 | Preflight do lote Radar: estimativa, reserva, orçamento, token. | `/radar` ("2. Verificar preflight") ou `scripts/run_multiasset_radar.py preflight --session S` | CONSULTA |
+| 6 | Autorizar o **lote Radar** (até 6 chamadas por ativo, sem retry). | `/radar` ou `scripts/run_multiasset_radar.py run --session S --confirm <token> --authorize-paid` | **PAGA** |
+| 7 | Elegibilidade conjunta (mesma fonte/sessão, todos os pareceres). | `/portfolio#global-workflow` ou `scripts/check_platform.py` | CONSULTA |
+| 8 | Preparar contexto com snapshot hipotético **perto do uso** (validade 24 h). | `/portfolio#global-workflow` | GRAVA |
+| 9 | Preflight global (Risk conjunto, estimativa, teto US$ 0,159744). | idem | CONSULTA |
+| 10 | Autorizar a **inferência Global PM**; a autorização Radar não vale aqui. | idem | **PAGA** |
+
+`scripts/run_multiasset_radar.py prepare` (CLI V4 selado) continua com o extrator
+original estrito; para preparar use o botão ou `radar_corporate_events.py prepare`.
+Um bloqueio em `last_prepare.json` descreve só a última chamada; a autoridade são
+os inputs congelados (`analyses/<ticker>/<sessão>/input.json`).
+
+**Preparo pendente do ITUB4 (ação explícita do operador, não executada):**
+
+```powershell
+.venv/Scripts/python.exe -B scripts/check_preservation.py --snapshot data/platform/antes-itub4-2026-10-09.json
+.venv/Scripts/python.exe -B scripts/radar_corporate_events.py prepare --session 2026-10-09 --tickers PETR4 VALE3 ITUB4 WEGE3 BBAS3
+.venv/Scripts/python.exe -B scripts/check_preservation.py --since data/platform/antes-itub4-2026-10-09.json
+```
+
+Os quatro inputs existentes são reutilizados byte a byte; ITUB4 é congelado com o
+evento de 26/12/2025 em `source.corporate_events`. Resultado esperado: "5 inputs
+prontos; 0/5 pareceres oficiais" (qualificado em raiz isolada pelo endpoint real).
+Equivale a clicar "1. Preparar dados" com os cinco selecionados e a sessão 09/10.
 
 Chave: o runner H2 lê `GEMINI_API_KEY` do `.env`; Radar e Global PM leem
 **somente o ambiente do processo** e reportam `gemini_api_key_missing` sem ela.
 Antes dos passos PAGOS, definir `$env:GEMINI_API_KEY` no terminal que inicia o
 servidor ou o CLI (nunca colar a chave em comandos registrados ou na UI).
-
-O botão "Preparar" da página `/radar` continua usando o extrator original
-(selado) e bloqueia tickers com bonificação na janela; a página indica o comando
-normalizado. A raiz oficial do Radar tem `last_prepare.json` e o COTAHIST em
-cache inventariados no baseline V7: o preparo (passo 1) os atualiza.
 Nenhuma operação financeira multiativos existe.
 
 ## ITUB4 — causa-raiz e correção
@@ -126,16 +148,31 @@ Bloqueio original: `split-like mismatch between yfinance and B3 closes:
   KLBN4 1,01; EGIE3 1,40. Todos bloqueados pelo extrator original e corrigidos.
   PETR4, VALE3, WEGE3 e BBAS3 não têm evento na janela.
 
-Correção (`scripts/radar_corporate_events.py`, camada exploratória; `src/` e os
-arquivos selados do Radar inalterados): restaura o `Close` nominal do yfinance
-**apenas** para splits que a B3 corrobora com mudança de DISMES na mesma sessão
-e confere as sessões vizinhas ao evento; depois aplica a mesma guarda anual e a
-mesma tolerância (1e-3) do original. `Adj Close` não é alterado, então o fator
-passa a incluir o evento (retorno total contínuo). Divergência sem evento
-corroborado continua bloqueando. Sem evento, o resultado é idêntico bit a bit ao
-extrator original. O input registra eventos e hash do módulo em
-`source.corporate_events`; o manifesto Radar não muda, logo os pareceres
-continuam compatíveis com o Global PM.
+Correção (`scripts/radar_corporate_events.py`, V7.2 `RADAR_CORPORATE_EVENTS_V2`;
+`src/` e os arquivos selados do Radar inalterados): restaura o `Close` nominal do
+yfinance **apenas** para eventos que a B3 confirma como bonificação na mesma
+sessão (marca ESPECI com "B" — EB, EDB, EJB — e mudança de DISMES) e confere as
+sessões vizinhas; depois aplica a mesma guarda anual e a mesma tolerância (1e-3)
+do original. Desdobramento, grupamento, dividendo (EJ/ED) ou evento sem
+confirmação continuam bloqueando. Vários eventos na janela são tratados do mais
+recente ao mais antigo. `Adj Close`, o OHLC bruto e o volume oficial não mudam;
+o fator passa a incluir o evento (retorno total contínuo). Sem evento, o
+resultado é idêntico bit a bit ao extrator original. O input registra tipo,
+data-ex, razão, fator de preço aplicado, ESPECI, DISMES, fechamentos e hash do
+módulo em `source.corporate_events`; o manifesto Radar não muda, logo os
+pareceres seguem compatíveis com o Global PM.
+
+## Ciclo de vida dos arquivos
+
+Política em `scripts/check_preservation.py`; baselines históricos nunca são
+editados. Evidência imutável: manifests, inputs congelados e barras, eventos,
+decisões, journals, claims, reservas/autorizações, registros científicos e
+demonstrações seladas. Estado operacional mutável autorizado: `last_prepare.json`
+(relatório da última chamada), `job.json`, `universe.json`, caches COTAHIST do
+ano corrente e jobs da UI. Ledgers (`state.json` de H2, supervisionada e
+benchmarks) evoluem só pelos runners originais e são conferidos por eles. Um
+cache nunca é relido para validar um input congelado: o input guarda o SHA do
+COTAHIST que usou e é verificado pelas próprias barras.
 
 ## Jobs interrompidos ou erro
 
@@ -147,7 +184,8 @@ hashes. Logs brutos ficam locais.
 
 ## Qualificação
 
-Ver [evidências V7.1](evidence/hfl_platform_v71/README.md),
+Ver [evidências V7.2](evidence/hfl_platform_v72/README.md),
+[evidências V7.1](evidence/hfl_platform_v71/README.md),
 [evidências V7](evidence/hfl_platform_v7/README.md) e
 [arquitetura](HFL_PLATFORM_ARCHITECTURE.md). Nenhum passo desta entrega executou
 Gemini, Validation, Final Test, aprovação humana, reconciliação ou operação
