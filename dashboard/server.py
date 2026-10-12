@@ -40,6 +40,7 @@ import market_api
 import platform_api
 import portfolio_api
 import radar_api
+import radar_corporate_events
 
 logger = logging.getLogger("hedgefund.dashboard")
 
@@ -701,6 +702,8 @@ class ReusableTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
+    # The /radar "Preparar dados" button and the CLI share one normalized path.
+    radar_corporate_events.install()
     # Configura logger mínimo para o dashboard (standalone)
     logging.basicConfig(
         level=logging.INFO,

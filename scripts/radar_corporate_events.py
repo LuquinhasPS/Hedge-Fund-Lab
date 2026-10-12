@@ -1,4 +1,4 @@
-"""Radar data normalization for B3 bonificações/splits, plus read-only diagnosis.
+"""Radar data normalization for B3 bonificações, plus read-only diagnosis.
 
 Root cause of the ITUB4 block (V7.1 diagnosis): with ``auto_adjust=False``
 yfinance still back-adjusts ``Close`` for splits, and Yahoo books a B3
@@ -6,17 +6,23 @@ bonificação as a split (ITUB4: 1.03 on 2025-12-26, 1.10 on 2025-03-18).
 COTAHIST is nominal, so ``Close(yf) / fechamento`` is 1/1.03 before the
 ex-date and the original guard in ``src/pipeline/b3_official.py`` refuses it.
 
-This extractor restores yfinance's nominal ``Close`` only for split events that
-B3 itself corroborates (a new distribution number, DISMES, on the very same
-session) and then applies the original checks with the original tolerances.
+This extractor restores yfinance's nominal ``Close`` only for share-count events
+that B3 confirms as a bonificação on the very same session (ESPECI ex-marker with
+"B" and a new distribution number, DISMES), checks both boundary sessions, and
+then applies the original checks with the original tolerances. Desdobramentos,
+grupamentos or events without that confirmation stay blocked, as before.
 ``Adj Close`` is untouched, so ``Adj Close / Close`` becomes the total-return
-factor including the event. Sealed Radar code is reused through the existing
-``radar.prepare(extractor=...)`` seam; ``src/`` and the Radar files are untouched.
+factor including the event; raw nominal bars and volume are never changed.
+
+``install()`` makes this the Radar default extractor in the calling process. The
+UI server calls it at startup and ``prepare`` below calls it before the very same
+``radar.prepare`` call that the Radar API worker makes: one preparation path.
 
 Commands (PowerShell, project root):
   diagnose  read-only: network read of yfinance + local COTAHIST, stdout JSON
-  prepare   WRITES Radar inputs (new folders only) and refreshes the current-year
-            COTAHIST cache of that root; never calls Gemini
+  prepare   WRITES Radar inputs (new folders only), last_prepare.json and the
+            current-year COTAHIST cache of that root; never calls Gemini.
+            Same effect as the "Preparar dados" button of /radar.
 """
 
 # ruff: noqa: E402 -- standalone CLI establishes repository imports.
@@ -43,7 +49,9 @@ from src.pipeline.b3_official import (
 )
 from src.pipeline.transform import validate_ohlcv
 
-NAME = "RADAR_CORPORATE_EVENTS_V1"
+NAME = "RADAR_CORPORATE_EVENTS_V2"
+#: The sealed V4 extractor, captured before any ``install()``.
+ORIGINAL = radar.RadarExtractor
 
 
 def b3_markers(path, symbol):
@@ -71,7 +79,13 @@ def year_ratio(close, raw):
     return {int(k): float(v) for k, v in ratio.items()}
 
 
-class CorporateEventExtractor(radar.RadarExtractor):
+def bonus_marker(especi):
+    """B3 ex-marker (second ESPECI token, e.g. EB, EDB, EJB) announcing a bonificação."""
+    tokens = especi.split()
+    return len(tokens) > 1 and tokens[1].startswith("E") and "B" in tokens[1][1:]
+
+
+class CorporateEventExtractor(ORIGINAL):
     def __init__(self, cache_dir):
         super().__init__(cache_dir=cache_dir)
         self.events, self.checks, self.current = {}, {}, None
@@ -110,7 +124,8 @@ class CorporateEventExtractor(radar.RadarExtractor):
             markers = {}
             for year in years:
                 markers.update(b3_markers(self._cotahist(year), symbol))
-            for day, ratio in splits.items():
+            # Latest first: an earlier boundary is checked with every later event restored.
+            for day, ratio in sorted(splits.items(), reverse=True):
                 before = raw.index[raw.index < day]
                 if day not in raw.index or not len(before):
                     raise ValueError(f"corporate event {day.date()} not a B3 session")
@@ -119,11 +134,17 @@ class CorporateEventExtractor(radar.RadarExtractor):
                     raise ValueError(
                         f"corporate event {day.date()} not corroborated by B3 DISMES"
                     )
+                if not bonus_marker(mark["especi"]) or ratio <= 1:
+                    raise ValueError(
+                        f"corporate event {day.date()} not a B3-confirmed bonificação"
+                    )
                 nominal.loc[nominal.index < day] *= float(ratio)
                 check["events"].append(
                     {
                         "ex_date": str(day.date()),
+                        "type": "BONIFICACAO",
                         "yfinance_split_ratio": float(ratio),
+                        "price_factor_before_ex_date": 1 / float(ratio),
                         "b3_especi": mark["especi"],
                         "b3_dismes": [prior["dismes"], mark["dismes"]],
                         "b3_close": [
@@ -144,6 +165,7 @@ class CorporateEventExtractor(radar.RadarExtractor):
                         raise ValueError(
                             f"corporate event boundary mismatch at {edge.date()}"
                         )
+        check["events"].sort(key=lambda e: e["ex_date"])
         self.events[ticker] = check["events"]
 
         check["ratio_after"] = year_ratio(nominal, raw)
@@ -190,11 +212,19 @@ class CorporateEventExtractor(radar.RadarExtractor):
             },
             "corporate_events": {
                 "normalization": NAME,
-                "rule": "yfinance split restored to nominal Close only with a B3 DISMES change on the ex-date",
+                "rule": "yfinance split restored to nominal Close only for a B3 bonificação: ESPECI ex-marker with B and DISMES change on the ex-date",
                 "module_sha256": radar.sha_file(Path(__file__)),
                 "events": self.events.get(self.current, []),
             },
         }
+
+
+def install():
+    """Make the normalizer the Radar default extractor in this process (idempotent)."""
+    # ponytail: rebinds one module global because the sealed radar_api cannot pass
+    # extractor=. Ceiling: every in-process caller of radar.RadarExtractor gets it;
+    # upgrade path: an explicit extractor parameter when radar_api is next resealed.
+    radar.RadarExtractor = CorporateEventExtractor
 
 
 def diagnose(values, day, cache):
@@ -220,7 +250,7 @@ def diagnose(values, day, cache):
             csv = bars.to_csv(lineterminator="\n").encode()
             official = radar.OUTPUT / "analyses" / ticker / str(end.date()) / "input.json"
             existing = radar.read(official) if official.exists() else None
-            original = radar.RadarExtractor(cache_dir=str(cache.parent))
+            original = ORIGINAL(cache_dir=str(cache.parent))
             original.paths = extractor.paths
             try:
                 same = original.download(
@@ -278,6 +308,7 @@ def main():
     parser.add_argument("--tickers", nargs="*", default=list(radar.EXAMPLES))
     parser.add_argument("--session", required=True)
     parser.add_argument("--root", type=Path, default=radar.OUTPUT)
+    parser.add_argument("--mode", choices=("live", "synthetic"), default="live")
     parser.add_argument(
         "--cotahist",
         type=Path,
@@ -290,14 +321,8 @@ def main():
     if args.command == "diagnose":
         result = diagnose(args.tickers, args.session, args.cotahist)
     else:
-        root = radar.storage_root(args.root)
-        result = radar.prepare(
-            args.tickers,
-            root,
-            end=args.session,
-            mode="live",
-            extractor=CorporateEventExtractor(cache_dir=str(root / "cotahist")),
-        )
+        install()  # then exactly the Radar API worker call
+        result = radar.prepare(args.tickers, args.root, end=args.session, mode=args.mode)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     items = result["items"] if isinstance(result, dict) else result
     if any(i.get("status") == "BLOCKED" for i in items):
