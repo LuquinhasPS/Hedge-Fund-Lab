@@ -104,4 +104,50 @@ auditado manualmente; reprodução completa dependente de registros locais. Ver
 
 ## Verificação final
 
-Preenchida após os commits do pacote, com a árvore limpa.
+Executada depois dos commits `adecfb6` e `12c94ed`, com a árvore limpa.
+
+**Verificadores (somente leitura, sem chave Gemini):**
+
+| Verificação | Resultado |
+|---|---|
+| `verify_consolidation_v75.py` ([verification.json](verification.json)) | `ok: true`; nada ausente, nenhuma violação, nenhuma divergência de métrica ou de tabela |
+| `run_global_pm_v2.py incident` (V1) | `REJECTED_BY_VALIDATOR`; revalidação idêntica à selada; saída idêntica a `../hfl_global_pm_v2/incident_reproduction.json` |
+| `run_global_pm_v2.py status --id v74-76d0…` (V2) | `VALID_PROPOSAL`, sem erro de integridade (selos, journal, SQLite `mode=ro`, custo, revalidação) |
+| `radar_runs.py status --run radar-2026-10-09-recovery-01` | `COMPLETED`, 5 pareceres, 29/29 respostas, integridade `OK` |
+
+**Preservação:**
+
+- `check_preservation.py --since preservation_before.json`
+  ([preservation_since.json](preservation_since.json)): `changes: []`,
+  `violations: []`. O mesmo resultado foi obtido antes da V7.5 contra o
+  snapshot do operador (`data/platform/antes-gpm-v2.json`).
+- Baselines históricos: `violations: []`; só as duas mudanças OPERATIONAL
+  legadas (`data/radar/hfl_multiasset_v1/job.json`, `last_prepare.json`).
+- Os 52 arquivos PRIMARY do manifesto (registros V1/V2, Radar, código selado)
+  mantêm o SHA-256, e o código V1/V2 continua igual ao hash selado nos contextos.
+
+**Regressão** (suíte completa, `pytest -q`; [regression.txt](regression.txt)):
+**1706 aprovados, 15 falhas**. A suíte **não** está toda verde. Na V7.4 eram
+1703 aprovados; a diferença é +1 teste do commit `946813d` (carregamento da
+chave a partir do `.env`) e +2 testes da V7.5. As 15 falhas são exatamente as
+mesmas da V7.4 (comparação nome a nome), e nenhuma envolve código da V7.5:
+
+| Falhas | Causa | Relação com a V7.5 |
+|---|---|---|
+| `test_global_pm.py::test_31_original_ledgers_preserved`, `test_multiasset_portfolio.py::test_original_scientific_radar_and_ledger_preservation` | Legadas de preservação operacional: hash exato de `job.json`/`last_prepare.json` do Radar original, alterados pelo operador em 12/10 (OPERATIONAL, `violations: []`) | nenhuma |
+| `test_radar_runs.py::test_real_recovery_has_five_official_inputs_equivalent_to_original`, `::test_real_itub4_bonus_normalized_and_bbas3_restricted` | Testes da V7.3 que afirmam o estado da recuperação **antes** do lote pago (0 claims); desatualizados em relação aos dados locais | nenhuma |
+| `tests/pipeline/test_flows.py` (7) | PostgreSQL em `127.0.0.1:5435` indisponível | ambiente |
+| `test_cal_b4_safety`, `test_spec`, `test_v6_phase_routing` | Divergências antigas de código/teste H2 | nenhuma |
+| `tests/pipeline/test_snapshot.py::test_manifest_adulterado_e_rejeitado[code]` | Par complementar com `test_h2_v6_provisional` (estado de limpeza do Git): com a árvore limpa, falha este | nenhuma |
+
+Nenhum teste antigo foi alterado. Testes novos: `tests/test_consolidation_v75.py`
+(2 aprovados). Lint (`ruff check` e `ruff format --check`) limpo nos dois
+arquivos de código novos.
+
+## Restrições respeitadas
+
+Sem chamadas ao Gemini ou a qualquer provedor; sem inferência, Radar pago ou
+Final Test H2; sem alteração de respostas, status, claims, journals, reservas,
+políticas, baselines, Radar, recuperação ou H2 v6; nenhuma escrita em `data/`;
+nenhuma ordem ou carteira prospectiva; sem métricas financeiras; sintéticos
+separados dos oficiais; sem push.
