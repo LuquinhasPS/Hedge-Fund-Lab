@@ -606,3 +606,20 @@ class PlatformChecks(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_gemini_key_from_env_file_never_overrides_or_logs(tmp_path, monkeypatch, caplog):
+    env = tmp_path / ".env"
+    env.write_text("OTHER=x\nGEMINI_API_KEY=from-dotenv-placeholder\n", encoding="utf-8")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    assert server.load_gemini_key(env) == ".env"
+    assert server.os.environ["GEMINI_API_KEY"] == "from-dotenv-placeholder"
+    assert "OTHER" not in server.os.environ  # only the key is loaded
+    monkeypatch.setenv("GEMINI_API_KEY", "from-terminal-placeholder")
+    assert server.load_gemini_key(env) == "ambiente"
+    assert server.os.environ["GEMINI_API_KEY"] == "from-terminal-placeholder"
+    monkeypatch.setenv("GEMINI_API_KEY", " ")
+    env.write_text("GEMINI_API_KEY=\n", encoding="utf-8")
+    assert server.load_gemini_key(env) == "ausente"
+    assert server.load_gemini_key(tmp_path / "missing.env") == "ausente"
+    assert "placeholder" not in caplog.text

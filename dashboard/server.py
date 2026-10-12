@@ -24,6 +24,7 @@ import html
 import http.server
 import json
 import logging
+import os
 import re
 import socketserver
 import sqlite3
@@ -43,12 +44,14 @@ import portfolio_api
 import radar_api
 import radar_corporate_events
 import radar_runs
+from dotenv import dotenv_values
 
 logger = logging.getLogger("hedgefund.dashboard")
 
 PORT = 8081
 DIR = Path(__file__).parent
 PROJECT_ROOT = DIR.parent
+ENV_FILE = PROJECT_ROOT / ".env"
 LOG_FILE = PROJECT_ROOT / "data" / "logs" / "hedgefund.log"
 
 
@@ -705,6 +708,19 @@ class ReusableTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
         super().handle_error(request, client_address)
 
 
+def load_gemini_key(env_file=ENV_FILE):
+    """Only ``GEMINI_API_KEY``, only for this process, never logged; the process
+    environment wins over ``.env``. A key is not an authorization: paid calls still
+    need preflight, token and explicit consent."""
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        return "ambiente"
+    value = (dotenv_values(env_file) if env_file.is_file() else {}).get("GEMINI_API_KEY")
+    if value and value.strip():
+        os.environ["GEMINI_API_KEY"] = value.strip()
+        return ".env"
+    return "ausente"
+
+
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
     # The /radar "Preparar dados" button and the CLI share one normalized path.
@@ -718,6 +734,7 @@ def main():
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    logger.info("GEMINI_API_KEY: %s", load_gemini_key())
     # The registry's selected run, if it accepts new calls, is the only write target.
     run = radar_runs.bind(radar_api)
     logger.info("Radar runner: %s", run or "nenhum (prepare/run recusados)")

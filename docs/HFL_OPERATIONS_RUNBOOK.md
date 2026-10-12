@@ -152,7 +152,7 @@ $env:GEMINI_API_KEY = '<chave somente neste terminal; nunca em arquivo, log ou r
 ```
 
 Preferir o CLI (processo próprio, `network_scope` instalado explicitamente).
-Pela UI: servidor reiniciado (A) com a chave no ambiente do terminal do servidor,
+Pela UI: servidor reiniciado (A); a chave vem do ambiente ou do `.env` (ver "Chave"),
 `/radar?run=radar-2026-10-09-recovery-01` → "2. Verificar preflight" → marcar o
 consentimento → "3. Confirmar e executar". O backend repete todas as checagens.
 Token, preflight ou autorização de outra execução nunca valem aqui.
@@ -290,10 +290,15 @@ evento de 26/12/2025 em `source.corporate_events`. Resultado esperado: "5 inputs
 prontos; 0/5 pareceres oficiais" (qualificado em raiz isolada pelo endpoint real).
 Equivale a clicar "1. Preparar dados" com os cinco selecionados e a sessão 09/10.
 
-Chave: o runner H2 lê `GEMINI_API_KEY` do `.env`; Radar e Global PM leem
-**somente o ambiente do processo** e reportam `gemini_api_key_missing` sem ela.
-Antes dos passos PAGOS, definir `$env:GEMINI_API_KEY` no terminal que inicia o
-servidor ou o CLI (nunca colar a chave em comandos registrados ou na UI).
+Chave: o runner H2 e, desde a V7.4, o **servidor** (`dashboard/server.py`) leem
+`GEMINI_API_KEY` do `.env` local (fora do Git) quando o ambiente não a tem; o
+ambiente do terminal sempre prevalece. Só essa variável é carregada, só no
+processo do servidor, e o log mostra apenas a origem (`ambiente`, `.env` ou
+`ausente`), nunca o valor. Ter a chave não autoriza nada: as etapas PAGAS
+continuam exigindo preflight, token e consentimento explícito. Os CLIs pagos
+(`radar_runs.py run`, `run_global_pm_v2.py run`) ainda leem **somente o ambiente
+do processo**: para eles, definir `$env:GEMINI_API_KEY` no terminal (sem ela:
+`gemini_api_key_missing`). Nunca colar a chave em comandos registrados ou na UI.
 Nenhuma operação financeira multiativos existe.
 
 ## ITUB4 — causa-raiz e correção
