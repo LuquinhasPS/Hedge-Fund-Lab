@@ -109,3 +109,14 @@ em 420 px os cinco itens aparecem na primeira tela. Sem rolagem horizontal em
 - O botão "Preparar" de `/radar` usa o extrator selado; tickers com bonificação
   na janela exigem o comando normalizado.
 - Calendário prevê, não confirma, o pregão; não há intradiário.
+
+## 7. Verificação em árvore limpa (após os commits de código)
+
+Saídas gravadas fora do repositório durante a execução e copiadas depois.
+
+| Verificação | Resultado |
+|---|---|
+| [preflight H2 original](preflight_h2_clean.txt) | `treatment_identity: true`, input 09/10 congelado, chave presente; **NOT READY** por `not_yet_decided: false` (09/10 já decidida, impede repetir a inferência). `ledger_reconciles` falha por intervalo vazio: o ledger já está marcado em 09/10; após o `prepare` de 13/10 o intervalo passa a 10/10→13/10. |
+| [supervisão verify](supervision_verify.txt) | `ok: true`, 1 evento, sem erros |
+| [diagnóstico](check_platform.txt) | integridade H2 íntegra; próxima ação: aprovar ou rejeitar a supervisionada até 13/10/2026 10:00 BRT |
+| [integridade](integrity.json) | quatro baselines sem alteração; identidade `dc118ce9…acb98`; decisão `27e51c94…a09ddc` |
