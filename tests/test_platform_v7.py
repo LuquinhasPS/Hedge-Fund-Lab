@@ -500,8 +500,9 @@ class PlatformChecks(unittest.TestCase):
             },
         )
         itub = next(i for i in d["items"] if i["ticker"] == "ITUB4")
+        self.assertEqual(itub["input_state"], "UNRESOLVED_DIVERGENCE")
         self.assertIn(
-            "radar_corporate_events.py prepare --session 2026-10-09", itub["action"]
+            "radar_corporate_events.py prepare --session 2026-10-09", d["prepare_command"]
         )
         self.assertFalse(d["global_pm_ready"])
         self.assertEqual(eligible["items"][0]["state"], "ELIGIBLE")

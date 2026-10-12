@@ -65,8 +65,34 @@ async function refresh(first=false) {
   if (state.job?.status !== 'RUNNING' && poll) { clearInterval(poll); poll = null; }
   $('error').hidden=true;
   if (state.last_prepare?.items.some(i => i.status === 'BLOCKED')) {
-    $('error').textContent = state.last_prepare.items.filter(i => i.status === 'BLOCKED').map(i => `${i.ticker}: ${i.error}` + (/split-like mismatch/.test(i.error) ? ` — evento corporativo (bonificação/desdobramento) reconhecido pelo yfinance como split. Preparar este ativo pelo comando normalizado: scripts/radar_corporate_events.py prepare --session ${i.session} --tickers ${i.ticker} (grava inputs; sem Gemini).` : '')).join(' · '); $('error').hidden = false;
+    $('error').textContent = 'Bloqueios do último preparo: ' + state.last_prepare.items.filter(i => i.status === 'BLOCKED').map(i => `${i.ticker} (${i.session}): ${i.error}`).join(' · ') + '. Preparar novamente aplica a normalização de bonificação confirmada pela B3; se o bloqueio persistir, a divergência não é explicada pela B3 e o ativo fica fora.'; $('error').hidden = false;
   }
+  await inputs(version);
+}
+const pct = v => (Number(v) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
+const inputLabels = {FROZEN:'Input congelado', PREPARATION_REQUIRED:'Preparação necessária', UNRESOLVED_DIVERGENCE:'Divergência não resolvida', BLOCKED_DATA:'Dados bloqueados', INTEGRITY_ERROR:'Integridade divergente'};
+const opinionLabels = {PENDING:'Parecer pendente', COMPLETED:'Parecer concluído', RECOVERY_REQUIRED:'Recuperação offline', NONE:'Sem parecer'};
+const preflightLabels = {READY:'pronto', INPUT_REQUIRED:'preparar dados', gemini_api_key_missing:'chave Gemini ausente no servidor', inference_already_reserved_replay_only:'já reservado · só recuperação'};
+function normalization(input) {
+  if (!input) return '—';
+  const n = input.normalization;
+  return n.state === 'NORMALIZED_CONFIRMED_EVENT' ? 'Normalizado: ' + n.events.map(e => `bonificação ${escape(e.ex_date)} ×${escape(e.yfinance_split_ratio)} (${escape(e.b3_especi)}, DISMES ${escape(e.b3_dismes.join('→'))})`).join('; ') : 'Sem normalização necessária';
+}
+function riskCell(row) {
+  const r = row.input?.risk;
+  if (!r) return '—';
+  const text = `Vol. 21d ${pct(r.asset_volatility_21)} · limite ${pct(r.limit)}`;
+  return (r.restricted ? `<strong class="warning">Restrição individual</strong><small>${text}; veto determinístico esperado</small>` : `<span>Sem restrição</span><small>${text}</small>`) + `<small>${row.risk_verdict ? 'Risk: ' + escape(row.risk_verdict) : 'Risk ainda não avaliado'}</small>`;
+}
+async function inputs(version) {
+  const box = $('input-check');
+  if ($('radar-view').value !== 'CONSULTATIVE_SANDBOX' || !selected.size) { box.hidden = true; return; }
+  const response = await fetch('/api/platform/radar-readiness?' + new URLSearchParams({session: $('session').value, tickers: chosen().join(',')}));
+  const d = await response.json();
+  if (version !== viewVersion) return;
+  if (!response.ok) { box.innerHTML = '<p class="warning">Conferência dos inputs indisponível.</p>'; box.hidden = false; return; }
+  box.innerHTML = `<p><strong>Conferência dos inputs · ${escape(d.summary)}</strong> · sessão ${escape(d.session)} · Gestor Global ${d.global_pm_ready ? 'elegível' : 'bloqueado até existirem todos os pareceres'}</p><div class="table-scroll input-check" tabindex="0" role="region" aria-label="Conferência dos inputs, tabela rolável"><table><thead><tr><th>Ativo</th><th>Input</th><th>Dados</th><th>Parecer</th><th>Risco individual</th><th>Preflight / próxima ação</th></tr></thead><tbody>${d.items.map(i => `<tr><td data-label="Ativo"><strong>${escape(i.ticker)}</strong></td><td data-label="Input">${escape(inputLabels[i.input_state] || i.input_state)}${i.input ? `<small>${i.input.bars} barras desde ${escape(i.input.history_start)} · ${modeLabel(i.input.mode)}</small><small>SHA ${escape(i.input.input_sha256.slice(0, 12))}…</small>` : ''}</td><td data-label="Dados">${normalization(i.input)}${i.input ? `<small>Bruto R$ ${escape(i.input.raw_close)} · ajustado R$ ${escape(i.input.adjusted_close)}</small>` : ''}</td><td data-label="Parecer">${escape(opinionLabels[i.opinion] || i.opinion)}</td><td data-label="Risco individual">${riskCell(i)}</td><td data-label="Preflight">${escape(preflightLabels[i.preflight] || i.preflight || '—')}<small>${escape(i.action)}</small></td></tr>`).join('')}</tbody></table></div><p class="muted small">Preparar dados e executar análises são ações independentes: preparar é gratuito e não chama Gemini. Input íntegro não é parecer favorável; o Risk só existe após o comitê.</p>`;
+  box.hidden = false;
 }
 function guarded(handler) { return async event => { $('error').hidden = true; try { await handler(event); } catch(exc) { error(exc); } }; }
 $('add-form').addEventListener('submit', guarded(async event => {
@@ -75,9 +101,10 @@ $('add-form').addEventListener('submit', guarded(async event => {
 }));
 let searchTimer;
 $('ticker-search').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(async () => { try { const result = await api('search?q=' + encodeURIComponent($('ticker-search').value)); $('ticker-options').innerHTML = result.tickers.map(t => `<option value="${escape(t)}"></option>`).join(''); $('catalog-note').textContent = result.note; } catch(exc) { error(exc); } }, 350); });
-$('universe').addEventListener('change', event => { const ticker=event.target.dataset.ticker; if(ticker) { event.target.checked ? selected.add(ticker) : selected.delete(ticker); invalidate(); renderUniverse(); } });
+$('universe').addEventListener('change', event => { const ticker=event.target.dataset.ticker; if(ticker) { event.target.checked ? selected.add(ticker) : selected.delete(ticker); invalidate(); renderUniverse(); inputs(viewVersion).catch(error); } });
 $('universe').addEventListener('click', guarded(async event => { const ticker=event.target.closest('[data-remove]')?.dataset.remove; if(ticker) { await api('universe',{tickers:state.universe.filter(t=>t!==ticker)}); selected.delete(ticker); invalidate(); await refresh(); } }));
 ['session','budget','mode','replay'].forEach(id => $(id).addEventListener('change', invalidate));
+$('session').addEventListener('change', () => inputs(viewVersion).catch(error));
 $('prepare').addEventListener('click', guarded(async () => { invalidate(); await api('prepare',{tickers:chosen(),session:$('session').value,mode:$('mode').value}); await refresh(); }));
 $('preflight').addEventListener('click', guarded(async () => {
   const version=viewVersion,next=await api('preflight',selection());if(version!==viewVersion)return;report=next;

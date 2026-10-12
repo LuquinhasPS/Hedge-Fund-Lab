@@ -134,71 +134,175 @@ def forward_integrity(root):
     }
 
 
-NORMALIZED_PREPARE = (
+PREPARE_COMMAND = (
     ".venv/Scripts/python.exe -B scripts/radar_corporate_events.py prepare "
-    "--session {day} --tickers {ticker}"
+    "--session {day} --tickers {tickers}"
 )
+CORPORATE_ERRORS = ("split-like mismatch", "corporate event")
+
+
+def input_facts(root, ticker, day):
+    """Frozen-input projection; ``checked_input`` raises on any integrity drift."""
+    data = radar.checked_input(root, ticker, day)
+    corporate = data["source"].get("corporate_events") or {}
+    volatility = data["risk_metrics"]["asset_volatility_21"]
+    limit = data["manifest"]["risk"]["max_asset_volatility"]
+    return {
+        "input_sha256": radar.sha_file(
+            radar.folder_for(root, ticker, day) / "input.json"
+        ),
+        "prepared_at": data["prepared_at"],
+        "mode": data["manifest"]["mode"],
+        "manifest_sha256": data["manifest_sha256"],
+        "bars": data["history"]["bars"],
+        "history_start": data["history"]["start"],
+        "bars_sha256": data["history"]["sha256"],
+        "source": data["source"]["name"],
+        "cotahist_sha256": data["source"].get("cotahist_sha256"),
+        "raw_close": data["raw_bar"]["fechamento"],
+        "adjusted_close": data["adjusted_close"],
+        "normalization": {
+            # An original-extractor input passed the split guard: no event in window.
+            "state": "NORMALIZED_CONFIRMED_EVENT"
+            if corporate.get("events")
+            else "NO_NORMALIZATION_NEEDED",
+            "extractor": corporate.get("normalization", "ORIGINAL_V4_GUARD_PASSED"),
+            "events": corporate.get("events", []),
+        },
+        "risk": {
+            "asset_volatility_21": volatility,
+            "limit": limit,
+            "restricted": volatility > limit,
+        },
+    }
 
 
 def radar_readiness(day, symbols, root=None):
-    """Why each official opinion is (not) usable by the Global PM, and the next step."""
+    """Per official ticker: input, normalization, risk restriction, opinion and next step."""
     root = root or global_api.OFFICIAL_RADAR
     selection = global_api.selection("CONSULTATIVE_SANDBOX", day, symbols)
     last = root / "last_prepare.json"
+    # last_prepare.json only reports the latest prepare call; inputs are the authority.
     blocked = {
         i["ticker"]: i.get("error", "")
         for i in (radar.read(last)["items"] if last.exists() else [])
         if i["session"] == day and i["status"] == "BLOCKED"
     }
+    try:
+        preflight = radar.preflight(selection["selected"], root, day=day)
+    except (ValueError, OSError) as exc:
+        preflight = {"ready": False, "items": [], "error": str(exc)}
+    checks = {i["ticker"]: i for i in preflight["items"]}
+    command = PREPARE_COMMAND.format(day=day, tickers=" ".join(selection["selected"]))
     items = []
     for entry in selection["items"]:
         ticker = entry["ticker"]
-        item = {"ticker": ticker, "session": day}
-        if entry["status"] == "ELIGIBLE":
-            item.update(state="ELIGIBLE", action="Parecer completo e íntegro.")
-        elif not (radar.folder_for(root, ticker, day) / "input.json").exists():
+        check = checks.get(ticker, {})
+        item = {
+            "ticker": ticker,
+            "session": day,
+            "input": None,
+            "opinion": "NONE",
+            "risk_verdict": None,
+            "preflight": "READY" if check.get("ready") else check.get("error"),
+        }
+        if not (radar.folder_for(root, ticker, day) / "input.json").exists():
             error = blocked.get(ticker)
+            corporate = bool(error) and any(k in error for k in CORPORATE_ERRORS)
             item.update(
+                preflight="INPUT_REQUIRED",
                 state="INPUT_BLOCKED" if error else "NO_INPUT",
-                error=error,
-                action="Evento corporativo (bonificação/desdobramento): preparar com "
-                + NORMALIZED_PREPARE.format(day=day, ticker=ticker)
-                if error and "split-like mismatch" in error
-                else "Investigar o bloqueio de dados; não há parecer a solicitar."
+                input_state="UNRESOLVED_DIVERGENCE"
+                if corporate
+                else "BLOCKED_DATA"
                 if error
-                else "Preparar dados oficiais (gratuito, grava inputs): "
-                + NORMALIZED_PREPARE.format(day=day, ticker=ticker),
+                else "PREPARATION_REQUIRED",
+                error=error,
+                action="Preparar dados em /radar (botão 1) ou pelo CLI equivalente; "
+                "gratuito, grava inputs, sem Gemini."
+                + (
+                    " O bloqueio registrado é anterior ou não confirmado pela B3: se "
+                    "persistir após o preparo normalizado, o ativo fica fora."
+                    if error
+                    else ""
+                ),
             )
+            items.append(item)
+            continue
+        try:
+            item["input"] = input_facts(root, ticker, day)
+            detail = radar.detail(ticker, day, root)
+        except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
+            item.update(
+                state="INTEGRITY_ERROR",
+                input_state="INTEGRITY_ERROR",
+                error=str(exc),
+                action="Input divergente da identidade Radar atual; não reutilizar nem sobrescrever.",
+            )
+            items.append(item)
+            continue
+        native = detail["status"]
+        item.update(
+            input_state="FROZEN",
+            opinion={
+                "PREPARED": "PENDING",
+                "COMPLETED": "COMPLETED",
+                "FAILED_REPLAY_ONLY": "RECOVERY_REQUIRED",
+            }.get(native, native),
+            risk_verdict=(detail.get("risk") or {}).get("verdict"),
+        )
+        risk = item["input"]["risk"]
+        restriction = (
+            f" Restrição de risco: volatilidade 21d {risk['asset_volatility_21']:.3f} acima do"
+            f" limite {risk['limit']}; o Risk vetará por regra determinística (parecer completo,"
+            " recomendação MANTER)."
+            if risk["restricted"] and native != "COMPLETED"
+            else ""
+        )
+        if entry["status"] == "ELIGIBLE":
+            item.update(state="ELIGIBLE", action="Parecer oficial completo e íntegro.")
         else:
-            try:
-                native = radar.detail(ticker, day, root)["status"]
-                if native == "PREPARED":
-                    radar.checked_input(root, ticker, day)
-            except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
-                item.update(
-                    state="INTEGRITY_ERROR",
-                    error=str(exc),
-                    action="Input divergente da identidade Radar atual; não reutilizar.",
-                )
-            else:
-                item.update(
-                    state={
-                        "PREPARED": "AWAITING_RADAR_AUTHORIZATION",
-                        "FAILED_REPLAY_ONLY": "RECOVERY_REQUIRED",
-                    }.get(native, "INELIGIBLE"),
-                    action={
-                        "PREPARED": "Input pronto: preflight Radar e autorização paga própria do lote.",
-                        "FAILED_REPLAY_ONLY": "Recuperar somente offline; nunca repetir a chamada.",
-                    }.get(
-                        native,
-                        "Parecer incompatível com sessão/fonte; consultar detalhe.",
-                    ),
-                )
+            item.update(
+                state={
+                    "PREPARED": "AWAITING_RADAR_AUTHORIZATION",
+                    "FAILED_REPLAY_ONLY": "RECOVERY_REQUIRED",
+                }.get(native, "INELIGIBLE"),
+                action={
+                    "PREPARED": "Input congelado; parecer pendente: preflight Radar e "
+                    "autorização paga própria do lote." + restriction,
+                    "FAILED_REPLAY_ONLY": "Recuperar somente offline; nunca repetir a chamada.",
+                }.get(
+                    native, "Parecer incompatível com sessão/fonte; consultar detalhe."
+                ),
+            )
         items.append(item)
+    inputs = sum(i["input_state"] == "FROZEN" for i in items)
+    opinions = len(items) - len(selection["missing"])
     return {
         "session": day,
         "items": items,
         "missing": selection["missing"],
+        "inputs_ready": inputs,
+        "opinions_complete": opinions,
+        "summary": f"{inputs} inputs prontos; {opinions}/{len(items)} pareceres oficiais",
+        "prepare_command": command,
+        "radar_preflight": {
+            k: preflight.get(k)
+            for k in (
+                "ready",
+                "usd_reserved",
+                "usd_estimated",
+                "global_budget_used",
+                "error",
+            )
+        },
+        "gemini_pending": sorted(
+            {
+                i["preflight"]
+                for i in items
+                if i["input_state"] == "FROZEN" and i["preflight"] not in (None, "READY")
+            }
+        ),
         "global_pm_ready": not selection["missing"],
         "provider_calls": 0,
     }
@@ -456,9 +560,9 @@ def attention(d, at):
         items.append(
             (
                 "lab",
-                f"Radar oficial: {len(readiness['items']) - len(readiness['missing'])}/{len(readiness['items'])} pareceres elegíveis"
+                f"Radar oficial: {readiness['summary']}"
                 + (f"; bloqueados: {', '.join(blocked)}" if blocked else "")
-                + ". Global PM aguarda os cinco.",
+                + ". Global PM aguarda os pareceres de todos.",
                 "/radar",
             )
         )

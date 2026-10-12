@@ -19,6 +19,39 @@ from src.experiments.h2_evaluation_offline import no_network  # noqa: E402
 UNAVAILABLE = "INDISPONÍVEL (registro ausente ou integridade divergente)"
 
 
+def radar_rows(i):
+    """One ticker: state, input identity/provenance, normalization, risk, preflight."""
+    rows = [
+        f"{i['ticker']}: {i['state']} · input {i['input_state']} · parecer {i['opinion']}"
+    ]
+    facts = i.get("input")
+    if facts:
+        norm = facts["normalization"]
+        events = ", ".join(
+            f"{e['type']} {e['ex_date']} x{e['yfinance_split_ratio']} ({e['b3_especi']})"
+            for e in norm["events"]
+        )
+        risk = facts["risk"]
+        rows += [
+            f"    sessão {i['session']} · {facts['bars']} barras desde {facts['history_start']}"
+            f" · input {facts['input_sha256'][:16]}… · barras {facts['bars_sha256'][:16]}…",
+            f"    fonte {facts['source']} · fechamento bruto {facts['raw_close']}"
+            f" · ajustado {facts['adjusted_close']}",
+            f"    normalização {norm['state']} ({norm['extractor']}){': ' + events if events else ''}",
+            f"    risco individual: vol21 {risk['asset_volatility_21']} / limite {risk['limit']}"
+            + (" · RESTRIÇÃO: veto determinístico esperado" if risk["restricted"] else "")
+            + (
+                f" · veredito {i['risk_verdict']}"
+                if i["risk_verdict"]
+                else " · sem parecer de risco"
+            ),
+        ]
+    rows.append(f"    preflight {i['preflight']} · {i['action']}")
+    if i.get("error"):
+        rows.append(f"    erro registrado: {i['error']}")
+    return rows
+
+
 def summary(d):
     """Sections requested for the operator; every line comes from ``overview``."""
     data = lambda key: d[key]["data"] if d[key]["available"] else None  # noqa: E731
@@ -76,7 +109,17 @@ def summary(d):
     readiness = data("official_selection")
     section(
         f"Radar oficial · sessão {d['last_closed_session']}",
-        [f"{i['ticker']}: {i['state']} · {i['action']}" for i in readiness["items"]]
+        [
+            readiness["summary"]
+            + f" · preflight do lote {'pronto' if readiness['radar_preflight']['ready'] else 'bloqueado'}",
+            "preparo (equivale ao botão de /radar; grava, sem Gemini): "
+            + readiness["prepare_command"],
+        ]
+        + [row for i in readiness["items"] for row in radar_rows(i)]
+        + [
+            "pendências para Gemini: "
+            + (", ".join(readiness["gemini_pending"]) or "nenhuma além da autorização")
+        ]
         if readiness
         else [UNAVAILABLE],
     )
@@ -84,15 +127,19 @@ def summary(d):
     section(
         "Global PM",
         [
-            "pareceres oficiais completos: "
-            + (
-                "todos presentes"
-                if readiness and not readiness["missing"]
-                else "ausentes " + ", ".join(readiness["missing"])
+            (
+                f"elegibilidade oficial: {'PRONTA' if readiness['global_pm_ready'] else 'BLOQUEADA'}"
+                f" · {readiness['summary']}"
+                + (
+                    f" · faltam {', '.join(readiness['missing'])}"
+                    if readiness["missing"]
+                    else ""
+                )
                 if readiness
-                else "N/D"
+                else "elegibilidade oficial: N/D"
             )
-            + " · contexto oficial só deve ser preparado perto do uso (validade 24 h)."
+            + " · contexto oficial só deve ser preparado perto do uso (validade 24 h);"
+            " autorização Radar não vale para o Global PM."
         ]
         + [
             f"{r['id']} · {r.get('mode')} · {r['native_state']} · expira {r.get('expires_at')}"

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Radar de Ativos · Hedge-Fund-Lab Premium V4</title>
-  <link rel="stylesheet" href="/radar.css?v=7"><script src="/radar.js?v=71" defer></script>
+  <link rel="stylesheet" href="/radar.css?v=72"><script src="/radar.js?v=72" defer></script>
 <link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
 </head>
 <body class="hfl-platform">
@@ -31,7 +31,7 @@
       <p class="steps">Selecionar ativos → Preparar dados → Preflight → Confirmar custo → Executar análises → Consultar resultados</p>
       <div class="controls"><label>Sessão de referência<input id="session" type="date" required></label><label>Fonte de preparação<select id="mode"><option value="live">B3 oficial + fator ajustado</option><option value="synthetic">Exemplo sintético · offline</option></select></label><label>Orçamento do lote (USD)<input id="budget" type="number" min="0.01" max="5" step="0.01" value="5"></label></div>
       <div class="actions"><button id="prepare">1. Preparar dados</button><button id="preflight" class="secondary">2. Verificar preflight</button><label class="check"><input id="replay" type="checkbox"> Recuperar somente offline</label></div>
-      <div id="preflight-result" aria-live="polite" class="preflight"><p class="muted">Selecione pelo menos um ativo. Abrir esta página ou consultar registros não executa agentes.</p></div>
+      <div id="input-check" aria-live="polite" class="preflight" hidden></div><div id="preflight-result" aria-live="polite" class="preflight"><p class="muted">Selecione pelo menos um ativo. Abrir esta página ou consultar registros não executa agentes.</p></div>
       <div id="confirmation" hidden><label class="check consent"><input id="paid" type="checkbox"> Autorizo chamadas pagas Gemini para este lote e aceito o teto reservado apresentado acima.</label><button id="execute" disabled>3. Confirmar e executar este lote</button></div>
     </section>
     <section class="card" aria-labelledby="results-title">
