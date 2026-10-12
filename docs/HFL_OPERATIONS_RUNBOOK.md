@@ -44,11 +44,10 @@ seções mesmo com código 0. A página `/` mostra as mesmas derivações no blo
   íntegra (1 evento), nenhuma aprovação registrada.
 - Ordens para 13/10: H2, Buy & Hold e SMA. Bollinger sem ordem. SMA/Bollinger
   comparáveis.
-- Radar oficial 09/10: **4 inputs prontos; 0/5 pareceres oficiais**. PETR4,
-  VALE3, WEGE3 e BBAS3 congelados; ITUB4 ainda sem input (bloqueio do extrator
-  original de 11/10, resolvido pelo preparo V7.2 — ação do operador abaixo).
-  BBAS3 tem volatilidade 21d 0,545 > 0,50: o Risk vetará por regra. Global PM
-  oficial indisponível.
+- Radar oficial 09/10: cinco inputs congelados (ITUB4 preparado pelo operador
+  em 12/10 02:41). O lote pago de 02:59 falhou por completo (incidente abaixo):
+  claims imutáveis, 0/5 pareceres, US$ 3,31776 reservados, US$ 1,68224 livres
+  nessa raiz. Global PM oficial indisponível.
 
 ## Checklist A — 13/10, antes da abertura (até 10h BRT)
 
@@ -100,7 +99,7 @@ autorização paga do lote. Fluxo para uma sessão encerrada `S`:
 | 3 | Conferir inputs, normalização, risco individual e preflight por ticker. | `/radar` (Conferência dos inputs) ou `scripts/check_platform.py` | CONSULTA |
 | 4 | Opcional: eventos, histórico e equivalência com o extrator original. | `scripts/radar_corporate_events.py diagnose --session S` | CONSULTA (lê rede) |
 | 5 | Preflight do lote Radar: estimativa, reserva, orçamento, token. | `/radar` ("2. Verificar preflight") ou `scripts/run_multiasset_radar.py preflight --session S` | CONSULTA |
-| 6 | Autorizar o **lote Radar** (até 6 chamadas por ativo, sem retry). | `/radar` ou `scripts/run_multiasset_radar.py run --session S --confirm <token> --authorize-paid` | **PAGA** |
+| 6 | Autorizar o **lote Radar** (até 6 chamadas por ativo, sem retry). Preferir o CLI (processo próprio); pela UI, só com servidor reiniciado após 12/10 (sem aviso de isolamento em `/radar`). | `scripts/run_multiasset_radar.py run --root R --session S --confirm <token> --authorize-paid` ou `/radar` | **PAGA** |
 | 7 | Elegibilidade conjunta (mesma fonte/sessão, todos os pareceres). | `/portfolio#global-workflow` ou `scripts/check_platform.py` | CONSULTA |
 | 8 | Preparar contexto com snapshot hipotético **perto do uso** (validade 24 h). | `/portfolio#global-workflow` | GRAVA |
 | 9 | Preflight global (Risk conjunto, estimativa, teto US$ 0,159744). | idem | CONSULTA |
@@ -111,7 +110,7 @@ original estrito; para preparar use o botão ou `radar_corporate_events.py prepa
 Um bloqueio em `last_prepare.json` descreve só a última chamada; a autoridade são
 os inputs congelados (`analyses/<ticker>/<sessão>/input.json`).
 
-**Preparo pendente do ITUB4 (ação explícita do operador, não executada):**
+**Preparo do ITUB4 na raiz oficial (executado pelo operador em 12/10 02:41; referência):**
 
 ```powershell
 .venv/Scripts/python.exe -B scripts/check_preservation.py --snapshot data/platform/antes-itub4-2026-10-09.json
@@ -161,6 +160,17 @@ resultado é idêntico bit a bit ao extrator original. O input registra tipo,
 data-ex, razão, fator de preço aplicado, ESPECI, DISMES, fechamentos e hash do
 módulo em `source.corporate_events`; o manifesto Radar não muda, logo os
 pareceres seguem compatíveis com o Global PM.
+
+## Incidente de 12/10/2026 02:59 — guard offline no lote pago
+
+Causa: o guard offline selado (`no_network()`) troca o socket do processo
+inteiro; um GET de prontidão (V7.2) o ativava em paralelo ao worker pago. As 25
+chamadas falharam localmente antes de qualquer conexão; zero envelopes. Correção:
+`scripts/network_scope.py` (guard por contexto), instalado por `server.main()`.
+O lote é um **incidente imutável**: não apagar claims, journals, falhas ou a
+reserva; replay não reconstrói e não chama o provedor. Nova tentativa somente em
+raiz operacional separada, com orçamento e autorização novos.
+Detalhes e procedimento: [incidente](evidence/hfl_incident_2026_10_12/README.md).
 
 ## Ciclo de vida dos arquivos
 
