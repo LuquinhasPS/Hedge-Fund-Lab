@@ -14,6 +14,27 @@ registro das execuções Radar (`data/radar/registry.json`), o preparo dos cinco
 inputs da nova raiz de recuperação e snapshots de preservação; a raiz do
 incidente não foi alterada (seção V7.3 abaixo).
 
+## V7.4 — Global PM V2
+
+A inferência real V1 `v7-5a78ea5d15214e37bcae18f167ffcee3` é evidência somente
+leitura: `REJECTED_BY_VALIDATOR`, custo `UNKNOWN` (pensamento não informado),
+reserva US$ 0,159744 mantida. Não preparar nem executar nada sobre ela.
+
+| Ação | Comando | Classe |
+|---|---|---|
+| Reproduzir a rejeição e o contrafactual | `.venv/Scripts/python.exe -B scripts/run_global_pm_v2.py incident` | CONSULTA |
+| Testes offline V2 | `.venv/Scripts/python.exe -m pytest -q tests/test_global_pm_v2.py` | CONSULTA |
+| Qualificação sintética A–F (US$ 0) | `.venv/Scripts/python.exe -B scripts/run_global_pm_v2.py qualify` | GRAVA |
+| Preparar contexto V2 de uma execução Radar | `… run_global_pm_v2.py prepare --radar-run ID --confirm-hypothetical --ack-fixture-policy` | GRAVA |
+| Preflight (origem, orçamento V1+V2, validade) | `… run_global_pm_v2.py preflight --id v74-…` | CONSULTA |
+| Inferência V2 (uma chamada, sem retry) | `… run_global_pm_v2.py run --id v74-… --confirm <token> --authorize-paid` | **PAGA** |
+| Resultado / replay do journal | `… run_global_pm_v2.py status --id v74-…` / `replay --id v74-…` | CONSULTA |
+
+A UI de `/portfolio` mostra registros V2 somente para consulta; preparar e
+executar V2 é pelo CLI, com autorização humana separada. Antes e depois de
+qualquer GRAVA/PAGA: `scripts/check_preservation.py --snapshot`/`--since`.
+Detalhes: [evidence/hfl_global_pm_v2/README.md](evidence/hfl_global_pm_v2/README.md).
+
 ## V7.3 — execuções Radar, incidente e recuperação
 
 Cada **execução Radar** é uma raiz própria em `data/radar/` (sessão, universo,

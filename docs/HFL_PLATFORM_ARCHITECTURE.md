@@ -227,3 +227,24 @@ origem (`VERIFIED`, `MISMATCH`, `MISSING`); `global-run` pago exige `VERIFIED`.
 Trocar a execução selecionada não altera contexto nem origem congelados.
 `global_pm_api.py` é fixado pelo baseline V7, por isso a seleção por raiz explícita
 fica em `platform_api.run_selection` (mesma checagem e prévia de custos).
+
+## V7.4 — Global PM V2 (contrato endurecido)
+
+A primeira inferência real do Global PM (V1, 12/10/2026) foi rejeitada com
+`explanation_selection_inconsistent`: o modelo usou `deferred_opportunities`
+para "oportunidades de mercado adiadas", campo que o contrato reserva a compras
+dependentes de liquidação. A rejeição permanece; a correção é uma identidade
+nova, `HFL-MULTIASSET-GLOBAL-PM-V2` (relatório completo:
+[evidence/hfl_global_pm_v2/README.md](evidence/hfl_global_pm_v2/README.md)).
+
+| Peça | Papel |
+|---|---|
+| `scripts/multiasset_global_pm_v2.py` | Prompt `GLOBAL_PM_PT_V2`, schema V2 (`not_selected`, `settlement_deferred_operations` por `operation_id`, `watchlist_candidates` consultivo, `cited_metrics`), política `GLOBAL_PM_VALIDATION_V2`, `verifiable_metrics` congeladas, validador determinístico sem normalização, descrições de erro (`ERRORS`) e `usage_accounting` (tokens informados × pensamento × estimativa × piso × reserva × cobrança). |
+| `scripts/run_global_pm_v2.py` | CLI `prepare/preflight/run/replay/status/qualify/incident` em `data/global_pm/hfl_global_pm_v2/`; origem Radar selada no contexto (preflight pago exige `VERIFIED`); orçamento soma reservas V1 e V2; `detail` não troca o status selado pela validade. |
+| `platform_api.py` | Lista registros V1 (`v7-…`) e V2 (`v74-…`); `global?id=` acrescenta `validation_status`, `error_details`, `financial_status`, `usage_accounting`; V2 é somente leitura (`ui_operations: false`; rotas de escrita recusam o ID). |
+
+V1 e seus arquivos (`multiasset_global_pm.py`, `run_global_pm.py`,
+`global_pm_api.py`) não mudam: seus hashes estão selados no contexto V1 e nos
+baselines. A V2 os importa e reaproveita `freeze`/`calculation_context` sobre
+uma cópia rotulada do snapshot; política de alocação, Risk V5, execução
+desabilitada, modelo e preços são os mesmos.
