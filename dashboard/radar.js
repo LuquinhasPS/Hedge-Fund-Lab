@@ -4,6 +4,7 @@ const escape = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&':'&
 let viewVersion=0;
 const query=new URLSearchParams(location.search);
 if(['CONSULTATIVE_SANDBOX','SYNTHETIC_DEMO'].includes(query.get('mode'))) $('radar-view').value=query.get('mode');
+const isolated=()=>$('radar-view').value!=='CONSULTATIVE_SANDBOX'||state?.network_isolation===true;
 const readonly=()=>$('radar-view').value==='SYNTHETIC_DEMO'||state?.mutation_available===false;
 function transfer(){ $('radar-to-global').href='/portfolio?'+new URLSearchParams({tickers:chosen().join(','),session:$('session').value,mode:$('radar-view').value})+'#global-workflow'; }
 let state = null, csrf = '', selected = new Set(), report = null, poll = null;
@@ -56,8 +57,9 @@ async function refresh(first=false) {
   }
   $('closed').textContent = state.last_closed_session;
   $('budget-used').innerHTML = `${cash(state.global_budget_used)} <small>/ ${state.global_budget_cap.toFixed(2)}</small>`;
-  $('job').textContent = state.job ? `${state.job.command} · ${state.job.status}` : 'Nenhuma execução ativa';
-  $('radar-source').textContent=$('radar-view').value==='SYNTHETIC_DEMO'?'DEMONSTRAÇÃO SINTÉTICA · resultados V4 fixos · sem chamadas ou gravações nesta visualização.':'CONSULTIVO COM GEMINI · pareceres oficiais · custo e autorização próprios do Radar.'+(readonly()?' O runner aponta para outra raiz: execução bloqueada nesta visualização.':'');
+  $('job').textContent = state.job ? `${state.job.command} · ${state.job.outcome ? state.job.outcome.summary : state.job.status}` : 'Nenhuma execução ativa';
+  $('job').classList.toggle('warning', !!state.job?.outcome && state.job.outcome.state !== 'COMPLETED');
+  $('radar-source').textContent=$('radar-view').value==='SYNTHETIC_DEMO'?'DEMONSTRAÇÃO SINTÉTICA · resultados V4 fixos · sem chamadas ou gravações nesta visualização.':'CONSULTIVO COM GEMINI · pareceres oficiais · custo e autorização próprios do Radar.'+(readonly()?' O runner aponta para outra raiz: execução bloqueada nesta visualização.':'')+(isolated()?'':' Servidor sem isolamento de rede por requisição: reinicie-o antes de qualquer execução paga.');
   $('add-form').querySelectorAll('input,button').forEach(e=>e.disabled=readonly());
   $('mode').disabled=readonly();
   transfer();renderUniverse(); renderResults();
@@ -72,6 +74,8 @@ async function refresh(first=false) {
 const pct = v => (Number(v) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
 const inputLabels = {FROZEN:'Input congelado', PREPARATION_REQUIRED:'Preparação necessária', UNRESOLVED_DIVERGENCE:'Divergência não resolvida', BLOCKED_DATA:'Dados bloqueados', INTEGRITY_ERROR:'Integridade divergente'};
 const opinionLabels = {PENDING:'Parecer pendente', COMPLETED:'Parecer concluído', RECOVERY_REQUIRED:'Recuperação offline', NONE:'Sem parecer'};
+const outcomeLabels = {COMMITTEE_COMPLETED:'Comitê concluído', COMMITTEE_PARTIAL:'Comitê parcial', RECOVERABLE_OFFLINE:'Falha recuperável offline', NO_RECOVERABLE_ENVELOPE:'Falha sem envelope recuperável', UNCERTAIN_CALLS:'Chamada de resultado incerto'};
+const billingLabels = {PROVIDER_USAGE_RECORDED:'uso registrado pelo provedor', SYNTHETIC_NO_PROVIDER:'sintético, sem provedor', NO_SEND_EVIDENCE:'bloqueio local antes da conexão; cobrança a confirmar no provedor', UNKNOWN:'cobrança desconhecida'};
 const preflightLabels = {READY:'pronto', INPUT_REQUIRED:'preparar dados', gemini_api_key_missing:'chave Gemini ausente no servidor', inference_already_reserved_replay_only:'já reservado · só recuperação'};
 function normalization(input) {
   if (!input) return '—';
@@ -91,7 +95,7 @@ async function inputs(version) {
   const d = await response.json();
   if (version !== viewVersion) return;
   if (!response.ok) { box.innerHTML = '<p class="warning">Conferência dos inputs indisponível.</p>'; box.hidden = false; return; }
-  box.innerHTML = `<p><strong>Conferência dos inputs · ${escape(d.summary)}</strong> · sessão ${escape(d.session)} · Gestor Global ${d.global_pm_ready ? 'elegível' : 'bloqueado até existirem todos os pareceres'}</p><div class="table-scroll input-check" tabindex="0" role="region" aria-label="Conferência dos inputs, tabela rolável"><table><thead><tr><th>Ativo</th><th>Input</th><th>Dados</th><th>Parecer</th><th>Risco individual</th><th>Preflight / próxima ação</th></tr></thead><tbody>${d.items.map(i => `<tr><td data-label="Ativo"><strong>${escape(i.ticker)}</strong></td><td data-label="Input">${escape(inputLabels[i.input_state] || i.input_state)}${i.input ? `<small>${i.input.bars} barras desde ${escape(i.input.history_start)} · ${modeLabel(i.input.mode)}</small><small>SHA ${escape(i.input.input_sha256.slice(0, 12))}…</small>` : ''}</td><td data-label="Dados">${normalization(i.input)}${i.input ? `<small>Bruto R$ ${escape(i.input.raw_close)} · ajustado R$ ${escape(i.input.adjusted_close)}</small>` : ''}</td><td data-label="Parecer">${escape(opinionLabels[i.opinion] || i.opinion)}</td><td data-label="Risco individual">${riskCell(i)}</td><td data-label="Preflight">${escape(preflightLabels[i.preflight] || i.preflight || '—')}<small>${escape(i.action)}</small></td></tr>`).join('')}</tbody></table></div><p class="muted small">Preparar dados e executar análises são ações independentes: preparar é gratuito e não chama Gemini. Input íntegro não é parecer favorável; o Risk só existe após o comitê.</p>`;
+  box.innerHTML = `<p><strong>Conferência dos inputs · ${escape(d.summary)}</strong> · sessão ${escape(d.session)} · Gestor Global ${d.global_pm_ready ? 'elegível' : 'bloqueado até existirem todos os pareceres'}</p><div class="table-scroll input-check" tabindex="0" role="region" aria-label="Conferência dos inputs, tabela rolável"><table><thead><tr><th>Ativo</th><th>Input</th><th>Dados</th><th>Parecer</th><th>Risco individual</th><th>Preflight / próxima ação</th></tr></thead><tbody>${d.items.map(i => `<tr><td data-label="Ativo"><strong>${escape(i.ticker)}</strong></td><td data-label="Input">${escape(inputLabels[i.input_state] || i.input_state)}${i.input ? `<small>${i.input.bars} barras desde ${escape(i.input.history_start)} · ${modeLabel(i.input.mode)}</small><small>SHA ${escape(i.input.input_sha256.slice(0, 12))}…</small>` : ''}</td><td data-label="Dados">${normalization(i.input)}${i.input ? `<small>Bruto R$ ${escape(i.input.raw_close)} · ajustado R$ ${escape(i.input.adjusted_close)}</small>` : ''}</td><td data-label="Parecer">${escape(opinionLabels[i.opinion] || i.opinion)}${i.outcome && i.outcome.state !== 'COMMITTEE_COMPLETED' ? `<small class="warning">${escape(outcomeLabels[i.outcome.state] || i.outcome.state)} · ${escape(i.outcome.calls_reserved)} chamadas reservadas</small><small>${escape(billingLabels[i.outcome.billing] || i.outcome.billing)}</small>` : ''}</td><td data-label="Risco individual">${riskCell(i)}</td><td data-label="Preflight">${escape(preflightLabels[i.preflight] || i.preflight || '—')}<small>${escape(i.action)}</small></td></tr>`).join('')}</tbody></table></div><p class="muted small">Preparar dados e executar análises são ações independentes: preparar é gratuito e não chama Gemini. Input íntegro não é parecer favorável; o Risk só existe após o comitê.</p>`;
   box.hidden = false;
 }
 function guarded(handler) { return async event => { $('error').hidden = true; try { await handler(event); } catch(exc) { error(exc); } }; }
@@ -111,10 +115,10 @@ $('preflight').addEventListener('click', guarded(async () => {
   $('preflight-result').innerHTML = `<p><strong>${report.ready ? 'Preflight aprovado' : 'Preflight bloqueado'}</strong> · Sessão ${escape(report.session)}</p><ul>${report.items.map(i=>`<li>${escape(i.ticker)}: ${i.ready ? 'pronto · ' + modeLabel(i.mode) : escape(i.error)}</li>`).join('')}</ul><p>Estimativa do lote: <strong>US$ ${cash(report.usd_estimated)}</strong> · Teto reservado: <strong>US$ ${cash(report.usd_reserved)}</strong> · Limite global: US$ ${report.global_budget_cap.toFixed(2)}.</p><p class="muted">Até 6 chamadas por ativo. Estimativa baseada em 2.500 tokens de entrada e 800 de saída por chamada. Reserva conservadora: 32.768 de entrada e 8.192 de saída, incluindo pensamento, sem retries automáticos. <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Tarifas e hipóteses</a>.</p>${report.usd_reserved > report.max_usd || report.global_budget_used + report.usd_reserved > report.global_budget_cap ? '<p class="warning">Orçamento insuficiente para a reserva conservadora do lote.</p>' : ''}`;
   $('confirmation').hidden = !report.ready;
   const paid = !report.replay && report.items.some(i=>i.mode==='live');
-  $('paid').closest('label').hidden = !paid; $('paid').checked = false; $('execute').disabled = paid;
+  $('paid').closest('label').hidden = !paid; $('paid').checked = false; $('execute').disabled = paid || !isolated();
   $('execute').textContent = report.replay ? '3. Confirmar recuperação offline' : paid ? '3. Confirmar e executar chamadas pagas' : '3. Executar exemplo sintético · US$ 0';
 }));
-$('paid').addEventListener('change', () => { $('execute').disabled = !$('paid').checked; });
+$('paid').addEventListener('change', () => { $('execute').disabled = !$('paid').checked || !isolated(); });
 $('execute').addEventListener('click', guarded(async () => { if(!report?.ready) throw new Error('Refaça o preflight.'); const payload = {...selection(),confirmation_token:report.confirmation_token,authorize_paid:$('paid').checked,confirm:true}; invalidate(); await api('run',payload); await refresh(); }));
 $('refresh').addEventListener('click', guarded(() => refresh()));
 function detailHtml(row, compact=false) {

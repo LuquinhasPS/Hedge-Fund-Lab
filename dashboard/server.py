@@ -37,6 +37,7 @@ import forward_jobs
 import global_pm_api
 import h2_api
 import market_api
+import network_scope
 import platform_api
 import portfolio_api
 import radar_api
@@ -704,6 +705,9 @@ def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
     # The /radar "Preparar dados" button and the CLI share one normalized path.
     radar_corporate_events.install()
+    # Offline checks guard only their own request context; a paid worker thread is
+    # never blocked by a concurrent GET (incident 2026-10-12 02:59 BRT).
+    network_scope.install()
     # Configura logger mínimo para o dashboard (standalone)
     logging.basicConfig(
         level=logging.INFO,

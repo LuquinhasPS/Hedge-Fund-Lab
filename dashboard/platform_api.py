@@ -3,10 +3,14 @@
 Never calls reconciliation, order approval, market downloads or shell commands.
 """
 
+import json
 import os
 import re
+import socket
 import sqlite3
 import threading
+from collections import Counter
+from contextlib import closing
 
 import forward_api as forward
 import forward_jobs
@@ -141,6 +145,122 @@ PREPARE_COMMAND = (
 CORPORATE_ERRORS = ("split-like mismatch", "corporate event")
 
 
+GUARD_MESSAGE = "offline qualification forbids network"
+OUTCOME_ACTIONS = {
+    "COMMITTEE_COMPLETED": "Parecer oficial completo e íntegro.",
+    "RECOVERABLE_OFFLINE": "Envelopes gravados: recuperar somente offline (replay, sem nova chamada).",
+    "COMMITTEE_PARTIAL": "Comitê parcial: votos gravados insuficientes; não repetir chamadas deste claim.",
+    "UNCERTAIN_CALLS": "Chamada de resultado incerto: não repetir; conferir uso no console do provedor.",
+    "NO_RECOVERABLE_ENVELOPE": "Incidente imutável: nenhuma resposta gravada, replay não reconstrói. Nova "
+    "tentativa só em identidade operacional separada, com orçamento e autorização novos.",
+}
+
+
+def committee_outcome(root, ticker, day):
+    """What happened to each reserved call of one claim; read-only, codes only."""
+    folder = radar.folder_for(root, ticker, day)
+    if (folder / "result.sha256").exists():
+        synthetic = radar.read(folder / "result.json")["mode"] == "synthetic"
+        return {
+            "state": "COMMITTEE_COMPLETED",
+            "billing": "SYNTHETIC_NO_PROVIDER"
+            if synthetic
+            else "PROVIDER_USAGE_RECORDED",
+        }
+    if not (folder / "claim.json").exists():
+        return None
+    kinds, usage = [], False
+    if (folder / "calls.sqlite").exists():
+        uri = (folder / "calls.sqlite").as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True)) as db:
+            last = {
+                seq: json.loads(evidence)
+                for seq, evidence in db.execute(
+                    "SELECT sequence, evidence FROM attempts WHERE slot='L01' "
+                    "ORDER BY sequence, attempt"
+                )
+            }
+            rows = db.execute(
+                "SELECT sequence, raw IS NOT NULL, record FROM calls WHERE slot='L01' "
+                "ORDER BY sequence"
+            ).fetchall()
+        for seq, raw, record in rows:
+            record = json.loads(record) if record else None
+            evidence = last.get(seq, {})
+            usage |= bool(record and record.get("token_usage"))
+            kinds.append(
+                "UNCERTAIN"  # reserved, no durable outcome: the request may have left
+                if record is None
+                else "OK"
+                if record.get("status") == "ok"
+                else "ENVELOPE_RECORDED"
+                if raw
+                else "BLOCKED_BEFORE_CONNECT"
+                if evidence.get("type") == "RuntimeError"
+                and evidence.get("message") == GUARD_MESSAGE
+                and evidence.get("http_status") is None
+                else "PROVIDER_HTTP_ERROR"
+                if evidence.get("http_status") is not None
+                else "TRANSPORT_ERROR"
+            )
+    if "UNCERTAIN" in kinds:
+        state = "UNCERTAIN_CALLS"
+    elif kinds and set(kinds) <= {"OK", "ENVELOPE_RECORDED"}:
+        state = "RECOVERABLE_OFFLINE"
+    elif "OK" in kinds:
+        state = "COMMITTEE_PARTIAL"
+    else:
+        state = "NO_RECOVERABLE_ENVELOPE"
+    return {
+        "state": state,
+        "calls_reserved": len(kinds),
+        "calls": dict(Counter(kinds)),
+        # A local guard refusal happens before any socket exists; provider-side usage
+        # is still to be confirmed in its console, never assumed from a null status.
+        "billing": "PROVIDER_USAGE_RECORDED"
+        if usage
+        else "NO_SEND_EVIDENCE"
+        if kinds and set(kinds) == {"BLOCKED_BEFORE_CONNECT"}
+        else "UNKNOWN",
+    }
+
+
+def radar_job(root=None):
+    """``radar_api.job()`` plus committee outcomes: a finished job is not a successful batch."""
+    job = radar_api.job()
+    if not job or job.get("command") != "run" or job.get("status") != "COMPLETED":
+        return job
+    root = root or radar_api.ROOT
+    start, end = b.instant(job["started_at"]), b.instant(job["finished_at"])
+    states = {}
+    for item in job.get("items", []):
+        ticker = radar.tickers([item["ticker"]])[0]
+        claims = [
+            path
+            for path in (root / "analyses" / ticker).glob("*/claim.json")
+            if start <= b.instant(radar.read(path)["created_at"]) <= end
+        ]
+        outcome = (
+            committee_outcome(root, ticker, claims[-1].parent.name) if claims else None
+        )
+        states[ticker] = outcome["state"] if outcome else "UNKNOWN"
+    done = sum(state == "COMMITTEE_COMPLETED" for state in states.values())
+    return {
+        **job,
+        "outcome": {
+            "state": "COMPLETED"
+            if done == len(states)
+            else "PARTIAL"
+            if done
+            else "FAILED",
+            "committees_completed": done,
+            "committees": len(states),
+            "states": states,
+            "summary": f"Infraestrutura concluída · {done}/{len(states)} comitês concluídos",
+        },
+    }
+
+
 def input_facts(root, ticker, day):
     """Frozen-input projection; ``checked_input`` raises on any integrity drift."""
     data = radar.checked_input(root, ticker, day)
@@ -242,7 +362,9 @@ def radar_readiness(day, symbols, root=None):
             items.append(item)
             continue
         native = detail["status"]
+        outcome = committee_outcome(root, ticker, day)
         item.update(
+            outcome=outcome,
             input_state="FROZEN",
             opinion={
                 "PREPARED": "PENDING",
@@ -270,7 +392,9 @@ def radar_readiness(day, symbols, root=None):
                 action={
                     "PREPARED": "Input congelado; parecer pendente: preflight Radar e "
                     "autorização paga própria do lote." + restriction,
-                    "FAILED_REPLAY_ONLY": "Recuperar somente offline; nunca repetir a chamada.",
+                    "FAILED_REPLAY_ONLY": OUTCOME_ACTIONS[outcome["state"]]
+                    if outcome
+                    else "Recuperar somente offline; nunca repetir a chamada.",
                 }.get(
                     native, "Parecer incompatível com sessão/fonte; consultar detalhe."
                 ),
@@ -376,13 +500,24 @@ def jobs_status():
                 "href": "/paper#sala",
             }
         )
-    rjob = radar_api.job()
+    rjob = radar_job()
     if rjob:
+        outcome = rjob.get("outcome") or {}
         result.append(
             {
                 "module": "Radar",
                 **forward.pick(rjob, "id", "command", "started_at", "finished_at"),
                 **visual_state(rjob["status"]),
+                **(
+                    {
+                        "state": {"PARTIAL": "RECOVERY_REQUIRED"}.get(
+                            outcome["state"], outcome["state"]
+                        ),
+                        "result_state": outcome["summary"],
+                    }
+                    if outcome
+                    else {}
+                ),
                 "cost_usd": None,
                 "href": "/radar",
             }
@@ -866,7 +1001,10 @@ def get(command, query):
         return {
             **radar.status(source_root(query["mode"])),
             "mode_view": query["mode"],
-            "job": radar_api.job() if mutable else None,
+            "job": radar_job() if mutable else None,
+            # False in a server started without network_scope.install(): an offline
+            # check there can block (or stay installed against) the paid worker.
+            "network_isolation": getattr(socket.create_connection, "_hfl_scoped", False),
             "csrf_token": forward_jobs.JOBS.csrf,
             "read_only": True,
             "mutation_available": mutable,

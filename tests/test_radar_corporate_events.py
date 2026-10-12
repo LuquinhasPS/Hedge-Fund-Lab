@@ -204,6 +204,8 @@ def test_install_is_the_ui_startup_path(monkeypatch):
 
     monkeypatch.setattr(server, "ReusableTCPServer", Stop)
     monkeypatch.setattr(sys, "argv", ["server.py", "0"])
+    # The socket scope is covered, with restoration, in test_radar_network_isolation.
+    monkeypatch.setattr(server.network_scope, "install", lambda: None)
     server.main()
     assert radar.RadarExtractor is rce.CorporateEventExtractor
     assert issubclass(rce.CorporateEventExtractor, rce.ORIGINAL)
