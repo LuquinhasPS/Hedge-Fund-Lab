@@ -3,24 +3,24 @@
 Never calls reconciliation, order approval, market downloads or shell commands.
 """
 
-import json
 import os
 import re
-import socket
 import sqlite3
 import threading
-from collections import Counter
-from contextlib import closing
+from pathlib import Path
 
 import forward_api as forward
 import forward_jobs
 import global_pm_api as global_api
 import h2_api
 import market_api
+import network_scope
 import portfolio_api
 import radar_api
+import radar_runs as runs
 
 b, pm, cli, radar = global_api.b, global_api.pm, global_api.cli, global_api.radar
+committee_outcome = runs.committee_outcome
 ROOT = forward.ROOT
 OPERATIONS = ROOT / "data/platform/v7"
 ID = re.compile(r"v7-[0-9a-f]{32}")
@@ -37,6 +37,8 @@ FIELDS = {
     "run": {"id", "max_usd", "confirmation_token", "authorize_paid", "confirm"},
     "replay": {"id", "confirm"},
 }
+#: V7.3: a prepare from a registered Radar run names it and the opinions it saw.
+RUN_PREPARE = FIELDS["prepare"] | {"radar_run", "opinion_hashes"}
 COMMON = {
     "NO_PROPOSAL": "NOT_PREPARED",
     "AWAITING_PREFLIGHT": "PREPARED",
@@ -143,9 +145,11 @@ PREPARE_COMMAND = (
     "--session {day} --tickers {tickers}"
 )
 CORPORATE_ERRORS = ("split-like mismatch", "corporate event")
+RUN_PREPARE_COMMAND = (
+    ".venv/Scripts/python.exe -B scripts/radar_runs.py prepare --run {run}"
+)
 
 
-GUARD_MESSAGE = "offline qualification forbids network"
 OUTCOME_ACTIONS = {
     "COMMITTEE_COMPLETED": "Parecer oficial completo e íntegro.",
     "RECOVERABLE_OFFLINE": "Envelopes gravados: recuperar somente offline (replay, sem nova chamada).",
@@ -156,81 +160,18 @@ OUTCOME_ACTIONS = {
 }
 
 
-def committee_outcome(root, ticker, day):
-    """What happened to each reserved call of one claim; read-only, codes only."""
-    folder = radar.folder_for(root, ticker, day)
-    if (folder / "result.sha256").exists():
-        synthetic = radar.read(folder / "result.json")["mode"] == "synthetic"
-        return {
-            "state": "COMMITTEE_COMPLETED",
-            "billing": "SYNTHETIC_NO_PROVIDER"
-            if synthetic
-            else "PROVIDER_USAGE_RECORDED",
-        }
-    if not (folder / "claim.json").exists():
-        return None
-    kinds, usage = [], False
-    if (folder / "calls.sqlite").exists():
-        uri = (folder / "calls.sqlite").as_uri() + "?mode=ro"
-        with closing(sqlite3.connect(uri, uri=True)) as db:
-            last = {
-                seq: json.loads(evidence)
-                for seq, evidence in db.execute(
-                    "SELECT sequence, evidence FROM attempts WHERE slot='L01' "
-                    "ORDER BY sequence, attempt"
-                )
-            }
-            rows = db.execute(
-                "SELECT sequence, raw IS NOT NULL, record FROM calls WHERE slot='L01' "
-                "ORDER BY sequence"
-            ).fetchall()
-        for seq, raw, record in rows:
-            record = json.loads(record) if record else None
-            evidence = last.get(seq, {})
-            usage |= bool(record and record.get("token_usage"))
-            kinds.append(
-                "UNCERTAIN"  # reserved, no durable outcome: the request may have left
-                if record is None
-                else "OK"
-                if record.get("status") == "ok"
-                else "ENVELOPE_RECORDED"
-                if raw
-                else "BLOCKED_BEFORE_CONNECT"
-                if evidence.get("type") == "RuntimeError"
-                and evidence.get("message") == GUARD_MESSAGE
-                and evidence.get("http_status") is None
-                else "PROVIDER_HTTP_ERROR"
-                if evidence.get("http_status") is not None
-                else "TRANSPORT_ERROR"
-            )
-    if "UNCERTAIN" in kinds:
-        state = "UNCERTAIN_CALLS"
-    elif kinds and set(kinds) <= {"OK", "ENVELOPE_RECORDED"}:
-        state = "RECOVERABLE_OFFLINE"
-    elif "OK" in kinds:
-        state = "COMMITTEE_PARTIAL"
-    else:
-        state = "NO_RECOVERABLE_ENVELOPE"
-    return {
-        "state": state,
-        "calls_reserved": len(kinds),
-        "calls": dict(Counter(kinds)),
-        # A local guard refusal happens before any socket exists; provider-side usage
-        # is still to be confirmed in its console, never assumed from a null status.
-        "billing": "PROVIDER_USAGE_RECORDED"
-        if usage
-        else "NO_SEND_EVIDENCE"
-        if kinds and set(kinds) == {"BLOCKED_BEFORE_CONNECT"}
-        else "UNKNOWN",
-    }
-
-
 def radar_job(root=None):
     """``radar_api.job()`` plus committee outcomes: a finished job is not a successful batch."""
-    job = radar_api.job()
+    root = Path(root or radar_api.ROOT)
+    if root.resolve() == Path(radar_api.ROOT).resolve():
+        job = radar_api.job()
+    else:  # another run: its job.json is history; only the runner can be RUNNING
+        path = root / "job.json"
+        job = radar.read(path) if path.exists() else None
+        if job and job["status"] == "RUNNING":
+            job = {**job, "status": "INTERRUPTED_REVIEW_LOCK_AND_REPLAY"}
     if not job or job.get("command") != "run" or job.get("status") != "COMPLETED":
         return job
-    root = root or radar_api.ROOT
     start, end = b.instant(job["started_at"]), b.instant(job["finished_at"])
     states = {}
     for item in job.get("items", []):
@@ -297,10 +238,90 @@ def input_facts(root, ticker, day):
     }
 
 
-def radar_readiness(day, symbols, root=None):
+def run_selection(mode, day, symbols, root):
+    """``global_pm_api.selection`` over an explicit run root (that file is pinned by the
+    V7 preservation baseline, so it cannot take the root as a parameter)."""
+    legacy = (
+        global_api.SYNTHETIC_RADAR
+        if mode == "SYNTHETIC_DEMO"
+        else global_api.OFFICIAL_RADAR
+    )
+    if Path(root).resolve() == Path(legacy).resolve():
+        return global_api.selection(mode, day, symbols)
+    # ponytail: mirrors global_pm_api.selection's eligibility and cost preview; the
+    # opinion check itself is the sealed pm.load_opinions. Upgrade path: a root
+    # parameter in global_pm_api.selection when that baseline is next renewed.
+    if mode not in pm.MODES:
+        raise ValueError("invalid_analysis_mode")
+    radar.session(day)
+    symbols = radar.tickers(symbols, empty=False)
+    items = []
+    for symbol in symbols:
+        try:
+            o = pm.load_opinions(root, [symbol], day, mode, pm.now())[0][symbol]
+            items.append(
+                {
+                    "ticker": symbol,
+                    "status": "ELIGIBLE",
+                    "opinion_sha256": o["sha256"],
+                    "recommendation": o["recommendation"],
+                    "generated_at": o["generated_at"],
+                    "synthetic": mode == "SYNTHETIC_DEMO",
+                }
+            )
+        except (ValueError, KeyError, OSError, TypeError):
+            items.append(
+                {
+                    "ticker": symbol,
+                    "status": "MISSING_OR_INELIGIBLE",
+                    "reason": "Parecer completo e íntegro desta execução/sessão necessário; nada foi gerado.",
+                }
+            )
+    missing = [i["ticker"] for i in items if i["status"] != "ELIGIBLE"]
+    paid = mode == "CONSULTATIVE_SANDBOX"
+    asset = radar.estimate({"manifest": {"mode": "live"}})
+    ceiling = (
+        b.dec(pm.CONFIG["input_bytes_max"])
+        * b.dec(pm.CONFIG["input_usd_million_ceiling"])
+        + b.dec(pm.CONFIG["options"]["max_output_tokens"])
+        * b.dec(pm.CONFIG["output_usd_million_ceiling"])
+    ) / 1000000
+    return {
+        "identity": pm.IDENTITY,
+        "mode": mode,
+        "session": day,
+        "items": items,
+        "status": "INSUFFICIENT_DATA" if missing else "READY_FOR_CONTEXT_PREPARATION",
+        "missing": missing,
+        "selected": symbols,
+        "provider_calls": 0,
+        "radar_cost_preview": {
+            "authorization_scope": "RADAR_ONLY_SEPARATE",
+            "missing_count": len(missing),
+            "calls_max": 6 * len(missing),
+            "usd_estimated": str(b.dec(str(asset["usd_estimated"])) * len(missing))
+            if paid
+            else "0",
+            "usd_reserved": str(b.dec(str(asset["usd_reserved"])) * len(missing))
+            if paid
+            else "0",
+            "planning_only": True,
+        },
+        "global_pm_cost_preview": {
+            "authorization_scope": "GLOBAL_PM_ONLY_SEPARATE",
+            "calls_max": 1,
+            "usd_reserved_ceiling": str(ceiling) if paid else "0",
+            "usd_estimated": None,
+            "estimate_note": "Estimativa depende do contexto congelado; nenhum custo autorizado nesta consulta.",
+        },
+        "execution_enabled": False,
+    }
+
+
+def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=None):
     """Per official ticker: input, normalization, risk restriction, opinion and next step."""
     root = root or global_api.OFFICIAL_RADAR
-    selection = global_api.selection("CONSULTATIVE_SANDBOX", day, symbols)
+    selection = run_selection(mode, day, symbols, root)
     last = root / "last_prepare.json"
     # last_prepare.json only reports the latest prepare call; inputs are the authority.
     blocked = {
@@ -313,7 +334,11 @@ def radar_readiness(day, symbols, root=None):
     except (ValueError, OSError) as exc:
         preflight = {"ready": False, "items": [], "error": str(exc)}
     checks = {i["ticker"]: i for i in preflight["items"]}
-    command = PREPARE_COMMAND.format(day=day, tickers=" ".join(selection["selected"]))
+    command = (
+        RUN_PREPARE_COMMAND.format(run=run)
+        if run
+        else PREPARE_COMMAND.format(day=day, tickers=" ".join(selection["selected"]))
+    )
     items = []
     for entry in selection["items"]:
         ticker = entry["ticker"]
@@ -467,6 +492,60 @@ def global_records():
     return result
 
 
+def runner():
+    """Registered run the Radar API worker writes to, or None: then prepare/run are refused."""
+    try:
+        return runs.run_for_root(radar_api.ROOT, runs.load())
+    except ValueError:
+        return None
+
+
+def radar_post_gate(command, payload, headers):
+    """Server-side gate before the sealed ``radar_api.post``: the browser cannot pick a
+    root, a stale page cannot write to another run, a paid batch needs the run's budget
+    gate and a qualified (scoped) network guard."""
+    if command == "preflight":
+        return None  # read-only and sealed
+    if command == "universe":
+        # Operator selection file; refused on the preserved incident root in any case.
+        owner = runner()
+        if (owner and not owner["accepts_new_calls"]) or (
+            not owner
+            and Path(radar_api.ROOT).resolve() == global_api.OFFICIAL_RADAR.resolve()
+        ):
+            raise ValueError("run_not_accepting_new_calls")
+        return None
+    registry = runs.load()
+    owner = runs.run_for_root(radar_api.ROOT, registry)
+    if owner is None:
+        raise ValueError("runner_not_a_registered_run")
+    if headers != [owner["id"]]:
+        raise ValueError("radar_run_header_mismatch_reload_page")
+    if (
+        not isinstance(payload, dict)
+        or "tickers" not in payload
+        or "session" not in payload
+    ):
+        raise ValueError("invalid_payload")
+    tickers = radar.tickers(payload["tickers"], empty=False)
+    report = None
+    if command == "prepare" and payload.get("mode") != runs.MODES[owner["mode"]]:
+        raise ValueError("synthetic_official_mix")
+    if command == "run":
+        if not network_scope.qualified():
+            raise ValueError("network_isolation_not_qualified_restart_server")
+        report = radar.preflight(
+            tickers,
+            runs.root_of(owner),
+            day=payload["session"],
+            max_usd=payload.get("max_usd"),
+            replay=payload.get("replay") is True,
+        )
+    return runs.gate(
+        owner["id"], command, tickers, payload["session"], registry, report=report
+    )
+
+
 def jobs_status():
     result = []
     # ponytail: local JSON jobs are scanned on demand; archive/index if this grows
@@ -500,12 +579,13 @@ def jobs_status():
                 "href": "/paper#sala",
             }
         )
-    rjob = radar_job()
+    rjob, owner = radar_job(), runner()
     if rjob:
         outcome = rjob.get("outcome") or {}
         result.append(
             {
                 "module": "Radar",
+                "run": owner["id"] if owner else None,
                 **forward.pick(rjob, "id", "command", "started_at", "finished_at"),
                 **visual_state(rjob["status"]),
                 **(
@@ -519,7 +599,7 @@ def jobs_status():
                     else {}
                 ),
                 "cost_usd": None,
-                "href": "/radar",
+                "href": "/radar?run=" + owner["id"] if owner else "/radar",
             }
         )
     result += GLOBAL_JOBS.status()
@@ -532,10 +612,28 @@ def overview(at=None):
     decision = attempt(forward.decision)
     supervision = attempt(lambda: forward.supervision(clock=lambda: at))
     integrity = attempt(lambda: forward_integrity(forward.OUTPUT))
-    live_radar = attempt(lambda: radar.status(global_api.OFFICIAL_RADAR))
+    radar_runs = attempt(runs.overview)
+    chosen = next(
+        (r for r in (radar_runs.get("data") or {}).get("runs", []) if r["selected"]), None
+    )
+    # Registry unavailable: show the legacy official root read-only; never a runner.
+    radar_root = runs.root_of(chosen) if chosen else global_api.OFFICIAL_RADAR
+    live_radar = attempt(lambda: radar.status(radar_root))
     day = str(forward.fwd.last_closed_session(at).date())
-    universe = (live_radar.get("data") or {}).get("universe") or list(radar.EXAMPLES)
-    selection = attempt(lambda: radar_readiness(day, universe))
+    universe = (
+        (chosen or {}).get("universe")
+        or (live_radar.get("data") or {}).get("universe")
+        or list(radar.EXAMPLES)
+    )
+    selection = attempt(
+        lambda: radar_readiness(
+            chosen["session"] if chosen else day,
+            universe,
+            radar_root,
+            chosen["mode"] if chosen else "CONSULTATIVE_SANDBOX",
+            (chosen or {}).get("id"),
+        )
+    )
     v5 = attempt(lambda: portfolio_api.get("status", {}))
     v6 = attempt(lambda: global_api.get("status", {}))
     science = attempt(h2_api.status)
@@ -550,6 +648,7 @@ def overview(at=None):
         ("Supervisão", supervision),
         ("Integridade H2", integrity),
         ("Radar", live_radar),
+        ("Execuções Radar (registry)", radar_runs),
         ("Global PM", v6),
     ]:
         if not value["available"]:
@@ -587,6 +686,8 @@ def overview(at=None):
         "supervision": supervision,
         "integrity": integrity,
         "radar": live_radar,
+        "radar_runs": radar_runs,
+        "radar_run_selected": (chosen or {}).get("id"),
         "official_selection": selection,
         "global_records": records,
         "synthetic_v5": v5,
@@ -686,6 +787,23 @@ def attention(d, at):
                 "/paper#sala",
             )
         )
+    for run in ((d.get("radar_runs") or {}).get("data") or {}).get("runs", []):
+        if run["incident"]:
+            items.append(
+                (
+                    "info",
+                    f"Radar {run['id']}: {run['incident']['classification']} ({run['incident']['id']})",
+                    "/radar?run=" + run["id"],
+                )
+            )
+        elif run["state"] in ("INTEGRITY_ERROR", "RECOVERY_REQUIRED", "PARTIAL"):
+            items.append(
+                (
+                    "blocked",
+                    f"Radar {run['id']}: {run['state']}; consultar a execução, sem nova chamada.",
+                    "/radar?run=" + run["id"],
+                )
+            )
     if readiness and readiness["missing"]:
         blocked = [
             i["ticker"]
@@ -695,10 +813,12 @@ def attention(d, at):
         items.append(
             (
                 "lab",
-                f"Radar oficial: {readiness['summary']}"
+                f"Radar {d.get('radar_run_selected') or 'oficial'}: {readiness['summary']}"
                 + (f"; bloqueados: {', '.join(blocked)}" if blocked else "")
                 + ". Global PM aguarda os pareceres de todos.",
-                "/radar",
+                "/radar?run=" + d["radar_run_selected"]
+                if d.get("radar_run_selected")
+                else "/radar",
             )
         )
     for record in d["global_records"]:
@@ -754,6 +874,122 @@ def attention(d, at):
     }
 
 
+def radar_source(payload):
+    """(root, run, registry) a prepare reads: a registered run, or the legacy synthetic demo."""
+    if "radar_run" not in payload:
+        if payload["mode"] != "SYNTHETIC_DEMO":
+            raise ValueError("radar_run_required")
+        return source_root(payload["mode"]), None, None
+    registry = runs.load()
+    entry = runs.run(payload["radar_run"], registry)
+    if entry["mode"] != payload["mode"]:
+        raise ValueError("synthetic_official_mix")
+    if entry["session"] != payload["session"]:
+        raise ValueError("session_differs_from_radar_run")
+    if not set(radar.tickers(payload["tickers"], empty=False)) <= set(entry["universe"]):
+        raise ValueError("selection_outside_run_identity")
+    hashes = payload["opinion_hashes"]
+    if not isinstance(hashes, dict) or set(hashes) != set(payload["tickers"]):
+        raise ValueError("opinion_hashes_required")
+    return runs.root_of(entry), entry, registry
+
+
+def checked_opinions(payload, at):
+    """Every opinion re-read and verified in the run's own root; the browser's hashes
+    only have to agree with it, never replace it."""
+    root, entry, registry = radar_source(payload)
+    opinions, histories = pm.load_opinions(
+        root, payload["tickers"], payload["session"], payload["mode"], at
+    )
+    if entry and any(
+        payload["opinion_hashes"][t] != o["sha256"] for t, o in opinions.items()
+    ):
+        raise ValueError("radar_selection_changed_review_again")
+    return opinions, histories, entry, registry
+
+
+def origin_record(analysis_id, entry, registry, opinions):
+    return b.sealed(
+        {
+            "schema_version": 1,
+            "analysis_id": analysis_id,
+            "radar_run": {
+                **{
+                    k: entry[k]
+                    for k in (
+                        "id",
+                        "path",
+                        "mode",
+                        "classification",
+                        "source",
+                        "session",
+                        "universe",
+                        "treatment",
+                        "instance_of",
+                    )
+                },
+                "incident": (entry["incident"] or {}).get("id"),
+            },
+            "registry_revision": registry["revision"],
+            "registry_sha256": registry["sha256"],
+            "opinions": {
+                t: {
+                    "opinion_sha256": o["sha256"],
+                    "result_sha256": o["result_sha256"],
+                    "input_sha256": o["input_sha256"],
+                    "manifest_sha256": o["manifest_sha256"],
+                    "session": o["session"],
+                    "mode": o["mode"],
+                    "input_ref": f"{entry['path']}/analyses/{t}/{o['session']}/input.json",
+                }
+                for t, o in opinions.items()
+            },
+            "recorded_at": pm.now(),
+        }
+    )
+
+
+def radar_origin(value, detail, jobs=None):
+    """Origin frozen beside the context; later run selections never change it."""
+    path = (jobs or GLOBAL_JOBS).root / "radar_origins" / (value + ".json")
+    if not path.exists():
+        return {
+            "state": "LEGACY_SYNTHETIC_DEMO"
+            if detail["mode"] == "SYNTHETIC_DEMO"
+            else "MISSING"
+        }
+    origin = b.check_seal(b.read(path))
+    same = origin["analysis_id"] == value and {
+        t: o["opinion_sha256"] for t, o in origin["opinions"].items()
+    } == {t: o["sha256"] for t, o in detail["opinions"].items()}
+    return {"state": "VERIFIED" if same else "MISMATCH", **origin}
+
+
+def run_root(run_id):
+    """Only allowlisted IDs reach the disk; the browser never names a path."""
+    entry = runs.run(run_id, runs.load())
+    return entry, runs.root_of(entry)
+
+
+def radar_view(run_id):
+    registry = runs.load()
+    entry = runs.run(run_id, registry)
+    root, owner = runs.root_of(entry), runs.run_for_root(radar_api.ROOT, registry)
+    runner_run = bool(owner) and owner["id"] == entry["id"]
+    return {
+        **radar.status(root),
+        "run": runs.public(entry, registry),
+        "runner": owner["id"] if owner else None,
+        "mode_view": entry["mode"],
+        "job": radar_job(root),
+        "network_isolation": network_scope.qualified(),
+        "csrf_token": forward_jobs.JOBS.csrf,
+        "read_only": True,
+        # Writes go only to the server's runner, and only when it accepts new calls.
+        "mutation_available": runner_run and entry["accepts_new_calls"],
+    }
+
+
 def public_global(value):
     root = analysis_root(value)
     d = global_api.public_detail(root)
@@ -763,6 +999,7 @@ def public_global(value):
         "id": value,
         **d,
         **visual_state(d["status"]),
+        "radar_origin": radar_origin(value, d),
         "model": pm.CONFIG["model"],
         "classification": "DEMONSTRAÇÃO SINTÉTICA"
         if d["mode"] == "SYNTHETIC_DEMO"
@@ -814,7 +1051,8 @@ class GlobalJobs:
         if (
             command not in FIELDS
             or not isinstance(payload, dict)
-            or set(payload) != FIELDS[command]
+            or set(payload)
+            not in (FIELDS[command], RUN_PREPARE if command == "prepare" else None)
         ):
             raise ValueError("invalid_payload")
         root = analysis_root(payload["id"])
@@ -834,13 +1072,7 @@ class GlobalJobs:
             if root.exists():
                 raise forward_jobs.Conflict("analysis_already_prepared_no_overwrite")
             # Eligibility is checked together, not merely one ticker at a time.
-            pm.load_opinions(
-                source_root(payload["mode"]),
-                payload["tickers"],
-                payload["session"],
-                payload["mode"],
-                pm.now(),
-            )
+            checked_opinions(payload, pm.now())
         elif payload["confirm"] is not True:
             raise ValueError("explicit_confirmation_required")
         elif command == "run":
@@ -861,6 +1093,14 @@ class GlobalJobs:
                 raise ValueError("new_explicit_paid_authorization_and_key_required")
             if not report["paid"] and payload["authorize_paid"]:
                 raise ValueError("synthetic_is_not_paid_inference")
+            if (
+                report["paid"]
+                and radar_origin(payload["id"], global_api.public_detail(root), self)[
+                    "state"
+                ]
+                != "VERIFIED"
+            ):
+                raise ValueError("radar_origin_missing_or_mismatch")
         else:
             cli.context_for(root)
             if (
@@ -906,13 +1146,13 @@ class GlobalJobs:
             root = analysis_root(payload["id"])
             if command == "prepare":
                 at = pm.now()
-                opinions, histories = pm.load_opinions(
-                    source_root(payload["mode"]),
-                    payload["tickers"],
-                    payload["session"],
-                    payload["mode"],
-                    at,
-                )
+                opinions, histories, entry, registry = checked_opinions(payload, at)
+                if entry:  # written first: an origin without context is harmless
+                    b.write(
+                        self.root / "radar_origins" / (payload["id"] + ".json"),
+                        origin_record(payload["id"], entry, registry, opinions),
+                        immutable=True,
+                    )
                 snapshot = pm.make_snapshot(
                     payload["id"],
                     payload["mode"],
@@ -993,10 +1233,19 @@ def get(command, query):
                 else "BLOCKED"
             ),
         }
+    if command == "radar-runs" and not query:
+        return {
+            **runs.overview(),
+            "runner": (runner() or {}).get("id"),
+            "read_only": True,
+        }
+    if command == "radar-view" and set(query) == {"run"}:
+        return radar_view(query["run"])
     if command == "radar-view" and set(query) == {"mode"}:
         mutable = (
             query["mode"] == "CONSULTATIVE_SANDBOX"
             and radar_api.ROOT.resolve() == global_api.OFFICIAL_RADAR.resolve()
+            and (runner() or {}).get("accepts_new_calls") is True
         )
         return {
             **radar.status(source_root(query["mode"])),
@@ -1004,13 +1253,55 @@ def get(command, query):
             "job": radar_job() if mutable else None,
             # False in a server started without network_scope.install(): an offline
             # check there can block (or stay installed against) the paid worker.
-            "network_isolation": getattr(socket.create_connection, "_hfl_scoped", False),
+            "network_isolation": network_scope.qualified(),
             "csrf_token": forward_jobs.JOBS.csrf,
             "read_only": True,
             "mutation_available": mutable,
         }
     if command == "radar-readiness" and set(query) == {"session", "tickers"}:
         return radar_readiness(query["session"], query["tickers"].split(","))
+    if command == "radar-readiness" and set(query) == {"run", "session", "tickers"}:
+        entry, root = run_root(query["run"])
+        return {
+            **radar_readiness(
+                query["session"],
+                query["tickers"].split(","),
+                root,
+                entry["mode"],
+                entry["id"],
+            ),
+            "run": entry["id"],
+        }
     if command == "radar-detail" and set(query) == {"mode", "ticker", "session"}:
         return radar.detail(query["ticker"], query["session"], source_root(query["mode"]))
+    if command == "radar-detail" and set(query) == {"run", "ticker", "session"}:
+        return radar.detail(query["ticker"], query["session"], run_root(query["run"])[1])
+    if command == "radar-selection" and set(query) == {"run", "session", "tickers"}:
+        entry, root = run_root(query["run"])
+        if query["session"] != entry["session"]:
+            raise ValueError("session_differs_from_radar_run")
+        d = run_selection(
+            entry["mode"], query["session"], query["tickers"].split(","), root
+        )
+        if not set(d["selected"]) <= set(entry["universe"]):
+            raise ValueError("selection_outside_run_identity")
+        return {
+            **d,
+            "radar_run": {
+                k: entry[k]
+                for k in (
+                    "id",
+                    "mode",
+                    "classification",
+                    "source",
+                    "session",
+                    "treatment",
+                )
+            },
+            "opinion_hashes": {
+                i["ticker"]: i["opinion_sha256"]
+                for i in d["items"]
+                if i["status"] == "ELIGIBLE"
+            },
+        }
     raise ValueError("invalid_platform_query")

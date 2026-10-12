@@ -42,6 +42,7 @@ import platform_api
 import portfolio_api
 import radar_api
 import radar_corporate_events
+import radar_runs
 
 logger = logging.getLogger("hedgefund.dashboard")
 
@@ -518,8 +519,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 object_pairs_hook=unique,
                 parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
             )
+            platform_api.radar_post_gate(
+                command, payload, self.headers.get_all("X-HFL-Radar-Run", [])
+            )
             return self._send_json(radar_api.post(command, payload))
-        except (ValueError, TypeError, OSError, KeyError) as exc:
+        except (ValueError, TypeError, OSError, KeyError, sqlite3.Error) as exc:
             code = (
                 str(exc)
                 if re.fullmatch(r"[a-z_0-9]+", str(exc))
@@ -714,6 +718,9 @@ def main():
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
+    # The registry's selected run, if it accepts new calls, is the only write target.
+    run = radar_runs.bind(radar_api)
+    logger.info("Radar runner: %s", run or "nenhum (prepare/run recusados)")
 
     with ReusableTCPServer(("127.0.0.1", port), Handler) as httpd:
         logger.info("Servidor iniciado em http://localhost:%d", port)

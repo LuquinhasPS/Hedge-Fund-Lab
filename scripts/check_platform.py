@@ -52,6 +52,59 @@ def radar_rows(i):
     return rows
 
 
+def run_rows(r):
+    """One registered Radar run: identity, records, money, integrity, Global PM use."""
+    money = r["budget"]
+    rows = [
+        f"{r['id']}: {r['state']}"
+        + (f" ({', '.join(r['reasons'])})" if r["reasons"] else "")
+        + (" · SELECIONADA" if r["selected"] else "")
+        + (f" · INCIDENTE {r['incident']['id']}" if r["incident"] else ""),
+        f"    raiz {r['path']} · sessão {r['session']} · fonte {r['source']} ({r['classification']})"
+        f" · universo {' '.join(r['universe'])}",
+        f"    tratamento {r['treatment']['identity']} manifesto {r['treatment']['manifest_sha256'][:16]}…"
+        + (
+            f" · nova instância do mesmo tratamento de {r['same_treatment_as']}"
+            if r["same_treatment_as"]
+            else ""
+        ),
+        f"    inputs {r['inputs']}/{len(r['universe'])} · pareceres {r['opinions']} · claims {r['claims']}"
+        f" · falhas {r['failures']} · chamadas reservadas {r['calls_reserved']}"
+        f" · respostas gravadas {r['responses_recorded']}",
+        f"    integridade {r['integrity']}{': ' + ', '.join(r['errors']) if r['errors'] else ''}"
+        f" · aceita novas chamadas: {'sim' if r['accepts_new_calls'] else 'NÃO'}"
+        f" · disponível ao Global PM: {'sim' if r['global_pm_available'] else 'não'}"
+        + (
+            f" · análises fora da identidade: {', '.join(r['outside_identity'])}"
+            if r["outside_identity"]
+            else ""
+        ),
+    ]
+    if money:
+        rows += [
+            f"    orçamento próprio US$ {r['budget_usd']} · reservado US$ {r['usd_reserved']}"
+            f" (resultado incerto US$ {r['usd_reserved_uncertain']}) · custo observado pelos tokens"
+            f" US$ {r['usd_observed_provider_tokens']} · faturado confirmado: DESCONHECIDO",
+            f"    próximo lote: {money['planned']['calls_planned']} chamadas planejadas"
+            f" (máx. {money['planned']['calls_max']}) · reserva US$ {money['planned']['usd_reserved']}"
+            f" · exposição agregada US$ {money['aggregate_exposure_usd']} / limite local"
+            f" US$ {money['aggregate_cap_usd']} · autorização de orçamento {money['authorization']['state']}",
+        ]
+        rows += [
+            f"    reserva {b['batch']}…: US$ {b['usd_reserved']} · {b['outcome']} · {b['forensic']}"
+            for b in next(x for x in money["runs"] if x["run"] == r["id"])["reservations"]
+        ]
+    if r["comparison"]:
+        c = r["comparison"]
+        rows.append(
+            f"    comparação econômica com {c['reference']}: "
+            + ("DIVERGÊNCIA MATERIAL" if c["material"] else "sem divergência material")
+            + " · "
+            + ", ".join(f"{i['ticker']} {i['status']}" for i in c["items"])
+        )
+    return rows
+
+
 def summary(d):
     """Sections requested for the operator; every line comes from ``overview``."""
     data = lambda key: d[key]["data"] if d[key]["available"] else None  # noqa: E731
@@ -108,7 +161,8 @@ def summary(d):
     )
     readiness = data("official_selection")
     section(
-        f"Radar oficial · sessão {d['last_closed_session']}",
+        f"Radar oficial · execução {d.get('radar_run_selected') or 'legada'} · sessão "
+        f"{(readiness or {}).get('session', d['last_closed_session'])}",
         [
             readiness["summary"]
             + f" · preflight do lote {'pronto' if readiness['radar_preflight']['ready'] else 'bloqueado'}",
@@ -122,6 +176,17 @@ def summary(d):
         ]
         if readiness
         else [UNAVAILABLE],
+    )
+    runs = data("radar_runs")
+    section(
+        "Execuções Radar (registry = índice; autoridade = registros de cada raiz)",
+        [
+            f"registry revisão {runs['revision']} · selecionada {runs['selected']}"
+            f" · {len(runs['runs'])} execução(ões)"
+        ]
+        + [row for r in runs["runs"] for row in run_rows(r)]
+        if runs
+        else [UNAVAILABLE + " · nenhuma execução é selecionada automaticamente"],
     )
     records = d["global_records"]
     section(
@@ -198,6 +263,8 @@ def main():
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
+    # Same Radar runner the server would bind (module global only; nothing is written).
+    platform_api.runs.bind(platform_api.radar_api)
     with no_network():
         report = platform_api.overview()
     print(

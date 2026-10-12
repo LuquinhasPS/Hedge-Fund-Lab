@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Radar de Ativos · Hedge-Fund-Lab Premium V4</title>
-  <link rel="stylesheet" href="/radar.css?v=72"><script src="/radar.js?v=73" defer></script>
+  <link rel="stylesheet" href="/radar.css?v=73"><script src="/radar.js?v=75" defer></script>
 <link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
 </head>
 <body class="hfl-platform">
@@ -16,10 +16,11 @@
   <main id="main">
     <div class="heading"><div><p class="eyebrow">01 / INTELIGÊNCIA MULTIATIVOS</p><h1>Um universo.<br><span>Cinco perspectivas por ativo.</span></h1><p class="lead">Investigue os sinais de diferentes empresas com comitês independentes e evidências rastreáveis.</p></div><div class="identity"><span class="dot"></span> CONSULTIVO<small>HFL-MULTIASSET-RADAR-V1</small><small>Sem ordens ou alocação de carteira</small></div></div>
     <p class="notice">Este radar é exploratório e separado da Validation OA-1 e do Final Test. A confiança dos agentes é qualitativa; não representa retorno esperado ou qualidade da empresa.</p>
-    <div class="controls"><label>Registros consultados<select id="radar-view"><option value="CONSULTATIVE_SANDBOX">Oficiais · comitês Gemini</option><option value="SYNTHETIC_DEMO">Demonstração sintética V4 · somente leitura</option></select></label><p id="radar-source" class="notice"></p></div>
+    <div class="controls run-controls"><label>Execução Radar consultada<select id="radar-run" aria-describedby="run-card"><option value="">Consultando registro de execuções…</option></select></label><p id="radar-source" class="notice" role="status"></p></div>
+    <section id="run-card" class="run-card" aria-live="polite" aria-label="Execução selecionada"></section>
     <p><a id="radar-to-global" class="back" href="/portfolio#global-workflow">Levar seleção ao Gestor Global →</a></p>
     <div id="error" role="alert" hidden></div>
-    <div class="metrics"><article><span>UNIVERSO</span><strong id="universe-count">0 <small>/ 5 ativos</small></strong></article><article><span>ÚLTIMA SESSÃO ENCERRADA</span><strong id="closed">—</strong></article><article><span>RESERVAS GLOBAIS · USD</span><strong id="budget-used">0.00 <small>/ 5.00</small></strong></article></div>
+    <div class="metrics"><article><span>UNIVERSO</span><strong id="universe-count">0 <small>/ 5 ativos</small></strong></article><article><span>ÚLTIMA SESSÃO ENCERRADA</span><strong id="closed">—</strong></article><article><span>RESERVAS DA EXECUÇÃO · USD</span><strong id="budget-used">— <small>/ —</small></strong></article></div>
     <section class="card" aria-labelledby="universe-title">
       <div class="section-head"><div><p class="eyebrow">02 / UNIVERSO DE PESQUISA</p><h2 id="universe-title">Selecione suas empresas</h2></div><span class="muted">Até cinco ações da B3</span></div>
       <form id="add-form"><label for="ticker-search">Pesquisar ticker</label><div class="search"><input id="ticker-search" list="ticker-options" maxlength="10" placeholder="Ex.: PETR4" autocomplete="off" required><datalist id="ticker-options"></datalist><button type="submit">Adicionar ativo <span aria-hidden="true">+</span></button></div></form>
@@ -29,7 +30,7 @@
     <section class="card" aria-labelledby="workflow-title">
       <div class="section-head"><div><p class="eyebrow">03 / EXECUÇÃO CONTROLADA</p><h2 id="workflow-title">Prepare. Verifique. Confirme.</h2></div><span id="job" role="status" class="muted"></span></div>
       <p class="steps">Selecionar ativos → Preparar dados → Preflight → Confirmar custo → Executar análises → Consultar resultados</p>
-      <div class="controls"><label>Sessão de referência<input id="session" type="date" required></label><label>Fonte de preparação<select id="mode"><option value="live">B3 oficial + fator ajustado</option><option value="synthetic">Exemplo sintético · offline</option></select></label><label>Orçamento do lote (USD)<input id="budget" type="number" min="0.01" max="5" step="0.01" value="5"></label></div>
+      <div class="controls"><label>Sessão de referência<input id="session" type="date" required></label><label>Fonte de preparação<select id="mode"><option value="live">B3 oficial + fator ajustado</option><option value="synthetic">Exemplo sintético · offline</option></select></label><label>Orçamento do lote (USD)<input id="budget" type="number" min="0.01" max="5" step="0.000001" value="5"></label></div>
       <div class="actions"><button id="prepare">1. Preparar dados</button><button id="preflight" class="secondary">2. Verificar preflight</button><label class="check"><input id="replay" type="checkbox"> Recuperar somente offline</label></div>
       <div id="input-check" aria-live="polite" class="preflight" hidden></div><div id="preflight-result" aria-live="polite" class="preflight"><p class="muted">Selecione pelo menos um ativo. Abrir esta página ou consultar registros não executa agentes.</p></div>
       <div id="confirmation" hidden><label class="check consent"><input id="paid" type="checkbox"> Autorizo chamadas pagas Gemini para este lote e aceito o teto reservado apresentado acima.</label><button id="execute" disabled>3. Confirmar e executar este lote</button></div>

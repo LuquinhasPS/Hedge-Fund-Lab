@@ -23,8 +23,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-#: Areas covered by --snapshot: the official Radar root and the prospective ledgers.
-SNAPSHOT_AREAS = ("data/radar/hfl_multiasset_v1", "data/forward")
+#: Areas covered by --snapshot: the original Radar root, the prospective ledgers, the
+#: run registry and every registered run root (V7.3), read from the registry if valid.
+SNAPSHOT_AREAS = (
+    "data/radar/hfl_multiasset_v1",
+    "data/forward",
+    "data/radar/registry.json",
+)
 CACHE = "Cache de download do COTAHIST do ano corrente; cada input congelado registra o SHA que usou e nunca é relido do cache."
 POLICY = (
     (
@@ -33,6 +38,11 @@ POLICY = (
         "Relatório da última chamada de prepare; não é índice nem autoridade sobre inputs.",
     ),
     ("OPERATIONAL", "data/radar/*/job.json", "Estado do job da API Radar."),
+    (
+        "OPERATIONAL",
+        "data/radar/registry.json",
+        "Índice operacional das execuções Radar; não é autoridade sobre os registros selados.",
+    ),
     ("OPERATIONAL", "data/radar/*/universe.json", "Seleção de ativos do operador."),
     ("OPERATIONAL", "data/radar/*/cotahist/COTAHIST_A*.ZIP", CACHE),
     ("OPERATIONAL", "data/forward/h2_v6_paper/cotahist/COTAHIST_A*.ZIP", CACHE),
@@ -104,13 +114,23 @@ def baselines(root=ROOT):
     return report
 
 
+def areas(root=ROOT):
+    try:
+        runs = json.loads((root / "data/radar/registry.json").read_text(encoding="utf-8"))
+        extra = [e["path"] for e in runs["runs"].values()]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        extra = []  # no registry: the fixed areas still cover the original root
+    return list(dict.fromkeys([*SNAPSHOT_AREAS, *extra]))
+
+
 def snapshot(root=ROOT):
-    files = {}
-    for area in SNAPSHOT_AREAS:
-        for path in sorted((root / area).rglob("*")):
+    files, covered = {}, areas(root)
+    for area in covered:
+        target = root / area
+        for path in sorted(target.rglob("*")) if target.is_dir() else [target]:
             if path.is_file() and path.suffix != ".lock":
                 files[path.relative_to(root).as_posix()] = sha(path)
-    return {"areas": list(SNAPSHOT_AREAS), "files": files}
+    return {"areas": covered, "files": files}
 
 
 def since(before, root=ROOT):
@@ -122,11 +142,20 @@ def since(before, root=ROOT):
         if old == new:
             continue
         category, reason = classify(path)
-        if old is None:
+        covered = any(
+            path == area or path.startswith(area.rstrip("/") + "/")
+            for area in before.get("areas", SNAPSHOT_AREAS)
+        )
+        if old is None and category == "VIOLATION":
+            # An area that joined the snapshot later (e.g. a newly registered run) may
+            # hold files older than the operation: their history is in the baselines.
             category, reason = (
-                (category, reason)
-                if category != "VIOLATION"
-                else ("NEW", "Registro novo; passa a ser imutável.")
+                ("NEW", "Registro novo; passa a ser imutável.")
+                if covered
+                else (
+                    "UNCOVERED_BEFORE",
+                    "Área fora do snapshot anterior; conferir pelos baselines.",
+                )
             )
         changes.append(
             {

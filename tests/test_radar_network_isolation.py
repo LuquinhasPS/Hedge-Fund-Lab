@@ -291,6 +291,7 @@ def test_server_main_installs_scope_and_rebinds_every_guard(monkeypatch):
             raise KeyboardInterrupt
 
     monkeypatch.setattr(radar, "RadarExtractor", radar.RadarExtractor)
+    monkeypatch.setattr(platform_api.radar_api, "ROOT", platform_api.radar_api.ROOT)
     monkeypatch.setattr(server, "ReusableTCPServer", Stop)
     monkeypatch.setattr(sys, "argv", ["server.py", "0"])
     server.main()
