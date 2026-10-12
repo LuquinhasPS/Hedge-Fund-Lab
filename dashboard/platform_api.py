@@ -18,12 +18,16 @@ import network_scope
 import portfolio_api
 import radar_api
 import radar_runs as runs
+import run_global_pm_v2 as cli2
 
 b, pm, cli, radar = global_api.b, global_api.pm, global_api.cli, global_api.radar
 committee_outcome = runs.committee_outcome
 ROOT = forward.ROOT
 OPERATIONS = ROOT / "data/platform/v7"
 ID = re.compile(r"v7-[0-9a-f]{32}")
+#: Global PM V2 records are read-only here; prepare/preflight/run are CLI-only (V7.4).
+ID2 = re.compile(r"v74-[a-z0-9-]{1,64}")
+pm2 = cli2.pm
 FIELDS = {
     "prepare": {
         "id",
@@ -460,19 +464,23 @@ def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=No
 def global_records():
     result = []
     for path in sorted(
-        pm.OUTPUT.glob("v7-*/context.json"),
+        [*pm.OUTPUT.glob("v7-*/context.json"), *pm2.OUTPUT.glob("v74-*/context.json")],
         key=lambda p: p.stat().st_mtime_ns,
         reverse=True,
     ):
-        if not ID.fullmatch(path.parent.name):
+        v2 = ID2.fullmatch(path.parent.name)
+        if not v2 and not ID.fullmatch(path.parent.name):
             continue
-        entry = attempt(lambda path=path: global_api.public_detail(path.parent))
+        detail = cli2.public_detail if v2 else global_api.public_detail
+        entry = attempt(lambda path=path, detail=detail: detail(path.parent))
         if entry["available"]:
             d = entry["data"]
             result.append(
                 {
                     "id": path.parent.name,
                     **visual_state(d["status"]),
+                    "identity": d["identity"],
+                    "validation_status": (d["result"] or {}).get("status"),
                     "mode": d["mode"],
                     "created_at": d["created_at"],
                     "expires_at": d["expires_at"],
@@ -990,21 +998,61 @@ def radar_view(run_id):
     }
 
 
+def audit(root, result, synthetic):
+    """Sealed validation status beside lifecycle, described codes and token accounting.
+    Read-only: the V1 record keeps its recorded ``cost_usd``; nothing is rewritten."""
+    if not result:
+        return {"validation_status": None, "error_details": [], "usage_accounting": None}
+    claim = b.check_seal(b.read(root / "claim.json"))
+    authorization = b.check_seal(b.read(root / "authorization.json"))
+    return {
+        "validation_status": result["status"],
+        "error_details": [
+            {**e, "description": pm2.ERRORS.get(e["code"], e["code"])}
+            for e in result["validation"]["errors"]
+        ],
+        "financial_status": None
+        if result["validation"]["financial_validation"] is None
+        else {
+            "valid": result["validation"]["financial_validation"]["valid"],
+            "risk_projected": (
+                result["validation"]["financial_validation"]["risk_projected"] or {}
+            ).get("status"),
+        },
+        "usage_accounting": pm2.usage_accounting(
+            result["tokens"],
+            claim["created_at"],
+            synthetic,
+            authorization["usd_reserved"],
+        ),
+    }
+
+
 def public_global(value):
-    root = analysis_root(value)
-    d = global_api.public_detail(root)
+    if isinstance(value, str) and ID2.fullmatch(value):
+        root = pm2.root_path(pm2.OUTPUT / value)
+        d = cli2.public_detail(root)
+        origin = d.get("radar_origin")
+        model = pm2.CONFIG["model"]
+    else:
+        root = analysis_root(value)
+        d = global_api.public_detail(root)
+        origin, model = None, pm.CONFIG["model"]
     if d["status"] == "NO_PROPOSAL":
         return {"id": value, **d, **visual_state(d["status"])}
     return {
         "id": value,
         **d,
         **visual_state(d["status"]),
-        "radar_origin": radar_origin(value, d),
-        "model": pm.CONFIG["model"],
+        **audit(root, d["result"], d["mode"] == "SYNTHETIC_DEMO"),
+        "radar_origin": origin or radar_origin(value, d),
+        "model": model,
         "classification": "DEMONSTRAÇÃO SINTÉTICA"
         if d["mode"] == "SYNTHETIC_DEMO"
         else "CONSULTIVO COM GEMINI",
         "planner": (d["result"] or {}).get("planner"),
+        # V2 prepare/preflight/run stay in the CLI with a separate human authorization.
+        "ui_operations": d["identity"] == pm.IDENTITY,
         "execution_enabled": False,
     }
 
