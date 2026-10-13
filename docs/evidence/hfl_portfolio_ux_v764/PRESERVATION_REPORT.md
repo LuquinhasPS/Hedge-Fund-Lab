@@ -6,4 +6,15 @@ V1/V2, fixtures seladas e evidências científicas também são conferidos pelos
 
 Não foram editados `src/`, runners, validadores, contratos, políticas, baselines, estados financeiros, claims, journals, autorizações ou reservas. Adaptador novo é somente leitura/apresentação; nenhum handler de escrita modificado. A primeira regressão detectou que portfolio_api.py era fixado por baseline; esse arquivo foi restaurado byte a byte e o roteamento novo foi movido para server.py, sem modificar baselines. Nenhuma inferência, chamada Gemini, ordem, execução paper, H2 Final Test, retuning ou push.
 
-O relatório final anexará JSONs de preservação, conferência suplementar, verificação V7.5 e validação V7.6 após suíte. Relatórios/capturas desta pasta não são evidências científicas retroativamente modificadas.
+Verificação final após a suíte:
+
+| Evidência | Resultado |
+|---|---|
+| preservation_since.json | changes: [], violations: [] desde o snapshot inicial |
+| preservation_baselines.json | violations: []; somente duas divergências OPERATIONAL históricas de job/last_prepare, já existentes |
+| protected_since.json | 227 arquivos Global PM/V5 antes e depois; changes: [], violations: [] |
+| consolidation_final.json | ok: true; nenhuma divergência científica |
+| protocol_final.json | errors: [] |
+| git diff 888c8d7..HEAD -- dashboard/portfolio_api.py | vazio; API selada restaurada exatamente |
+
+Os bytes de registros/claims/journals/autorizações/reservas foram preservados. Relatórios/capturas desta pasta não são evidências científicas retroativamente modificadas.

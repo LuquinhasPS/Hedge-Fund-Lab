@@ -11,3 +11,5 @@ Fixtures do browser ficam na memória do teste e são rotuladas. Capturas preced
 Saídas brutas: `targeted_initial.txt` (**55 passed, 23 subtests passed**); `adapter_final.txt` (**12 passed**); `ui_final.json`/`browser_final.txt` (**36/36**). `ui_initial.json` registra foco incorreto ao voltar; `ui_retry.json` registra espera de reload prematura no teste; `ui_pre_visual_review.json` passou antes do ajuste de densidade/tabela. Tentativas anteriores preservadas.
 
 A regressão completa detectou um mock antigo em test_global_pm_v2: agora os mesmos casos A/F entram pelo GET mockado do componente sintético, com todas as assertions mantidas. Correções e jornada final: **15 passed** em corrections.txt.
+
+Regressão completa final: **1765 passed, 14 falhas preexistentes, 61 subtests passed**; todas as jornadas de navegador passaram. Nenhuma chamada paga, ordem ou criação de registro científico detectada na preservação.
