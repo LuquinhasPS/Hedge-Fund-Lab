@@ -499,6 +499,45 @@ O dashboard vem depois da validade experimental.
 - [ ] Isolar jobs, status e logs; permitir cancelamento.
 - [ ] Escapar conteúdo não confiável e evitar chamada paga acidental.
 
+### 10.1 `HFL-UX-001` — Redesenho integral de UX/UI
+
+| Campo | Valor |
+|---|---|
+| Prioridade | **ALTA** |
+| Estado | **DISCOVERY / DESIGN — IMPLEMENTATION PENDING APPROVAL** |
+| Registrado em | 12/10/2026 (V7.6.1) |
+| Diagnóstico e proposta | [`evidence/hfl_methodology_ux_review_v761/`](evidence/hfl_methodology_ux_review_v761/README.md) |
+| Restrição | o redesenho **não altera** comportamentos científicos ou financeiros: validadores, runners, contratos, rotas de API, preflights, confirmações e efeitos de cada ação permanecem; nenhum caminho novo de inferência paga |
+
+A prioridade alta não muda a ordem científica deste roadmap: o redesenho
+melhora a apresentação e a segurança de uso, sem bloquear nem antecipar
+experimentos.
+
+Escopo: (1) reorganização global dos módulos; (2) arquitetura da navegação;
+(3) nomenclatura padronizada; (4) design system compartilhado; (5) ajuda
+contextual "?" e glossário; (6) fluxos orientados a tarefas; (7) separação de
+pesquisa, simulação e operação; (8) acessibilidade (WCAG 2.2 AA);
+(9) responsividade; (10) visualizações financeiras padronizadas;
+(11) refatoração das telas legadas; (12) migração incremental sem perda de
+funções; (13) testes de regressão visual e funcional; (14) documentação do
+frontend.
+
+| Marco | Entrega | Depende de | Esforço relativo |
+|---|---|---|---|
+| UX-M1 | auditoria e arquitetura de informação (**feito; aguardando aprovação**) | — | M |
+| UX-M2 | design system e componentes comuns | UX-M1 aprovado | L |
+| UX-M3 | navegação única e nova página inicial | UX-M2 | M |
+| UX-M4 | Radar e análises de ativos | UX-M3 | L |
+| UX-M5 | Carteira, Gestor Global e simulações (inclui decisão sobre o caminho pago V1 na UI) | UX-M3, decisão humana | XL |
+| UX-M6 | Operação diária, H2, pesquisa, resultados e evidências | UX-M3 | L |
+| UX-M7 | Auditoria, logs, configurações e ajuda | UX-M2, UX-M3 | M |
+| UX-M8 | acessibilidade, responsividade e testes finais | UX-M4–M7 | M |
+
+Riscos principais: regressão de fluxos pagos durante a migração; textos
+duplicados divergirem (mitigado por dicionário e glossário únicos); expor dados
+privados nas páginas de evidência. Critérios de aceite por marco:
+[`UX_MIGRATION_PLAN.md`](evidence/hfl_methodology_ux_review_v761/UX_MIGRATION_PLAN.md).
+
 ## 11. Monografia e defesa
 
 Código, arquitetura, experimento, resultados e monografia devem descrever a
