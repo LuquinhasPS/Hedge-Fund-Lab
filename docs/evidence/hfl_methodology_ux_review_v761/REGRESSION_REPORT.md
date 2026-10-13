@@ -27,4 +27,4 @@ recomendação ([V76_READINESS_REVIEW.md](V76_READINESS_REVIEW.md) §4).
 
 ## 3. Execução desta entrega
 
-Preenchida após os commits, com a árvore limpa (ver [README.md](README.md)).
+Suíte completa com a árvore limpa: **1741 aprovados, 15 falhas** ([regression.txt](regression.txt)), as mesmas 15 da V7.6 (comparação nome a nome). 1741 = 1738 + 3 testes de `tests/test_review_v761.py`. Nenhuma falha nova; nenhuma envolve código da V7.6.1.

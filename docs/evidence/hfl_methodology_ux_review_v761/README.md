@@ -88,4 +88,19 @@ arquivo do `dashboard/`, dos runners ou dos validadores foi alterado.
 
 ## Verificação final
 
-Preenchida após os commits, com a árvore limpa.
+Executada depois dos commits `a381c23` e `c3986a9`, com a árvore limpa.
+
+| Verificação | Resultado |
+|---|---|
+| `check_preservation.py --since preservation_before.json` ([preservation_since.json](preservation_since.json)) | `changes: []`, `violations: []` |
+| Baselines históricos | `violations: []`; só as duas mudanças OPERATIONAL legadas |
+| Pacote V7.5 (`verify_consolidation_v75.py`) | `ok: true` |
+| Protocolo V7.6 (`experiment_protocol_v76.py validate`) | `errors: []`; estado `QUALIFIED_OFFLINE` |
+| Global PM V1 / V2 (`run_global_pm_v2.py incident` / `status`) | `REJECTED_BY_VALIDATOR` (revalidação idêntica) / `VALID_PROPOSAL` |
+| `dashboard/`, runners, validadores, `src/` desde `983a9d8` | sem alteração (`git diff` vazio): nenhuma rota mudou de comportamento |
+| Registros financeiros ou de inferência criados | nenhum |
+| Testes novos | `tests/test_review_v761.py`: 3 aprovados; ruff limpo |
+
+**Regressão** (`pytest -q`, [regression.txt](regression.txt)): **1741 aprovados,
+15 falhas**. A suíte **não** está verde. 1741 = 1738 da V7.6 + 3 testes novos.
+As 15 falhas são as mesmas da V7.6, nome a nome; nenhum teste antigo foi alterado.
