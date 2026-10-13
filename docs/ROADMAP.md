@@ -504,9 +504,10 @@ O dashboard vem depois da validade experimental.
 | Campo | Valor |
 |---|---|
 | Prioridade | **ALTA** |
-| Estado | **DISCOVERY / DESIGN — IMPLEMENTATION PENDING APPROVAL** |
+| Estado | **IMPLEMENTAÇÃO EM ANDAMENTO** — UX-M2 parcial, UX-M3 implementado (V7.6.2) |
 | Registrado em | 12/10/2026 (V7.6.1) |
 | Diagnóstico e proposta | [`evidence/hfl_methodology_ux_review_v761/`](evidence/hfl_methodology_ux_review_v761/README.md) |
+| Implementação | [`evidence/hfl_ux_foundation_v762/`](evidence/hfl_ux_foundation_v762/README.md) (13/10/2026) |
 | Restrição | o redesenho **não altera** comportamentos científicos ou financeiros: validadores, runners, contratos, rotas de API, preflights, confirmações e efeitos de cada ação permanecem; nenhum caminho novo de inferência paga |
 
 A prioridade alta não muda a ordem científica deste roadmap: o redesenho
@@ -524,14 +525,19 @@ frontend.
 
 | Marco | Entrega | Depende de | Esforço relativo |
 |---|---|---|---|
-| UX-M1 | auditoria e arquitetura de informação (**feito; aguardando aprovação**) | — | M |
-| UX-M2 | design system e componentes comuns | UX-M1 aprovado | L |
-| UX-M3 | navegação única e nova página inicial | UX-M2 | M |
+| UX-M1 | auditoria e arquitetura de informação (**feito; direção aprovada pelo pedido da V7.6.2**) | — | M |
+| UX-M2 | design system e componentes comuns (**parcial**: tokens, componentes `ds-*`, naturezas de ação, estados, ajuda e glossário prontos; falta o componente de confirmação de custo e a adoção nas páginas) | UX-M1 aprovado | L |
+| UX-M3 | navegação única e nova página inicial (**implementado**: um menu em 18 rotas, 6 áreas, breadcrumb, deep links preservados, novo Início; Auditoria ainda aponta para seção do Início) | UX-M2 | M |
 | UX-M4 | Radar e análises de ativos | UX-M3 | L |
-| UX-M5 | Carteira, Gestor Global e simulações (inclui decisão sobre o caminho pago V1 na UI) | UX-M3, decisão humana | XL |
+| UX-M5 | Carteira, Gestor Global e simulações (caminho pago V1 **desativado na UI** na V7.6.2; falta decidir o bloqueio no backend) | UX-M3, decisão humana | XL |
 | UX-M6 | Operação diária, H2, pesquisa, resultados e evidências | UX-M3 | L |
 | UX-M7 | Auditoria, logs, configurações e ajuda | UX-M2, UX-M3 | M |
 | UX-M8 | acessibilidade, responsividade e testes finais | UX-M4–M7 | M |
+
+Risco operacional aberto (V7.6.2): o servidor ainda aceita
+`POST /api/platform/global-prepare` e `global-run` para o tratamento V1 encerrado;
+a interface não os oferece mais. Recusar no backend exige aprovação específica
+([`V1_PAID_ACTION_AUDIT.md`](evidence/hfl_ux_foundation_v762/V1_PAID_ACTION_AUDIT.md)).
 
 Riscos principais: regressão de fluxos pagos durante a migração; textos
 duplicados divergirem (mitigado por dicionário e glossário únicos); expor dados
