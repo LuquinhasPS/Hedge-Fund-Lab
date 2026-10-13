@@ -504,7 +504,7 @@ O dashboard vem depois da validade experimental.
 | Campo | Valor |
 |---|---|
 | Prioridade | **ALTA** |
-| Estado | **IMPLEMENTAÇÃO EM ANDAMENTO** — UX-M2 e UX-M4 parciais, UX-M3 implementado (V7.6.3) |
+| Estado | **IMPLEMENTAÇÃO EM ANDAMENTO** — UX-M2 e UX-M4 parciais, UX-M3 implementado; UX-M5 consulta e separação implementadas (V7.6.4) |
 | Registrado em | 12/10/2026 (V7.6.1) |
 | Diagnóstico e proposta | [`evidence/hfl_methodology_ux_review_v761/`](evidence/hfl_methodology_ux_review_v761/README.md) |
 | Implementação | [`evidence/hfl_ux_foundation_v762/`](evidence/hfl_ux_foundation_v762/README.md) (13/10/2026) |
@@ -530,10 +530,10 @@ frontend.
 | UX-M2 | design system e componentes comuns (**parcial**: tokens, componentes `ds-*`, estados, ajuda e glossário; V7.6.3 acrescenta confirmação compartilhada de custo integrada ao Radar e tabela comparativa `ds-table`; falta adoção nas demais páginas) | UX-M1 aprovado | L |
 | UX-M3 | navegação única e nova página inicial (**implementado**: um menu; 18 rotas legadas preservadas + 3 aliases Mercado na V7.6.3, 6 áreas, breadcrumb, deep links preservados, novo Início; Auditoria ainda aponta para seção do Início) | UX-M2 | M |
 | UX-M4 | Radar e análises de ativos (**parcial V7.6.3**: `/market`, comparação, filtros, indicadores, comitês, consenso, Risk e evidências progressivas; controles operacionais e parte dos estilos ainda legados) | UX-M3 | L |
-| UX-M5 | **Pendente** — Carteira, Gestor Global e simulações (caminho pago V1 **desativado na UI** na V7.6.2; falta decidir o bloqueio no backend) | UX-M3, decisão humana | XL |
-| UX-M6 | **Pendente** — Operação diária, H2, pesquisa, resultados e evidências | UX-M3 | L |
+| UX-M5 | **Implementado V7.6.4 — consulta**: cinco áreas da carteira, histórico oficial V1 rejeitada/V2 válida, snapshot V2 em caixa, posições/histórico H2 persistidos e simulador V5/V6 isolado; execução multiativos e bloqueio V1 no servidor continuam pendentes | UX-M3; escrita exige revisão própria | XL |
+| UX-M6 | **Parcial V7.6.4** — acompanhamento H2 somente leitura; migração completa de operação diária, H2, pesquisa, resultados e evidências pendente | UX-M3 | L |
 | UX-M7 | **Pendente** — Auditoria, logs, configurações e ajuda | UX-M2, UX-M3 | M |
-| UX-M8 | **Pendente** — acessibilidade, responsividade e testes finais (Mercado/Radar com verificação incremental; leitor de tela e auditoria integral pendentes) | UX-M4–M7 | M |
+| UX-M8 | **Pendente** — acessibilidade, responsividade e testes finais (Mercado/Radar/Carteira com verificação incremental; zoom nativo 200%, leitor de tela e auditoria integral pendentes) | UX-M4–M7 | M |
 
 Risco operacional aberto (V7.6.2): o servidor ainda aceita
 `POST /api/platform/global-prepare` e `global-run` para o tratamento V1 encerrado;
@@ -547,6 +547,22 @@ Riscos principais: regressão de fluxos pagos durante a migração; textos
 duplicados divergirem (mitigado por dicionário e glossário únicos); expor dados
 privados nas páginas de evidência. Critérios de aceite por marco:
 [`UX_MIGRATION_PLAN.md`](evidence/hfl_methodology_ux_review_v761/UX_MIGRATION_PLAN.md).
+
+### 10.2 `HFL-PAPER-001` — Persistent Paper Portfolio Monitoring
+
+**Fundação de consulta implementada na V7.6.4. Monitoramento automático completo pendente.**
+[Arquitetura, auditoria de fontes e evidências](evidence/hfl_portfolio_ux_v764/README.md).
+
+- [x] Inventário de ledger, posições, execuções, aprovações, marcas, custos, reconciliação e jobs.
+- [x] Adaptador GET sobre os cinco ledgers H2 e snapshot consultivo Global PM V2; sem banco/ledger novo.
+- [x] Seletor, atualização de leitura, posições, caixa, operações, linha do tempo, origem/sessão, deep links e erros.
+- [x] Separação estrutural de proposta oficial, demonstração sintética e carteira paper.
+- [x] UX-M2 adotado: tokens, estados, alertas, ajuda/glossário, tabelas roláveis e gráficos com tabela equivalente.
+- [ ] Mecanismo prospectivo multiativos oficial, autorização financeira própria e execução causal — `PAPER_LEDGER_NOT_IMPLEMENTED`, contrato no protocolo V7.6 e NEXT_STEPS da V7.6.4.
+- [ ] Atualização automática diária/ingestão e reconciliação, com fonte/licença/cache/integridade revisados.
+- [ ] Campos H2 não publicados (reservas, recebíveis, D+2, custo médio, PnL separado), sem importar política V5.
+
+A interface consulta a expiração supervisionada pelo backend e não presume execução em 13/10. Novas inferências, ordens, escrita financeira e campanhas não foram autorizadas por esta etapa. UX-M7 e o restante UX-M6/UX-M8 permanecem pendentes.
 
 ## 11. Monografia e defesa
 
