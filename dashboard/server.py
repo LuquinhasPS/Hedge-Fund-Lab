@@ -68,32 +68,68 @@ POST_FIELDS = {
     "supervision/cancel": SUPERVISION,
     "scenario": {"decision_session", "decision_sha256", "limits", "hypothetical_open"},
 }
-SHELL_LINKS = {
-    "operation": [
-        ("/paper#sala", "Sala de Decisão"),
-        ("/paper#visao", "Paper Trading"),
-        ("/paper#carteiras", "Carteiras"),
-        ("/paper#supervisao", "Supervisão Humana"),
-        ("/paper#mercado", "Mercado e Abertura"),
-    ],
-    "lab": [
-        ("/radar", "Radar Multiativos"),
-        ("/portfolio#global-workflow", "Gestor Global"),
-        ("/paper#agentes", "Agentes"),
-        ("/portfolio#ai-proposal", "Propostas e Simulações"),
-    ],
-    "research": [
-        ("/h2", "Histórico H2 v6"),
-        ("/#audit", "Auditoria Operacional"),
-        ("/logs", "Logs Técnicos"),
-        ("/legacy", "Backtests Legados"),
-    ],
-    "overview": [
-        ("/#wallets", "Carteiras Prospectivas"),
-        ("/#readiness", "Prontidão para 13/10"),
-        ("/#audit", "Processos e Auditoria"),
-        ("/radar", "Continuar no Radar"),
-    ],
+#: Global navigation (HFL-UX-001, UX-M3): six areas by user goal plus global help.
+#: (id, label, href, environment strip, ((href, label), ...) section links)
+AREAS = (
+    ("inicio", "Início", "/", "AMBIENTE EXPERIMENTAL · SEM ORDENS REAIS", ()),
+    (
+        "mercado",
+        "Mercado",
+        "/radar",
+        "CONSULTIVO · PARECERES DE IA, SEM ORDENS",
+        (("/radar", "Radar de comitês"),),
+    ),
+    (
+        "carteira",
+        "Carteira multiativos",
+        "/portfolio#global-workflow",
+        "HIPOTÉTICA · CONSULTIVA · SEM EXECUÇÃO",
+        (
+            ("/portfolio#global-workflow", "Gestor Global: registros"),
+            ("/portfolio#ai-proposal", "Propostas e simulações"),
+            ("/portfolio#carteira-contabil", "Carteira contábil (demonstração)"),
+        ),
+    ),
+    (
+        "operacao",
+        "Operação diária PETR4",
+        "/paper#sala",
+        "PAPER PROSPECTIVO · CARTEIRAS VIRTUAIS",
+        (
+            ("/paper#visao", "Resumo das carteiras"),
+            ("/paper#sala", "Decisão do dia"),
+            ("/paper#carteiras", "Carteiras prospectivas"),
+            ("/paper#mercado", "Mercado e abertura"),
+        ),
+    ),
+    (
+        "pesquisa",
+        "Pesquisa",
+        "/h2",
+        "REGISTRO HISTÓRICO · SOMENTE LEITURA",
+        (
+            ("/h2", "Experimento H2"),
+            ("/paper#agentes", "Catálogo de agentes H2"),
+            ("/legacy", "Backtests legados"),
+        ),
+    ),
+    (
+        "auditoria",
+        "Auditoria",
+        "/#audit",
+        "SOMENTE LEITURA · REGISTROS E INTEGRIDADE",
+        (("/#audit", "Registros e processos"), ("/logs", "Logs técnicos")),
+    ),
+)
+#: Default area per page when JavaScript is unavailable; shell.js refines it by URL hash.
+PAGE_AREA = {
+    "platform.html": "inicio",
+    "radar.html": "mercado",
+    "portfolio.html": "carteira",
+    "paper.html": "operacao",
+    "h2.html": "pesquisa",
+    "index.html": "pesquisa",
+    "logs.html": "auditoria",
 }
 
 
@@ -248,6 +284,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/platform.css",
             "/platform.js",
             "/global-workflow.js",
+            "/design-system.css",
+            "/glossary.js",
+            "/ui.js",
             "/data.json",
             "/vendor/chart.umd.js",
         }
@@ -595,39 +634,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         content = path.read_text(encoding="utf-8")
         if "<!-- platform-shell -->" in content:
-            group = (
-                "operation"
-                if filename == "paper.html"
-                else "lab"
-                if filename in ("radar.html", "portfolio.html")
-                else "overview"
-                if filename == "platform.html"
-                else "research"
+            current = PAGE_AREA.get(filename, "inicio")
+            area = next(a for a in AREAS if a[0] == current)
+            marks = {
+                key: (' aria-current="true"', "") if key == current else ("", " hidden")
+                for key, *_ in AREAS
+            }
+            areas = "".join(
+                f'<a href="{html.escape(href)}" data-area="{key}" data-env="{html.escape(env)}"'
+                f"{marks[key][0]}>{html.escape(label)}</a>"
+                for key, label, href, env, _ in AREAS
             )
-            environment = {
-                "operation": "PROSPECTIVO REAL — PAPER",
-                "lab": "CONSULTIVO / SINTÉTICO · FONTE EM CADA REGISTRO",
-                "research": "HISTÓRICO CIENTÍFICO · SOMENTE LEITURA",
-                "overview": "QUATRO AMBIENTES · REGISTROS SEPARADOS",
-            }[group]
-            shell = (DIR / "shell.html").read_text(encoding="utf-8")
             links = "".join(
-                f'<a href="{html.escape(url)}" data-section="{section}" {"hidden" if section != group else ""}>{html.escape(label)}</a>'
-                for section, entries in SHELL_LINKS.items()
-                for url, label in entries
+                f'<a href="{html.escape(href)}" data-area="{key}"{marks[key][1]}>{html.escape(label)}</a>'
+                for key, _, _, _, entries in AREAS
+                for href, label in entries
             )
             shell = (
-                shell.replace("{{links}}", links)
-                .replace(
-                    "{{breadcrumb}}",
-                    {
-                        "overview": "Laboratório / Visão Geral",
-                        "operation": "Laboratório / Operação",
-                        "lab": "Laboratório / Pesquisa Multiativos",
-                        "research": "Laboratório / Pesquisa e Auditoria",
-                    }[group],
-                )
-                .replace("{{environment}}", environment)
+                (DIR / "shell.html")
+                .read_text(encoding="utf-8")
+                .replace("{{areas}}", areas)
+                .replace("{{links}}", links)
+                .replace("{{area}}", current)
+                .replace("{{area_label}}", html.escape(area[1]))
+                .replace("{{environment}}", html.escape(area[3]))
             )
             content = content.replace("<!-- platform-shell -->", shell)
         content = content.encode("utf-8")

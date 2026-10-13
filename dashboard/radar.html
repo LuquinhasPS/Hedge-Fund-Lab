@@ -2,19 +2,14 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Radar de Ativos · Hedge-Fund-Lab Premium V4</title>
+  <title>Radar · Mercado · Hedge-Fund-Lab</title>
   <link rel="stylesheet" href="/radar.css?v=73"><script src="/radar.js?v=75" defer></script>
 <link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
 </head>
 <body class="hfl-platform">
 <!-- platform-shell -->
-  <a class="skip" href="#main">Pular para o conteúdo</a>
-  <header class="module-header">
-    <div class="topline"><a class="brand" href="/paper">HEDGE-FUND<span>LAB</span><small>PREMIUM V4 / PESQUISA EXPLORATÓRIA</small></a><a class="back" href="/paper">← Operação PETR4</a></div>
-    <nav aria-label="Áreas do laboratório"><a href="/paper">Operação Paper</a><a href="/radar" aria-current="page">Radar de Ativos</a><a href="/portfolio#ai-proposal">Gestor Global</a><a href="/h2">Histórico H2 v6</a></nav>
-  </header>
   <main id="main">
-    <div class="heading"><div><p class="eyebrow">01 / INTELIGÊNCIA MULTIATIVOS</p><h1>Um universo.<br><span>Cinco perspectivas por ativo.</span></h1><p class="lead">Investigue os sinais de diferentes empresas com comitês independentes e evidências rastreáveis.</p></div><div class="identity"><span class="dot"></span> CONSULTIVO<small>HFL-MULTIASSET-RADAR-V1</small><small>Sem ordens ou alocação de carteira</small></div></div>
+    <div class="heading"><div><p class="eyebrow">MERCADO · RADAR DE COMITÊS <button class="ds-help" data-help="radar"></button></p><h1>Radar de comitês<br><span>Cinco analistas de IA e um parecer de risco por ativo.</span></h1><p class="lead">Investigue os sinais de diferentes empresas com comitês independentes e evidências rastreáveis.</p></div><div class="identity"><span class="dot"></span> CONSULTIVO<small>HFL-MULTIASSET-RADAR-V1</small><small>Sem ordens ou alocação de carteira</small></div></div>
     <p class="notice">Este radar é exploratório e separado da Validation OA-1 e do Final Test. A confiança dos agentes é qualitativa; não representa retorno esperado ou qualidade da empresa.</p>
     <div class="controls run-controls"><label>Execução Radar consultada<select id="radar-run" aria-describedby="run-card"><option value="">Consultando registro de execuções…</option></select></label><p id="radar-source" class="notice" role="status"></p></div>
     <section id="run-card" class="run-card" aria-live="polite" aria-label="Execução selecionada"></section>
@@ -31,19 +26,19 @@
       <div class="section-head"><div><p class="eyebrow">03 / EXECUÇÃO CONTROLADA</p><h2 id="workflow-title">Prepare. Verifique. Confirme.</h2></div><span id="job" role="status" class="muted"></span></div>
       <p class="steps">Selecionar ativos → Preparar dados → Preflight → Confirmar custo → Executar análises → Consultar resultados</p>
       <div class="controls"><label>Sessão de referência<input id="session" type="date" required></label><label>Fonte de preparação<select id="mode"><option value="live">B3 oficial + fator ajustado</option><option value="synthetic">Exemplo sintético · offline</option></select></label><label>Orçamento do lote (USD)<input id="budget" type="number" min="0.01" max="5" step="0.000001" value="5"></label></div>
-      <div class="actions"><button id="prepare">1. Preparar dados</button><button id="preflight" class="secondary">2. Verificar preflight</button><label class="check"><input id="replay" type="checkbox"> Recuperar somente offline</label></div>
+      <div class="actions"><button id="prepare" data-action="prepare">1. Preparar dados</button><button id="preflight" class="secondary" data-action="verify">2. Verificar requisitos (preflight)</button><label class="check"><input id="replay" type="checkbox"> Recuperar somente offline</label></div>
       <div id="input-check" aria-live="polite" class="preflight" hidden></div><div id="preflight-result" aria-live="polite" class="preflight"><p class="muted">Selecione pelo menos um ativo. Abrir esta página ou consultar registros não executa agentes.</p></div>
-      <div id="confirmation" hidden><label class="check consent"><input id="paid" type="checkbox"> Autorizo chamadas pagas Gemini para este lote e aceito o teto reservado apresentado acima.</label><button id="execute" disabled>3. Confirmar e executar este lote</button></div>
+      <div id="confirmation" hidden><label class="check consent"><input id="paid" type="checkbox"> Autorizo chamadas pagas Gemini para este lote e aceito o teto reservado apresentado acima.</label><button id="execute" data-action="paid" disabled>3. Revisar custo e executar este lote</button></div>
     </section>
     <section class="card" aria-labelledby="results-title">
-      <div class="section-head"><div><p class="eyebrow">04 / PAINEL COMPARATIVO</p><h2 id="results-title">Sinais, lado a lado</h2></div><button id="refresh" class="secondary">Consultar resultados</button></div>
-      <p class="muted">Cada linha informa sua própria sessão e fonte. Clique no ativo para abrir a Sala de Decisão. Nenhuma classificação por confiança.</p>
+      <div class="section-head"><div><p class="eyebrow">04 / PAINEL COMPARATIVO</p><h2 id="results-title">Sinais, lado a lado</h2></div><button id="refresh" class="secondary" data-action="read">Consultar resultados</button></div>
+      <p class="muted">Cada linha informa sua própria sessão e fonte. Clique no ativo para abrir o detalhe do comitê. Nenhuma classificação por confiança.</p>
       <div class="table-scroll" tabindex="0" role="region" aria-label="Tabela de análises, rolável horizontalmente"><table><thead><tr><th>Ativo / sessão</th><th>Fechamento ajustado</th><th>Votos C / V / M</th><th>Consenso / confiança</th><th>Evidências / alertas</th><th>Risco consultivo</th><th>Status / geração</th></tr></thead><tbody id="results"></tbody></table></div>
-      <div class="compare-controls"><label>Primeira análise<select id="compare-a"><option value="">Selecione</option></select></label><label>Segunda análise<select id="compare-b"><option value="">Selecione</option></select></label><button id="compare" class="secondary">Comparar duas empresas</button></div>
+      <div class="compare-controls"><label>Primeira análise<select id="compare-a"><option value="">Selecione</option></select></label><label>Segunda análise<select id="compare-b"><option value="">Selecione</option></select></label><button id="compare" class="secondary" data-action="read">Comparar duas empresas</button></div>
       <div id="comparison" aria-live="polite"></div>
     </section>
-    <section class="card" id="room" aria-labelledby="room-title" hidden><div class="section-head"><div><p class="eyebrow">05 / COMITÊ INDIVIDUAL</p><h2 id="room-title">Sala de Decisão</h2></div><button id="close-room" class="secondary">Fechar detalhes</button></div><div id="room-content"></div></section>
-    <footer><span>HEDGE-FUND-LAB / PREMIUM V4</span><span>Parecer individual ≠ ordem de uma carteira compartilhada</span></footer>
+    <section class="card" id="room" aria-labelledby="room-title" hidden><div class="section-head"><div><p class="eyebrow">05 / COMITÊ INDIVIDUAL</p><h2 id="room-title">Detalhe do comitê</h2></div><button id="close-room" class="secondary">Fechar detalhes</button></div><div id="room-content"></div></section>
+    <footer><span>HEDGE-FUND-LAB · Radar de comitês</span><span>Parecer individual ≠ ordem de uma carteira compartilhada</span></footer>
   </main>
 </body>
 </html>

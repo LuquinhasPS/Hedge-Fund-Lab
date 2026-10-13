@@ -136,7 +136,7 @@ $('preflight').addEventListener('click', guarded(async () => {
   $('confirmation').hidden = !report.ready;
   const paid = !report.replay && report.items.some(i=>i.mode==='live');
   $('paid').closest('label').hidden = !paid; $('paid').checked = false; $('execute').disabled = paid || !isolated();
-  $('execute').textContent = report.replay ? '3. Confirmar recuperação offline' : paid ? '3. Confirmar e executar chamadas pagas' : '3. Executar exemplo sintético · US$ 0';
+  $('execute').textContent = report.replay ? '3. Confirmar recuperação offline' : paid ? '3. Confirmar e executar chamadas pagas' : '3. Executar exemplo sintético · US$ 0'; $('execute').dataset.action = report.replay ? 'read' : paid ? 'paid' : 'simulate';
 }));
 $('paid').addEventListener('change', () => { $('execute').disabled = !$('paid').checked || !isolated() || budgetBlocked(); });
 $('execute').addEventListener('click', guarded(async () => { if(!report?.ready) throw new Error('Refaça o preflight.'); const payload = {...selection(),confirmation_token:report.confirmation_token,authorize_paid:$('paid').checked,confirm:true}; invalidate(); await api('run',payload); await refresh(); }));

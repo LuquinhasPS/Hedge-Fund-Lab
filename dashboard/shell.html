@@ -1,6 +1,20 @@
 <a class="hfl-skip" href="#main">Pular para o conteúdo</a>
-<header class="hfl-shell">
-  <div class="hfl-top"><a class="hfl-brand" href="/">HEDGE-FUND<span>LAB</span><small>PREMIUM V7 · PLATAFORMA DO LABORATÓRIO</small></a><span class="hfl-local">LOCAL · SEM ORDENS REAIS</span><button class="hfl-menu" type="button" aria-controls="hfl-navigation" aria-expanded="false">Menu da plataforma</button></div>
-  <div id="hfl-navigation" class="hfl-links"><nav class="hfl-primary" aria-label="Navegação principal"><a href="/" data-group="overview">Visão Geral</a><a href="/paper#sala" data-group="operation">Operação</a><a href="/radar" data-group="lab">Laboratório</a><a href="/h2" data-group="research">Pesquisa e Auditoria</a></nav><nav class="hfl-secondary" aria-label="Áreas da seção">{{links}}</nav></div>
-  <div class="hfl-context"><span>{{breadcrumb}}</span><strong>{{environment}}</strong></div>
+<link rel="stylesheet" href="/design-system.css?v=762">
+<header class="hfl-shell" data-default-area="{{area}}">
+  <div class="hfl-top">
+    <a class="hfl-brand" href="/">HEDGE-FUND<span>LAB</span><small>Laboratório de pesquisa quantitativa</small></a>
+    <span class="hfl-local"><span aria-hidden="true">●</span> Ambiente experimental · sem ordens reais <button class="ds-help" data-help="sem-ordens-reais"></button></span>
+    <button class="hfl-help-open" id="hfl-help-open" type="button" aria-haspopup="dialog"><span aria-hidden="true">?</span> Ajuda</button>
+    <button class="hfl-menu" type="button" aria-controls="hfl-navigation" aria-expanded="false">Menu</button>
+  </div>
+  <div id="hfl-navigation" class="hfl-links">
+    <nav class="hfl-primary" aria-label="Navegação principal">{{areas}}</nav>
+    <nav class="hfl-secondary" aria-label="Seções da área">{{links}}</nav>
+  </div>
+  <div class="hfl-context">
+    <nav aria-label="Você está em"><ol class="hfl-crumbs"><li><a href="/">Hedge-Fund-Lab</a></li><li data-crumb="area">{{area_label}}</li><li data-crumb="page" aria-current="page" hidden></li></ol></nav>
+    <strong class="hfl-env">{{environment}}</strong>
+  </div>
 </header>
+<script src="/glossary.js?v=762" defer></script>
+<script src="/ui.js?v=762" defer></script>
