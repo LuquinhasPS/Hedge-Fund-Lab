@@ -47,6 +47,13 @@ Nenhum handler `/api/*` ou módulo científico foi alterado.
 | Regressão e preservação | [REGRESSION_REPORT.md](REGRESSION_REPORT.md), [PRESERVATION_REPORT.md](PRESERVATION_REPORT.md) |
 | Pendências | [NEXT_STEPS.md](NEXT_STEPS.md) |
 
+## Resultado da validação
+
+53/53 interações Chrome; regressão completa final com 1752 aprovados e 14 falhas
+preexistentes, sem nova divergência frente ao baseline. Preservação final:
+`changes: []`, `violations: []`; V7.5 íntegra e V7.6 com `errors: []`.
+Os relatórios registram a primeira tentativa e as correções dos testes de UI.
+
 ## Verificação local
 
 ```powershell

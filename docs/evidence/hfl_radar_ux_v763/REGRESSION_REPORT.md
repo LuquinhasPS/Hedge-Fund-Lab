@@ -20,8 +20,20 @@ As outras três eram de infraestrutura de UI: dois mocks Node sem Window e sem
 o novo componente compartilhado, e o download de 16 MB interrompido no Chrome.
 Os mocks agora carregam o componente real mantendo as asserções; o export real
 é entregue intacto via DevTools. Os três passaram na reexecução
-(`ui_verified.txt`: **3 passed**). A regressão completa será repetida com esses
-ajustes estabilizados; seu resultado será anexado separadamente.
+(`ui_verified.txt`: **3 passed**). A regressão completa foi repetida com esses ajustes estabilizados no commit
+`c58b31b`, sem edição concorrente: **1752 passed, 14 failed, 61 subtests passed**,
+em **14 min 30 s**. Saída bruta intacta: `regression_final.txt`; comparação por
+nome de teste e SHA-256 da saída: `regression_comparison.json`.
+`new_vs_baseline: []`; as três falhas novas da primeira tentativa não se repetiram.
+A suíte permanece vermelha pelas 14 falhas preexistentes; não há regressão nova
+pendente nesta entrega. O teste de estado do Git citado acima passou novamente.
+
+Comando das duas execuções: `.venv/Scripts/python.exe -m pytest -q -p
+no:cacheprovider --basetemp=<temporário exclusivo>`. Processo de teste sem chave
+Gemini, proxies externos direcionados a `127.0.0.1:9`, loopback liberado e
+`core.excludesFile` temporário contendo somente `/out.json`. A configuração
+não foi gravada no repositório. O código final de dashboard/scripts/tests é
+idêntico ao do commit testado; depois da suíte foram anexados apenas relatórios.
 
 Baseline V7.6.2: 1750 aprovados e 15 falhas preexistentes efetivas (a saída
 histórica bruta tem 16, incluindo uma edição concorrente de roadmap documentada).
