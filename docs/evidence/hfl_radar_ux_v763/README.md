@@ -21,6 +21,9 @@ Os resultados vêm das APIs existentes, que verificam os arquivos primários.
 frontend nem serve de fallback. Não houve nova inferência, chamada Gemini,
 operação financeira, paper trading, Final Test ou push.
 
+As 18 rotas legadas permanecem; os três aliases HTML de Mercado elevam o
+inventário de entradas a 21. APIs de leitura e seus contratos são reutilizados.
+
 ## Arquivos de apresentação
 
 Novos: `dashboard/market.html`, `market.js`, `market-ui.js`, `market.css`.

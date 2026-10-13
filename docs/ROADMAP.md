@@ -528,7 +528,7 @@ frontend.
 |---|---|---|---|
 | UX-M1 | auditoria e arquitetura de informação (**feito; direção aprovada pelo pedido da V7.6.2**) | — | M |
 | UX-M2 | design system e componentes comuns (**parcial**: tokens, componentes `ds-*`, estados, ajuda e glossário; V7.6.3 acrescenta confirmação compartilhada de custo integrada ao Radar e tabela comparativa `ds-table`; falta adoção nas demais páginas) | UX-M1 aprovado | L |
-| UX-M3 | navegação única e nova página inicial (**implementado**: um menu em 18 rotas, 6 áreas, breadcrumb, deep links preservados, novo Início; Auditoria ainda aponta para seção do Início) | UX-M2 | M |
+| UX-M3 | navegação única e nova página inicial (**implementado**: um menu; 18 rotas legadas preservadas + 3 aliases Mercado na V7.6.3, 6 áreas, breadcrumb, deep links preservados, novo Início; Auditoria ainda aponta para seção do Início) | UX-M2 | M |
 | UX-M4 | Radar e análises de ativos (**parcial V7.6.3**: `/market`, comparação, filtros, indicadores, comitês, consenso, Risk e evidências progressivas; controles operacionais e parte dos estilos ainda legados) | UX-M3 | L |
 | UX-M5 | **Pendente** — Carteira, Gestor Global e simulações (caminho pago V1 **desativado na UI** na V7.6.2; falta decidir o bloqueio no backend) | UX-M3, decisão humana | XL |
 | UX-M6 | **Pendente** — Operação diária, H2, pesquisa, resultados e evidências | UX-M3 | L |
