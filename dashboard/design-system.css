@@ -196,6 +196,16 @@ body.hfl-platform { background: var(--bg); color: var(--text); font-family: var(
 .ds-hash > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ds-copy { min-height: 28px !important; min-width: 28px; padding: 0 var(--sp-2); border: 1px solid var(--border-control); border-radius: var(--radius-sm); background: transparent; color: var(--link); font-size: var(--fs-xs); cursor: pointer; }
 
+.ds-cost-facts { display: grid; gap: var(--sp-3); }
+.ds-cost-facts div { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.ds-cost-facts dt { color: var(--text-2); }
+.ds-cost-facts dd { margin: 0; overflow-wrap: anywhere; }
+.ds-cost-consent { display: flex; gap: var(--sp-3); align-items: flex-start; margin-block: var(--sp-4); }
+.ds-cost-consent input { flex-shrink: 0; }
+.ds-cost-actions { display: flex; gap: var(--sp-3); justify-content: flex-end; }
+.ds-cost-token { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media(max-width:640px) { .ds-cost-facts div { grid-template-columns: 1fr; gap: var(--sp-1); } }
+
 /* Contextual help */
 .ds-help {
   display: inline-grid; place-items: center; width: 24px; height: 24px; min-height: 24px !important; padding: 0; margin: 0 2px;

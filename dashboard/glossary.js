@@ -3,6 +3,38 @@
 // data-help="<id>" in the pages; definitions must not be repeated elsewhere.
 // Source: docs/evidence/hfl_methodology_ux_review_v761/CONTEXTUAL_HELP_GLOSSARY.md.
 window.HFL_GLOSSARY = Object.freeze({
+  sma50: {
+    term: 'SMA50',
+    short: 'Média simples dos fechamentos de 50 sessões.',
+    long: 'O Radar publica sma50_gap = fechamento / SMA50 − 1, uma diferença relativa, e não o preço da média em reais.',
+    example: 'Gap 0,03 = fechamento 3% acima da média.',
+    caution: 'A média descreve o passado e não garante a continuidade da tendência.',
+    ref: 'src/agents/features.py · dimensionless_features; src/indicators/sma.py',
+  },
+  sma200: {
+    term: 'SMA200',
+    short: 'Média simples dos fechamentos de 200 sessões.',
+    long: 'O Radar publica sma200_gap = fechamento / SMA200 − 1. O período é medido em sessões de mercado.',
+    example: 'Gap −0,10 = fechamento 10% abaixo da média.',
+    caution: 'Diferença relativa não é preço absoluto nem previsão.',
+    ref: 'src/agents/features.py · dimensionless_features; src/indicators/sma.py',
+  },
+  'sessao-referencia': {
+    term: 'Sessão de referência',
+    short: 'Data de mercado à qual pertencem os dados analisados.',
+    long: 'É diferente da data de geração do parecer, da data da consulta e da próxima sessão de execução.',
+    example: 'Um parecer gerado em 12/10 pode usar o fechamento de 09/10.',
+    caution: 'Consultar hoje não atualiza os dados históricos.',
+    ref: 'scripts/multiasset_radar.py · session; data/radar/registry.json',
+  },
+  'parecer-oficial': {
+    term: 'Parecer oficial',
+    short: 'Resultado completo e verificável de uma execução classificada como oficial no registro.',
+    long: 'A API verifica hashes dos inputs, barras, resultado e journal antes de apresentar o parecer.',
+    example: 'Uma tentativa com falha preservada não é um parecer oficial completo.',
+    caution: 'Oficial não significa recomendação financeira nem desempenho comprovado.',
+    ref: 'scripts/multiasset_radar.py · detail; scripts/radar_runs.py · public',
+  },
   rsi: {
     term: 'RSI (Índice de Força Relativa)',
     short: 'Mede, de 0 a 100, a força das altas recentes em relação às quedas.',

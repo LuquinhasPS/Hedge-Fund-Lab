@@ -165,5 +165,34 @@
   new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => { if (n.nodeType === 1 && n !== pop) enhance(n.parentNode || n); }))).observe(document.body, { childList: true, subtree: true });
   document.getElementById('hfl-help-open')?.addEventListener('click', () => center());
 
-  window.HFL = Object.freeze({ state, help, glossary: G, states: STATES, openHelpCenter: center });
+  // Native modal: display/consent only. The caller still validates its unchanged
+  // preflight token and authorization contract after this promise resolves.
+  let costDialog = null;
+  function confirmCost(data) {
+    if (costDialog?.open) return Promise.reject(new Error('cost_confirmation_already_open'));
+    const money = v => (typeof v==='number' || typeof v==='string' && v.trim()!=='') && Number.isFinite(Number(v)) && Number(v)>=0;
+    if (!data || data.ready!==true || !data.operation || !data.treatment || !data.context || !data.run || !data.source || !data.confirmationToken || !Number.isInteger(data.callsMax) || data.callsMax<1 || !money(data.estimatedUsd) || !money(data.reservedUsd) || Number(data.reservedUsd)<Number(data.estimatedUsd) || data.validUntil && (!Number.isFinite(Date.parse(data.validUntil)) || Date.parse(data.validUntil)<=Date.now())) {
+      return Promise.reject(new Error('cost_preflight_missing_invalid_or_expired'));
+    }
+    if (!costDialog) {
+      costDialog=document.createElement('dialog'); costDialog.className='ds-dialog'; costDialog.id='hfl-cost-dialog';
+      costDialog.setAttribute('aria-labelledby','hfl-cost-title'); document.body.appendChild(costDialog);
+    }
+    const usd=v=>money(v) ? 'USD '+Number(v).toFixed(6) : 'Indisponível';
+    const facts=[['Operação',data.operation],['Tratamento científico',data.treatment],['Contexto',data.context],['Execução',data.run],['Chamadas máximas',data.callsMax],['Custo estimado (não é fatura)',usd(data.estimatedUsd)],['Reserva conservadora',usd(data.reservedUsd)],['Orçamento remanescente antes do lote',usd(data.remainingUsd)],['Validade do contexto',data.validUntil || 'Sem prazo informado; o backend revalida o preflight']];
+    costDialog.innerHTML=`<div class="ds-dialog-head"><h2 id="hfl-cost-title">Conferir custo e intenção</h2></div><form class="ds-dialog-body" method="dialog"><dl class="ds-cost-facts">${facts.map(([k,v])=>`<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl><p>Uma falha com resultado incerto pode ser cobrada. A reserva não é cobrança confirmada. Esta execução é consultiva e não envia ordens ao mercado.</p><details><summary>Conferir detalhes do preflight</summary><p>Fonte: ${esc(data.source)}</p><pre class="ds-cost-token">${esc(data.confirmationToken)}</pre></details><label class="ds-cost-consent"><input type="checkbox" id="hfl-cost-consent"> Li os valores e confirmo explicitamente a intenção desta inferência paga.</label><div class="ds-cost-actions"><button class="ds-btn" value="cancel" autofocus>Cancelar</button><button class="ds-btn" id="hfl-cost-confirm" value="confirm" disabled>Confirmar intenção</button></div><p role="status" id="hfl-cost-status"></p></form>`;
+    const consent=costDialog.querySelector('#hfl-cost-consent'), confirm=costDialog.querySelector('#hfl-cost-confirm');
+    const expired=()=>data.validUntil && Date.parse(data.validUntil)<=Date.now();
+    consent.addEventListener('change',()=>{confirm.disabled=!consent.checked || !!expired();});
+    costDialog.querySelector('form').addEventListener('submit',e=>{
+      if(e.submitter===confirm && (!consent.checked || expired())) {e.preventDefault();confirm.disabled=true;costDialog.querySelector('#hfl-cost-status').textContent='Contexto expirado; refaça o preflight.';}
+    });
+    const owner=document.activeElement;
+    return new Promise(resolve=>{
+      costDialog.returnValue='cancel';
+      costDialog.addEventListener('close',()=>{const accepted=costDialog.returnValue==='confirm' && consent.checked && !expired(); owner?.focus(); resolve(!!accepted);},{once:true});
+      costDialog.showModal();
+    });
+  }
+  window.HFL = Object.freeze({ state, help, glossary: G, states: STATES, openHelpCenter: center, confirmCost });
 })();
