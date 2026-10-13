@@ -43,7 +43,7 @@ export async function run(base, out, shotsDir) {
     })()`);
 
     // 1. Every page: one global navigation, no legacy menus, correct area, no overflow.
-    const expected = { home: ["inicio", null], radar: ["mercado", "Radar de comitês"], portfolio: ["carteira", null], paper: ["operacao", "Resumo das carteiras"], h2: ["pesquisa", "Experimento H2"], logs: ["auditoria", "Logs técnicos"], legacy: ["pesquisa", "Backtests legados"] };
+    const expected = { home: ["inicio", null], radar: ["mercado", "Radar de comitês"], portfolio: ["carteira", "Visão geral"], paper: ["operacao", "Resumo das carteiras"], h2: ["pesquisa", "Experimento H2"], logs: ["auditoria", "Logs técnicos"], legacy: ["pesquisa", "Backtests legados"] };
     for (const [vname, v] of Object.entries(VIEWPORTS)) {
       await page.viewport(v);
       for (const [name, route] of PAGES) {
@@ -68,7 +68,7 @@ export async function run(base, out, shotsDir) {
 
     // 2. Hash routes, deep links, reload, history.
     await page.viewport(VIEWPORTS.desktop);
-    for (const [route, area, section] of [["/paper#agentes", "pesquisa", "Catálogo de agentes H2"], ["/paper#supervisao", "operacao", "Decisão do dia"], ["/#audit", "auditoria", "Registros e processos"], ["/#wallets", "inicio", null], ["/h2#provisional/audit", "pesquisa", "Experimento H2"], ["/portfolio#ai-proposal", "carteira", "Propostas e simulações"]]) {
+    for (const [route, area, section] of [["/paper#agentes", "pesquisa", "Catálogo de agentes H2"], ["/paper#supervisao", "operacao", "Decisão do dia"], ["/#audit", "auditoria", "Registros e processos"], ["/#wallets", "inicio", null], ["/h2#provisional/audit", "pesquisa", "Experimento H2"], ["/portfolio#ai-proposal", "carteira", "Simulador demonstrativo"]]) {
       await page.go(base + route);
       const s = await shell();
       check(`route:${route}`, s.area === area && s.section === section, s);
@@ -82,7 +82,7 @@ export async function run(base, out, shotsDir) {
     await sleep(2000);
     check("deeplink:reload_keeps_run", (await page.eval("location.search")).includes(RUN));
     await page.go(base + `/portfolio?run=${RUN}`, 2500);
-    const pdeep = await page.eval(`({ search: location.search, mercado: document.querySelector('.hfl-primary a[data-area=mercado]').getAttribute('href'), mode: document.getElementById('workflow-mode').disabled })`);
+    const pdeep = await page.eval(`({ search: location.search, mercado: document.querySelector('.hfl-primary a[data-area=mercado]').getAttribute('href'), mode: !document.getElementById('workflow-mode') })`);
     check("deeplink:portfolio_run_kept", pdeep.search.includes(RUN) && pdeep.mercado.includes("run=" + RUN) && pdeep.mode === true, pdeep);
     await page.go(base + "/paper#sala");
     await page.click('.hfl-secondary a[href="/paper#carteiras"]');
@@ -154,21 +154,21 @@ export async function run(base, out, shotsDir) {
     // 6. Closed V1 paid action and history.
     await page.viewport(VIEWPORTS.desktop);
     await page.go(base + "/portfolio#global-workflow", 2500);
-    let v = await page.eval(`(() => { const ids = ['workflow-prepare','workflow-preflight','workflow-run','workflow-authorize']; return { controls: ids.map(id => { const e = document.getElementById(id); return [id, e.disabled, e.offsetParent === null]; }), notice: document.getElementById('v1-closed')?.innerText, dialog: document.getElementById('workflow-confirm').open }; })()`);
+    let v = await page.eval(`(() => { const ids = ['workflow-prepare','workflow-preflight','workflow-run','workflow-authorize']; return { controls: ids.map(id => { const e = document.getElementById(id); return [id, !e || e.disabled, !e || e.offsetParent === null]; }), notice: document.getElementById('v1-closed')?.innerText, dialog: document.getElementById('workflow-confirm')?.open || false }; })()`);
     check("v1:paid_triggers_disabled_and_hidden", v.controls.every(([, disabled, hidden]) => disabled && hidden), v.controls);
     check("v1:closed_notice_visible", /encerrado para novas inferências/.test(v.notice || "") && /consulta e auditoria/.test(v.notice || ""), v.notice);
     const before = page.requests.length;
-    await page.eval(`(() => { ['workflow-prepare','workflow-preflight','workflow-run','workflow-authorize'].forEach(id => { const e = document.getElementById(id); e.disabled = false; e.hidden = false; e.closest('[hidden]')?.removeAttribute('hidden'); e.click(); }); })()`);
+    await page.eval(`(() => { ['workflow-prepare','workflow-preflight','workflow-run','workflow-authorize'].forEach(id => { const e = document.getElementById(id); if(e){ e.disabled = false; e.hidden = false; e.closest('[hidden]')?.removeAttribute('hidden'); e.click(); } }); })()`);
     await sleep(800);
-    v = await page.eval(`({ dialog: document.getElementById('workflow-confirm').open })`);
+    v = await page.eval(`({ dialog: document.getElementById('workflow-confirm')?.open || false })`);
     const triggered = page.requests.slice(before).filter((r) => r.method !== "GET" || /global-(prepare|run|preflight)/.test(r.url));
     check("v1:forced_clicks_do_nothing", !v.dialog && triggered.length === 0, { dialog: v.dialog, triggered });
     await page.go(base + `/portfolio?analysis=${V1}#global-workflow`, 3000);
-    v = await page.eval(`({ current: document.getElementById('workflow-current').innerText, replay: document.getElementById('workflow-replay').hidden })`);
-    check("v1:history_still_consultable_and_rejected", /REJECTED_BY_VALIDATOR/.test(v.current) && /GLOBAL-PM-V1/.test(v.current) && v.replay === false, v.current.slice(0, 300));
+    v = await page.eval(`({ current: document.getElementById('decision-detail').innerText, replay: !document.getElementById('workflow-replay') })`);
+    check("v1:history_still_consultable_and_rejected", /REJECTED_BY_VALIDATOR/.test(v.current) && /GLOBAL-PM-V1/.test(v.current) && v.replay === true, v.current.slice(0, 300));
     await shot(page, "after-portfolio-v1-history-desktop", false);
     await page.go(base + `/portfolio?analysis=${V2}#global-workflow`, 3000);
-    v = await page.eval(`({ current: document.getElementById('workflow-current').innerText, run: document.getElementById('workflow-run').disabled, preflight: document.getElementById('workflow-preflight').disabled })`);
+    v = await page.eval(`({ current: document.getElementById('decision-detail').innerText, run: !document.getElementById('workflow-run'), preflight: !document.getElementById('workflow-preflight') })`);
     check("v2:still_valid_and_no_paid_shortcut", /VALID_PROPOSAL/.test(v.current) && v.run && v.preflight, v);
 
     // 7. States and action natures are distinguishable without color.

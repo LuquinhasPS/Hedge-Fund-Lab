@@ -302,10 +302,10 @@ class Static(unittest.TestCase):
             )
         self.assertIn("if(V1_CLOSED&&command!=='replay')return fail(", js)
         html = (DASH / "portfolio.html").read_text(encoding="utf-8")
-        self.assertRegex(
-            html,
-            r'<div class="workflow-buttons" hidden data-closed-v1><button id="workflow-prepare" type="button" disabled>.*?id="workflow-preflight" type="button" disabled>.*?id="workflow-run" type="button" disabled>',
-        )
+        self.assertNotIn('/global-workflow.js', html)
+        self.assertNotIn('id="workflow-run"', html)
+        self.assertNotIn('id="workflow-authorize"', html)
+        self.assertNotIn("method:'POST'", (DASH / "monitoring.js").read_text(encoding="utf-8"))
         self.assertIn("encerrado para novas inferências", html)
         paid = {
             (f.name, m)

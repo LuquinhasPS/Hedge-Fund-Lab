@@ -120,8 +120,8 @@ try {
     await select('#radar-run',RUN);await wait(`document.querySelector('#run-card').dataset.state==='COMPLETED'`);
     await select('#compare-a','PETR4|2026-10-09');await select('#compare-b','VALE3|2026-10-09');await page.click('#compare');
     await check('comparison:two_assets',`document.querySelectorAll('#comparison .comparison-card').length===2`);
-    await page.click('#radar-to-global');await wait(`document.querySelector('#workflow-run')!==null`);
-    await check('navigation:radar_to_portfolio',`location.search.includes(${JSON.stringify(RUN)}) && location.search.includes('tickers=') && document.querySelector('#workflow-run').disabled`);
+    await page.click('#radar-to-global');await wait(`document.querySelector('#workflow-record')!==null`);
+    await check('navigation:radar_to_portfolio',`location.search.includes(${JSON.stringify(RUN)}) && location.search.includes('tickers=') && !document.querySelector('#workflow-run')`);
 
     // The component uses local test values labelled as fixtures. No provider data invented.
     await page.go(base+'/market?run='+RUN);
