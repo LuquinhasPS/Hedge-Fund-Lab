@@ -1,21 +1,34 @@
 <!doctype html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Radar · Mercado · Hedge-Fund-Lab</title>
-  <link rel="stylesheet" href="/radar.css?v=73"><script src="/radar.js?v=75" defer></script>
-<link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
-</head>
-<body class="hfl-platform">
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radar · Mercado · Hedge-Fund-Lab</title>
+<link rel="stylesheet" href="/radar.css?v=763"><link rel="stylesheet" href="/shell.css?v=7"><link rel="stylesheet" href="/market.css?v=763">
+<script src="/shell.js?v=7" defer></script><script src="/market-ui.js?v=763" defer></script><script src="/radar.js?v=763" defer></script>
+</head><body class="hfl-platform">
 <!-- platform-shell -->
-  <main id="main">
-    <div class="heading"><div><p class="eyebrow">MERCADO · RADAR DE COMITÊS <button class="ds-help" data-help="radar"></button></p><h1>Radar de comitês<br><span>Cinco analistas de IA e um parecer de risco por ativo.</span></h1><p class="lead">Investigue os sinais de diferentes empresas com comitês independentes e evidências rastreáveis.</p></div><div class="identity"><span class="dot"></span> CONSULTIVO<small>HFL-MULTIASSET-RADAR-V1</small><small>Sem ordens ou alocação de carteira</small></div></div>
-    <p class="notice">Este radar é exploratório e separado da Validation OA-1 e do Final Test. A confiança dos agentes é qualitativa; não representa retorno esperado ou qualidade da empresa.</p>
-    <div class="controls run-controls"><label>Execução Radar consultada<select id="radar-run" aria-describedby="run-card"><option value="">Consultando registro de execuções…</option></select></label><p id="radar-source" class="notice" role="status"></p></div>
-    <section id="run-card" class="run-card" aria-live="polite" aria-label="Execução selecionada"></section>
-    <p><a id="radar-to-global" class="back" href="/portfolio#global-workflow">Levar seleção ao Gestor Global →</a></p>
-    <div id="error" role="alert" hidden></div>
-    <div class="metrics"><article><span>UNIVERSO</span><strong id="universe-count">0 <small>/ 5 ativos</small></strong></article><article><span>ÚLTIMA SESSÃO ENCERRADA</span><strong id="closed">—</strong></article><article><span>RESERVAS DA EXECUÇÃO · USD</span><strong id="budget-used">— <small>/ —</small></strong></article></div>
+<main id="main" class="market-main">
+<p class="ds-eyebrow">Mercado · Radar multiativo</p><h1 class="ds-title">Do universo à decisão. Cada etapa, explicada.</h1>
+<p class="ds-subtitle">Compare o sinal dos analistas, o consenso e a decisão de risco antes de consultar o resultado final.</p>
+<div class="ds-alert"><strong>Consulta histórica · análise consultiva</strong><p>Não há cotações em tempo real. Confiança técnica não é probabilidade de lucro. Pareceres não são recomendação de investimento nem execução financeira.</p></div>
+<div class="market-filters"><label>Execução Radar consultada<select id="radar-run"><option value="">Consultando registro…</option></select></label><button id="refresh" data-action="read">Atualizar consulta</button><a id="radar-to-market" class="ds-btn" href="/market">Explorar ativos →</a></div>
+<p id="radar-source" class="ds-lead" role="status"></p><div id="error" role="alert" hidden></div>
+<div id="radar-overview" class="ds-kpis market-overview" aria-live="polite"></div>
+<ol class="ds-flow" aria-label="Jornada da análise"><li><strong>Universo</strong><span>Ativos da sessão registrada</span></li><li><strong>Comitês</strong><span>Votos individuais de IA</span></li><li><strong>Consenso</strong><span>Agregação técnica</span></li><li class="is-gate"><strong>Risk</strong><span>Restrições antes do resultado</span></li><li><strong>Resultado final</strong><span>Parecer consultivo por ativo</span></li></ol>
+<section class="ds-section" aria-labelledby="assets-title"><div class="ds-section-head"><h2 id="assets-title">Universo analisado</h2><span class="market-history">◷ Fotografia histórica</span></div><div id="radar-assets" class="ds-grid market-assets"></div></section>
+<section class="ds-card ds-section" aria-labelledby="results-title">
+<div class="ds-section-head"><h2 id="results-title">Compare as decisões</h2><button id="clear-filters" class="ds-btn">Limpar filtros</button></div>
+<p>Sinal técnico, aprovação de risco e resultado final são etapas distintas. Um veto pode transformar COMPRA em MANTER.</p>
+<div class="market-filters" aria-label="Filtros de consulta"><label>Ativo<select id="filter-asset"><option value="">Todos</option></select></label><label>Sinal técnico<select id="filter-signal"><option value="">Todos</option><option>COMPRA</option><option>VENDA</option><option>MANTER</option></select></label><label>Risk<select id="filter-risk"><option value="">Todos</option><option>APROVADO</option><option>VETADO</option></select></label><label>Resultado final<select id="filter-final"><option value="">Todos</option><option>COMPRA</option><option>VENDA</option><option>MANTER</option></select></label></div>
+<p id="filter-count" role="status"></p>
+<div class="ds-table-wrap" tabindex="0" role="region" aria-label="Comparação das decisões, tabela rolável"><table class="ds-table"><caption class="ds-visually-hidden">Resultados por ativo na execução selecionada</caption><thead><tr><th scope="col">Ativo / sessão</th><th scope="col">Sinal técnico <button class="ds-help" data-help="consenso"></button></th><th scope="col">Consenso</th><th scope="col">Risk <button class="ds-help" data-help="risk"></button></th><th scope="col">Resultado final</th><th scope="col">Estado</th></tr></thead><tbody id="results"></tbody></table></div>
+      <div class="compare-controls"><label>Primeira análise<select id="compare-a"><option value="">Selecione</option></select></label><label>Segunda análise<select id="compare-b"><option value="">Selecione</option></select></label><button id="compare" class="secondary" data-action="read">Comparar duas empresas</button></div>
+      <div id="comparison" aria-live="polite"></div>
+</section>
+<section class="ds-card" id="room" aria-labelledby="room-title" hidden><div class="ds-section-head"><h2 id="room-title" tabindex="-1">Detalhe do ativo e comitê</h2><button id="close-room" class="ds-btn">Voltar à comparação</button></div><div id="room-content"></div></section>
+<p><a id="radar-to-global" class="ds-btn" href="/portfolio#global-workflow">Levar seleção à Carteira →</a></p>
+<details id="radar-audit"><summary>Histórico da execução, custos e proveniência</summary><p>Selecione outra execução no controle acima para consultar incidentes e demonstrações, preservando suas identidades.</p><section id="run-card" class="run-card" aria-label="Execução selecionada"></section></details>
+<details class="market-operations"><summary>Ações operacionais existentes · preparação, preflight e recuperação</summary><p>Esta área pode gravar dados. Inferência paga <button class="ds-help" data-help="inferencia-paga"></button> exige preflight, consentimento e autorização do backend. Abrir detalhes não inicia processos.</p>
+<div class="metrics"><article><span>UNIVERSO REGISTRADO</span><strong id="universe-count">—</strong></article><article><span>ÚLTIMA SESSÃO ENCERRADA NO CALENDÁRIO</span><strong id="closed">—</strong></article><article><span>RESERVAS DA EXECUÇÃO · USD</span><strong id="budget-used">—</strong></article></div>
     <section class="card" aria-labelledby="universe-title">
       <div class="section-head"><div><p class="eyebrow">02 / UNIVERSO DE PESQUISA</p><h2 id="universe-title">Selecione suas empresas</h2></div><span class="muted">Até cinco ações da B3</span></div>
       <form id="add-form"><label for="ticker-search">Pesquisar ticker</label><div class="search"><input id="ticker-search" list="ticker-options" maxlength="10" placeholder="Ex.: PETR4" autocomplete="off" required><datalist id="ticker-options"></datalist><button type="submit">Adicionar ativo <span aria-hidden="true">+</span></button></div></form>
@@ -30,15 +43,4 @@
       <div id="input-check" aria-live="polite" class="preflight" hidden></div><div id="preflight-result" aria-live="polite" class="preflight"><p class="muted">Selecione pelo menos um ativo. Abrir esta página ou consultar registros não executa agentes.</p></div>
       <div id="confirmation" hidden><label class="check consent"><input id="paid" type="checkbox"> Autorizo chamadas pagas Gemini para este lote e aceito o teto reservado apresentado acima.</label><button id="execute" data-action="paid" disabled>3. Revisar custo e executar este lote</button></div>
     </section>
-    <section class="card" aria-labelledby="results-title">
-      <div class="section-head"><div><p class="eyebrow">04 / PAINEL COMPARATIVO</p><h2 id="results-title">Sinais, lado a lado</h2></div><button id="refresh" class="secondary" data-action="read">Consultar resultados</button></div>
-      <p class="muted">Cada linha informa sua própria sessão e fonte. Clique no ativo para abrir o detalhe do comitê. Nenhuma classificação por confiança.</p>
-      <div class="table-scroll" tabindex="0" role="region" aria-label="Tabela de análises, rolável horizontalmente"><table><thead><tr><th>Ativo / sessão</th><th>Fechamento ajustado</th><th>Votos C / V / M</th><th>Consenso / confiança</th><th>Evidências / alertas</th><th>Risco consultivo</th><th>Status / geração</th></tr></thead><tbody id="results"></tbody></table></div>
-      <div class="compare-controls"><label>Primeira análise<select id="compare-a"><option value="">Selecione</option></select></label><label>Segunda análise<select id="compare-b"><option value="">Selecione</option></select></label><button id="compare" class="secondary" data-action="read">Comparar duas empresas</button></div>
-      <div id="comparison" aria-live="polite"></div>
-    </section>
-    <section class="card" id="room" aria-labelledby="room-title" hidden><div class="section-head"><div><p class="eyebrow">05 / COMITÊ INDIVIDUAL</p><h2 id="room-title">Detalhe do comitê</h2></div><button id="close-room" class="secondary">Fechar detalhes</button></div><div id="room-content"></div></section>
-    <footer><span>HEDGE-FUND-LAB · Radar de comitês</span><span>Parecer individual ≠ ordem de uma carteira compartilhada</span></footer>
-  </main>
-</body>
-</html>
+</details><footer>HEDGE-FUND-LAB · Consulta histórica · Sem ordens reais</footer></main></body></html>

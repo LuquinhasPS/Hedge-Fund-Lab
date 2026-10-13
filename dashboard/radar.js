@@ -1,13 +1,14 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const escape = value => String(value ?? '—').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const M = window.HFLMarket;
 let viewVersion=0, aborter=new AbortController(), runs=null;
 const query=new URLSearchParams(location.search);
 const runId=()=>$('radar-run').value;
 const synthetic=()=>state?.run?.mode==='SYNTHETIC_DEMO';
 const isolated=()=>synthetic()||state?.network_isolation===true;
 const readonly=()=>!state||state.mutation_available!==true;
-function transfer(){ $('radar-to-global').href='/portfolio?'+new URLSearchParams({run:runId(),tickers:chosen().join(','),session:$('session').value,mode:state?.run?.mode||''})+'#global-workflow'; }
+function transfer(){ $('radar-to-global').href='/portfolio?'+new URLSearchParams({run:runId(),tickers:chosen().join(','),session:$('session').value,mode:state?.run?.mode||''})+'#global-workflow'; $('radar-to-market').href=M.link('/market',runId()); }
 let state = null, csrf = '', selected = new Set(), report = null, poll = null;
 const cash = value => value == null ? '—' : Number(value).toFixed(4);
 const dateTime = value => value ? new Date(value).toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo'}) : '—';
@@ -41,6 +42,7 @@ function renderRun() {
     + `<div><span>Sessão</span><strong>${escape(r.session)}</strong></div><div><span>Origem</span><strong>${escape(r.source)}</strong></div><div><span>Estado</span><strong>${escape(runStates[r.state]||r.state)}</strong>${r.reasons.length?`<small class="warning">${r.reasons.map(escape).join(' · ')}</small>`:''}</div><div><span>Pareceres completos</span><strong>${r.opinions}/${r.universe.length}</strong></div>`
     + `<div><span>Classificação</span><strong>${escape(r.classification)}${r.same_treatment_as?' · mesma identidade de tratamento de '+escape(r.same_treatment_as):''}</strong></div><div><span>Preparação</span><strong>${escape(dateTime(r.prepared_at))}</strong></div><div><span>Inputs / claims / falhas</span><strong>${r.inputs} / ${r.claims} / ${r.failures}</strong></div><div><span>Chamadas reservadas / respostas</span><strong>${r.calls_reserved} / ${r.responses_recorded}</strong></div>`
     + (money ? `<p class="run-budget">Orçamento próprio US$ ${cash(r.budget_usd)} · reservado US$ ${cash(r.usd_reserved)} (incerto US$ ${cash(r.usd_reserved_uncertain)}) · custo observado pelos tokens US$ ${cash(r.usd_observed_provider_tokens)} · faturado confirmado: não disponível.<br>${others.map(x => `Outra execução ${escape(x.run)}${x.incident?' ('+escape(x.incident)+')':''}: reserva US$ ${cash(x.usd_reserved)} · ${x.reservations.map(b => escape(forensic(b.forensic))).join(', ')} · não liberada.`).join('<br>')}${others.length?'<br>':''}Próximo lote: até ${money.planned.calls_max} chamadas (${money.planned.calls_planned} planejadas) · reserva US$ ${cash(money.planned.usd_reserved)} · exposição agregada conservadora US$ ${cash(money.aggregate_exposure_usd)} / limite local US$ ${cash(money.aggregate_cap_usd)} · ${escape(authLabels[money.authorization.state]||money.authorization.state)}.</p>` : '<p class="run-budget">Execução sintética: sem provedor e sem orçamento.</p>')
+    + `<p>Tratamento <code>${escape(r.treatment?.identity)}</code> · modelo ${escape(r.treatment?.model)}</p><div class="market-hashes">${M.copy('Manifesto do tratamento',r.treatment?.manifest_sha256)}</div>`
     + (r.comparison ? `<p class="run-budget">Comparação econômica com ${escape(r.comparison.reference)}: ${r.comparison.material?'<strong class="warning">divergência material · bloqueada</strong>':'equivalente'} (${r.comparison.items.map(i=>escape(i.ticker+' '+i.status)).join(' · ')})</p>` : '');
 }
 function renderUniverse() {
@@ -51,14 +53,10 @@ function renderUniverse() {
   }).join('') : '<p class="muted">Nenhum ativo no universo desta execução.</p>';
   $('prepare').disabled = $('preflight').disabled = readonly() || !selected.size || !!state.job && state.job.status === 'RUNNING';
 }
-function facts(row) {
-  const facts = (row.votes || []).flatMap(v => v.signal.evidence || []);
-  const supports = [...new Set(facts.filter(e => e.role.startsWith('SUPPORTS')).map(e => e.code))];
-  const alerts = [...new Set(facts.filter(e => e.role === 'CAUTION').map(e => e.code))];
-  return `${supports.map(escape).join(', ') || 'Sem evidência direcional'}${alerts.length ? '<small class="warning">Alertas: ' + alerts.map(escape).join(', ') + '</small>' : ''}`;
-}
 function renderResults() {
-  $('results').innerHTML = state.items.length ? state.items.map(row => `<tr><td><button class="link" data-detail="${escape(row.ticker)}|${escape(row.session)}" ${row.status === 'INTEGRITY_ERROR' ? 'disabled' : ''}>${escape(row.ticker)}</button><small>${escape(row.session)}</small><small class="${row.mode === 'synthetic' ? 'warning' : ''}">${modeLabel(row.mode)}</small></td><td>${row.adjusted_close ? Number(row.adjusted_close).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) : '—'}</td><td>${row.consensus ? `${row.consensus.counts.COMPRA} / ${row.consensus.counts.VENDA} / ${row.consensus.counts.MANTER}` : '—'}</td><td>${escape(row.technical_signal?.signal)}<small>Confiança registrada: ${row.technical_signal ? Number(row.technical_signal.confidence).toFixed(2) : '—'}</small></td><td>${facts(row)}</td><td>${escape(row.risk?.verdict)}<small>Carteira: não avaliada</small></td><td><span class="pill">${escape(row.status)}</span><small>${escape(dateTime(row.generated_at))}</small></td></tr>`).join('') : '<tr><td colspan="7">Nenhuma análise registrada nesta execução.</td></tr>';
+  const rows = state.items.filter(row => (!query.get('asset') || row.ticker===query.get('asset')) && (!$('filter-signal').value || M.available(row) && row.technical_signal?.signal===$('filter-signal').value) && (!$('filter-risk').value || M.available(row) && row.risk?.verdict===$('filter-risk').value) && (!$('filter-final').value || M.available(row) && row.recommendation===$('filter-final').value));
+  $('filter-count').textContent = `${rows.length} de ${state.items.length} análises · filtros somente de leitura`;
+  $('results').innerHTML = rows.length ? rows.map(row => { const ok=M.available(row), c=row.consensus; return `<tr><th scope="row"><button class="ds-btn" data-detail="${escape(row.ticker)}|${escape(row.session)}" ${row.status==='INTEGRITY_ERROR' ? 'disabled' : ''}>${escape(row.ticker)}</button><small>${escape(row.session)}</small></th><td>${M.badge(ok ? row.technical_signal?.signal : null)}<small>Confiança: ${ok ? M.number(row.technical_signal?.confidence,3) : '—'}</small></td><td>${ok && c ? `${escape(c.counts[c.winning_signal])}/${escape(c.total_analysts)} · ${c.consensus_reached ? 'atingido' : 'não atingido'}` : 'Indisponível'}</td><td>${M.badge(ok ? row.risk?.verdict : null)}<small>${row.risk_source==='HARD_ASSET_VOLATILITY_RULE' ? 'Regra determinística' : row.risk_source==='ADVISORY_LLM' ? 'Parecer LLM' : 'Origem indisponível'}</small></td><td>${M.badge(ok ? row.recommendation : null)}</td><td>${escape(row.status)}</td></tr>`; }).join('') : '<tr><td colspan="6" class="ds-empty">Nenhuma análise corresponde aos filtros ou não há parecer registrado. Limpe os filtros para conferir o universo.</td></tr>';
   const options = '<option value="">Selecione</option>' + state.items.filter(i => i.status === 'COMPLETED').map(i => `<option value="${escape(i.ticker)}|${escape(i.session)}">${escape(i.ticker)} · ${escape(i.session)} · ${modeLabel(i.mode)}</option>`).join('');
   ['compare-a','compare-b'].forEach(id => { const previous = $(id).value; $(id).innerHTML = options; $(id).value = previous; });
 }
@@ -82,6 +80,9 @@ async function refresh(first=false) {
   $('radar-source').textContent = (synthetic() ? 'DEMONSTRAÇÃO SINTÉTICA · resultados fixos · sem chamadas ou gravações.' : 'CONSULTIVO COM GEMINI · registros desta execução apenas.') + (readonly() ? ` Somente leitura: execução operacional do servidor é ${state.runner || 'nenhuma'}.` : ' Execução operacional do servidor.') + (isolated() ? '' : ' Servidor sem isolamento de rede por requisição: reinicie-o antes de qualquer execução paga.');
   $('add-form').querySelectorAll('input,button').forEach(e=>e.disabled=readonly());
   transfer();renderRun();renderUniverse(); renderResults();
+  $('radar-overview').innerHTML = [['Sessão de referência '+M.help('sessao-referencia'),escape(state.run.session)],['Origem '+M.help('parecer-oficial'),escape(state.run.classification)],['Estado',escape(runStates[state.run.state]||state.run.state)],['Pareceres completos',`${state.run.opinions}/${state.run.universe.length}`]].map(([label,value])=>`<article class="ds-kpi"><span class="ds-kpi-label">${label}</span><strong class="ds-kpi-value">${value}</strong></article>`).join('');
+  $('radar-assets').innerHTML=state.run.universe.map(t=>M.summary(state.items.find(i=>i.ticker===t && i.session===state.run.session)||{ticker:t,session:state.run.session,status:'NONE'},runId(),'/radar')).join('');
+  $('filter-asset').innerHTML='<option value="">Todos</option>'+state.run.universe.map(t=>`<option>${escape(t)}</option>`).join(''); $('filter-asset').value=query.get('asset')||'';
   if (state.job?.status === 'RUNNING' && !poll) poll = setInterval(() => refresh().catch(error), 2000);
   if (state.job?.status !== 'RUNNING' && poll) { clearInterval(poll); poll = null; }
   $('error').hidden=true;
@@ -89,6 +90,10 @@ async function refresh(first=false) {
     $('error').textContent = 'Bloqueios do último preparo: ' + state.last_prepare.items.filter(i => i.status === 'BLOCKED').map(i => `${i.ticker} (${i.session}): ${i.error}`).join(' · ') + '. Preparar novamente aplica a normalização de bonificação confirmada pela B3; se o bloqueio persistir, a divergência não é explicada pela B3 e o ativo fica fora.'; $('error').hidden = false;
   }
   await inputs(version);
+  if(first && query.get('asset')) {
+    const row=state.items.find(i=>i.ticker===query.get('asset') && i.session===state.run.session);
+    if(row) await openDetail(row.ticker,row.session);
+  }
 }
 const pct = v => (Number(v) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
 const inputLabels = {FROZEN:'Input congelado', PREPARATION_REQUIRED:'Preparação necessária', UNRESOLVED_DIVERGENCE:'Divergência não resolvida', BLOCKED_DATA:'Dados bloqueados', INTEGRITY_ERROR:'Integridade divergente'};
@@ -139,15 +144,49 @@ $('preflight').addEventListener('click', guarded(async () => {
   $('execute').textContent = report.replay ? '3. Confirmar recuperação offline' : paid ? '3. Confirmar e executar chamadas pagas' : '3. Executar exemplo sintético · US$ 0'; $('execute').dataset.action = report.replay ? 'read' : paid ? 'paid' : 'simulate';
 }));
 $('paid').addEventListener('change', () => { $('execute').disabled = !$('paid').checked || !isolated() || budgetBlocked(); });
-$('execute').addEventListener('click', guarded(async () => { if(!report?.ready) throw new Error('Refaça o preflight.'); const payload = {...selection(),confirmation_token:report.confirmation_token,authorize_paid:$('paid').checked,confirm:true}; invalidate(); await api('run',payload); await refresh(); }));
+$('execute').addEventListener('click', guarded(async () => {
+  if(!report?.ready) throw new Error('Refaça o preflight.');
+  const current=report, version=viewVersion;
+  const payload={...selection(),confirmation_token:current.confirmation_token,authorize_paid:$('paid').checked,confirm:true};
+  const paid=!current.replay && current.items.some(i=>i.mode==='live');
+  if(paid) {
+    if(!payload.authorize_paid || !isolated() || budgetBlocked() || readonly())throw Error('explicit_paid_authorization_required');
+    const accepted=await window.HFL.confirmCost({ready:current.ready,operation:'Comitês Radar · '+chosen().join(', '),treatment:current.identity,context:current.session+' · '+current.items.map(i=>i.ticker+': '+i.input_sha256).join(' · '),run:runId(),source:'POST /api/radar/preflight',confirmationToken:current.confirmation_token,callsMax:current.items.reduce((n,i)=>n+(i.estimate?.calls_max||0),0),estimatedUsd:current.usd_estimated,reservedUsd:current.usd_reserved,remainingUsd:Math.max(0,Math.min(state.run.budget_usd-state.run.usd_reserved,current.global_budget_cap-current.global_budget_used))});
+    if(!accepted)return;
+    if(version!==viewVersion || report!==current || !isolated() || budgetBlocked() || readonly())throw Error('preflight_or_confirmation_changed');
+  }
+  invalidate(); await api('run',payload); await refresh();
+}));
 $('refresh').addEventListener('click', guarded(() => refresh()));
-function detailHtml(row, compact=false) {
-  if(row.status !== 'COMPLETED') return `<h3>${escape(row.ticker)} · ${escape(row.session)} · ${modeLabel(row.mode)}</h3><p class="warning">${escape(row.status)} · ${row.votes.length}/5 votos válidos gravados · ${row.reserved_calls} chamadas reservadas. Parecer final indisponível. Recuperação apenas offline; respostas ausentes nunca são substituídas.</p><details><summary>Votos parciais e histórico auditável</summary><pre>${escape(JSON.stringify(row,null,2))}</pre></details>`;
-
-  return `<h3>${escape(row.ticker)} · ${escape(row.session)} <span class="pill">${modeLabel(row.mode)}</span></h3><p class="muted small">Execução ${escape(state.run.id)} · Geração: ${escape(dateTime(row.generated_at))} · Conclusão: ${escape(dateTime(row.completed_at))}</p><div class="room-summary"><div><strong>Parecer: ${escape(row.recommendation)}</strong><p>Consenso técnico: ${escape(row.technical_signal.signal)}<br>Votos C/V/M: ${row.consensus.counts.COMPRA}/${row.consensus.counts.VENDA}/${row.consensus.counts.MANTER}<br>Confiança qualitativa: ${Number(row.technical_signal.confidence).toFixed(2)}</p></div><div><strong>Risk: ${escape(row.risk.verdict)}</strong><p>${escape(row.risk.analysis)}<br>Volatilidade anualizada (21 sessões): ${(row.risk.risk_metrics.asset_volatility_21*100).toFixed(2)}%<br>Risco da carteira: NÃO AVALIADO.</p></div><div><strong>Auditoria</strong><p>Tokens: ${row.tokens.total_tokens} (pensamento: ${row.tokens.thoughts_tokens})<br>Custo estimado pelos tokens: US$ ${cash(row.cost_usd)} (não é fatura)<br>Portfolio Manager não invocado. Parecer sem ordem.</p></div></div>${compact ? facts(row) : `<div class="votes">${row.votes.map(v=>`<article class="vote"><span class="muted small">ANALISTA ${v.analyst_id}</span><strong>${escape(v.signal.signal)}</strong><small>Confiança: ${v.signal.confidence.toFixed(2)}</small><ul>${v.signal.evidence.map(e=>`<li>${escape(e.code)}<br>${escape(e.role)}</li>`).join('')}</ul></article>`).join('')}</div><details><summary>Dados, hashes e contrato de auditoria</summary><pre>${escape(JSON.stringify(row,null,2))}</pre></details>`}`;
+const detailHtml = (row, compact=false) => M.detail(row,runId(),compact);
+async function openDetail(ticker, session) {
+  const version=viewVersion, row=await api(`detail?ticker=${encodeURIComponent(ticker)}&session=${encodeURIComponent(session)}`);
+  if(version!==viewVersion)return;
+  $('room-content').innerHTML=detailHtml(row); $('room').hidden=false;
+  query.set('asset',ticker); syncUrl();
+  $('room-title').focus({preventScroll:true}); $('room').scrollIntoView({block:'start'});
 }
-$('results').addEventListener('click', guarded(async event => { const key=event.target.closest('[data-detail]')?.dataset.detail; if(!key)return; const [ticker,session]=key.split('|'); const version=viewVersion,row=await api(`detail?ticker=${encodeURIComponent(ticker)}&session=${session}`); if(version!==viewVersion)return; $('room-content').innerHTML=detailHtml(row); $('room').hidden=false; $('room').scrollIntoView({behavior:'smooth',block:'start'}); $('room-title').tabIndex=-1; $('room-title').focus({preventScroll:true}); }));
-$('close-room').addEventListener('click',()=>{$('room').hidden=true; $('results-title').tabIndex=-1; $('results-title').focus();});
+$('results').addEventListener('click', guarded(async event => {
+  const key=event.target.closest('[data-detail]')?.dataset.detail;
+  if(key) await openDetail(...key.split('|'));
+}));
+function syncUrl() {
+  query.set('run',runId());
+  history.replaceState(null,'','/radar?'+query);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+['asset','signal','risk','final'].forEach(key=>{
+  $('filter-'+key).value=query.get(key)||'';
+  $('filter-'+key).addEventListener('change',()=>{
+    const value=$('filter-'+key).value; value ? query.set(key,value) : query.delete(key);
+    syncUrl(); renderResults();
+  });
+});
+$('clear-filters').addEventListener('click',()=>{
+  ['asset','signal','risk','final'].forEach(key=>{query.delete(key);$('filter-'+key).value='';});
+  syncUrl();renderResults();
+});
+$('close-room').addEventListener('click',()=>{$('room').hidden=true; query.delete('asset'); $('filter-asset').value=''; syncUrl(); renderResults(); $('results-title').tabIndex=-1; $('results-title').focus();});
 $('compare').addEventListener('click', guarded(async () => {
   const keys=[$('compare-a').value,$('compare-b').value];
   const rows=keys.map(key=>state.items.find(i=>i.ticker+'|'+i.session===key));
@@ -161,10 +200,10 @@ function choose(id) {
   if (poll) { clearInterval(poll); poll = null; }
   invalidate(); $('error').hidden=true; $('room').hidden=true; $('comparison').textContent=''; $('input-check').hidden=true; $('run-card').innerHTML='';
   $('results').innerHTML='<tr><td colspan="7">Consultando a execução selecionada…</td></tr>'; $('radar-source').textContent='Consultando execução…'; $('prepare').disabled=$('preflight').disabled=true;
-  history.replaceState(null,'','/radar?'+new URLSearchParams({run:id}));
+  query.set('run',id); syncUrl(); $('radar-assets').replaceChildren(); $('radar-overview').replaceChildren();
   return refresh(true);
 }
-$('radar-run').addEventListener('change',()=>choose(runId()).catch(error));
+$('radar-run').addEventListener('change',()=>{ ['asset','signal','risk','final'].forEach(k=>{query.delete(k);$('filter-'+k).value='';}); choose(runId()).catch(error); });
 async function start() {
   const response = await fetch('/api/platform/radar-runs', {signal:aborter.signal});
   const value = await response.json();
