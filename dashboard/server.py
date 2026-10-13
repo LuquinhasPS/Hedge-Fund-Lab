@@ -75,9 +75,9 @@ AREAS = (
     (
         "mercado",
         "Mercado",
-        "/radar",
+        "/market",
         "CONSULTIVO · PARECERES DE IA, SEM ORDENS",
-        (("/radar", "Radar de comitês"),),
+        (("/market", "Explorar ativos"), ("/radar", "Radar de comitês")),
     ),
     (
         "carteira",
@@ -125,6 +125,7 @@ AREAS = (
 PAGE_AREA = {
     "platform.html": "inicio",
     "radar.html": "mercado",
+    "market.html": "mercado",
     "portfolio.html": "carteira",
     "paper.html": "operacao",
     "h2.html": "pesquisa",
@@ -205,6 +206,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._serve_static("paper.html")
         if path in ("/radar", "/radar/", "/radar.html"):
             return self._serve_static("radar.html")
+        if path in ("/market", "/market/", "/market.html"):
+            return self._serve_static("market.html")
         if path in ("/portfolio", "/portfolio/", "/portfolio.html"):
             return self._serve_static("portfolio.html")
         if path == "/index.html":
@@ -246,6 +249,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "/radar",
                     "/radar/",
                     "/radar.html",
+                    "/market",
+                    "/market/",
+                    "/market.html",
                     "/portfolio",
                     "/portfolio/",
                     "/portfolio.html",
@@ -274,6 +280,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/radar.html",
             "/radar.css",
             "/radar.js",
+            "/market.html",
+            "/market.js",
+            "/market-ui.js",
+            "/market.css",
             "/portfolio.html",
             "/portfolio.css",
             "/portfolio.js",
@@ -306,7 +316,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/legacy/": "index.html",
             "/index.html": "index.html",
         }
-        for name in ("h2", "paper", "radar", "portfolio", "logs"):
+        for name in ("h2", "paper", "radar", "market", "portfolio", "logs"):
             pages.update(
                 {
                     f"/{name}": f"{name}.html",

@@ -11,7 +11,7 @@
   const ALIASES = { '/index.html': '/legacy', '/platform.html': '/', '/legacy/': '/legacy' };
   const norm = (p) => { p = ALIASES[p] || p.replace(/\.html$/, '').replace(/\/$/, ''); return p || '/'; };
   //: Pages that understand ?run=<radar run id>; the parameter is carried between them.
-  const RUN_PAGES = new Set(['/radar', '/portfolio']);
+  const RUN_PAGES = new Set(['/market', '/radar', '/portfolio']);
   //: Hashes a page resolves to another view (mirrors paper.js VIEWS/LEGACY; '' = default view).
   const HASH_ALIASES = { '/paper': { '': '#visao', '#supervisao': '#sala', '#room': '#sala', '#wallets': '#carteiras' } };
 
