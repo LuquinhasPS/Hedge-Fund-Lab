@@ -22,4 +22,4 @@ V1 pode ser consultada como decisão, mas não selecionada como carteira V2. Fix
 
 A fotografia V2 não recebe uma curva artificial nem operações derivadas de pesos. `persistent_execution: false` explicita a falta de ledger oficial multiativos. H2 usa `persistent_execution: true` por possuir registros existentes; isso não significa atualização automática.
 
-Sem dependências, banco, motor contábil, modelo de risco ou mecanismo de escrita novos. Somente um adaptador de apresentação e integração GET em `portfolio_api.py`; APIs financeiras de escrita intactas.
+Sem dependências, banco, motor contábil, modelo de risco ou mecanismo de escrita novos. Somente um adaptador de apresentação e roteamento GET em `server.py` (`portfolio_api.py` permanece byte a byte no baseline); APIs financeiras de escrita intactas.

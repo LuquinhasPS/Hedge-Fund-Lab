@@ -17,10 +17,6 @@ SCENARIOS = ("buy", "sell_cash", "partial", "rebalance", "hold", "rotation")
 
 
 def get(command, query):
-    if command == "monitoring":
-        import monitoring_api
-
-        return monitoring_api.get(query)
     store = book.Store(ROOT)
     state, events = store.load()
     if state is None:

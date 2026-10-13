@@ -17,4 +17,13 @@ O relatório final acrescentará comparação por nome da suíte completa e repr
 
 ## Suíte completa
 
-Pendente após commit da documentação. Árvore estável, saída bruta em diretório ignorado e temporário fora do repositório, como V7.6.3. `out.json` do operador será excluído somente da consulta Git do processo de teste via configuração temporária, sem editar/deletar/commitar o arquivo. Nenhum arquivo será editado durante a suíte.
+Primeira execução completa, commit `50094aa`: **1763 passed, 16 failed, 61 subtests passed**, 1034,94 s (17 min 14 s). Saída bruta intacta: `regression_initial.txt`.
+
+14 falhas coincidem com o baseline V7.6.3. As duas novas eram:
+
+1. `test_24_no_preservation_violation`: `dashboard/portfolio_api.py` é fixado por um baseline histórico. O adaptador não alterava comportamento financeiro, mas seus quatro novos comandos de roteamento mudavam o hash. Arquivo **restaurado byte a byte**, sem editar baseline; roteamento GET movido para `server.py`.
+2. `test_20_ui_distinguishes_rejected_from_validated`: mock Node tentava usar o evento removido que ligava resultados oficiais ao renderizador demonstrativo. O mock agora entrega os mesmos casos sintéticos pela leitura GET preparada, mantendo todas as assertions de rejeição/validação, erros, gráfico e botão desabilitado. A separação da interface não foi desfeita.
+
+Reexecução direcionada: **15 passed**, 82,69 s (`corrections.txt`), incluindo as duas falhas, adaptador, HTTP e Chrome V7.6.4. Baselines históricos voltaram a `violations: []`.
+
+A suíte completa corrigida será repetida após commit estável. Árvore estável, saída bruta em diretório ignorado e temporário fora do repositório, como V7.6.3. `out.json` do operador será excluído somente da consulta Git do processo de teste via configuração temporária, sem editar/deletar/commitar o arquivo. Nenhum arquivo será editado durante a suíte.

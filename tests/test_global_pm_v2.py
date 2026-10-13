@@ -525,21 +525,26 @@ class SyntheticChecks(Base):
             shown[case] = platform_api.public_global(root.name)
         script = r"""
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
-const data=JSON.parse(fs.readFileSync(process.argv[2],'utf8')),fields={},drawn=[];let handler;
+const data=JSON.parse(fs.readFileSync(process.argv[2],'utf8')),fields={},drawn=[];
 function element(id){return fields[id]??={id,hidden:false,disabled:false,textContent:'',innerHTML:'',addEventListener(){}}}
-const ctx=vm.createContext({document:{getElementById:element,querySelectorAll:()=>[]},window:{addEventListener:(k,f)=>{handler=f}},location:{search:''},URLSearchParams,fetch:()=>new Promise(()=>{}),
+async function show(prepared){
+const ctx=vm.createContext({document:{getElementById:element,querySelectorAll:()=>[]},window:{},location:{search:''},URLSearchParams,fetch:async()=>({ok:true,json:async()=>({cases:[],prepared})}),
  esc:v=>String(v??'N/D').replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';'),money:v=>'R$ '+v,pct:v=>String(v)+'%',colors:{},charts:new Map(),chart:(id)=>drawn.push(id),console});
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
-handler({detail:data.F});let html=element('ai-content').innerHTML;
+await new Promise(resolve=>setImmediate(resolve));
+}
+(async()=>{
+await show(data.F);let html=element('ai-content').innerHTML;
 assert.match(html,/REJECTED_BY_VALIDATOR/);assert.match(html,/Intenção registrada do LLM \(auditoria, não é recomendação validada\)/);assert.doesNotMatch(html,/<h2>Fixture inválida/);
 assert.match(html,/settlement_deferred_inconsistent/);assert.match(html,/não correspondem|difere/);
 assert.match(html,/Validação financeira V5 isolada/);assert.match(html,/Operações executáveis/);
 assert.ok(!drawn.includes('ai-target-chart'),'no allocation chart for a rejected response');
 assert.equal(element('ai-simulate').disabled,true);
-drawn.length=0;handler({detail:data.A});html=element('ai-content').innerHTML;
+drawn.length=0;await show(data.A);html=element('ai-content').innerHTML;
 assert.doesNotMatch(html,/REJECTED_BY_VALIDATOR/);assert.match(html,/Observações futuras/);
 assert.match(html,/Operações condicionadas à liquidação/);assert.ok(drawn.includes('ai-target-chart'));
 assert.equal(element('ai-simulate').disabled,false);console.log('PASS');
+})().catch(e=>{console.error(e);process.exitCode=1});
 """
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "data.json"

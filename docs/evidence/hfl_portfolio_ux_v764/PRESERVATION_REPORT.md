@@ -4,6 +4,6 @@
 
 V1/V2, fixtures seladas e evidências científicas também são conferidos pelos baselines históricos e verificador V7.5: `ok: true`, nenhuma ausência, divergência de métrica/documento ou violação. Protocolo V7.6: `errors: []`. Snapshot adicional `protected_pre_regression.json` cobre Global PM/carteira demonstrativa antes da suíte; não é apresentado como anterior à implementação.
 
-Não foram editados `src/`, runners, validadores, contratos, políticas, baselines, estados financeiros, claims, journals, autorizações ou reservas. Adaptador novo é somente leitura/apresentação; nenhum handler de escrita modificado. Nenhuma inferência, chamada Gemini, ordem, execução paper, H2 Final Test, retuning ou push.
+Não foram editados `src/`, runners, validadores, contratos, políticas, baselines, estados financeiros, claims, journals, autorizações ou reservas. Adaptador novo é somente leitura/apresentação; nenhum handler de escrita modificado. A primeira regressão detectou que portfolio_api.py era fixado por baseline; esse arquivo foi restaurado byte a byte e o roteamento novo foi movido para server.py, sem modificar baselines. Nenhuma inferência, chamada Gemini, ordem, execução paper, H2 Final Test, retuning ou push.
 
 O relatório final anexará JSONs de preservação, conferência suplementar, verificação V7.5 e validação V7.6 após suíte. Relatórios/capturas desta pasta não são evidências científicas retroativamente modificadas.

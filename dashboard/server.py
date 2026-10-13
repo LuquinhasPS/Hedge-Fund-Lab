@@ -38,6 +38,7 @@ import forward_jobs
 import global_pm_api
 import h2_api
 import market_api
+import monitoring_api
 import network_scope
 import platform_api
 import portfolio_api
@@ -471,6 +472,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             query = parse_qs(url.query, keep_blank_values=True)
             if any(len(v) != 1 for v in query.values()):
                 raise ValueError("invalid_query")
+            if url.path == "/api/portfolio/monitoring":
+                return self._send_json(
+                    monitoring_api.get({k: v[0] for k, v in query.items()})
+                )
             return self._send_json(
                 portfolio_api.get(
                     url.path.removeprefix("/api/portfolio/"),

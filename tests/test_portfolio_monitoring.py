@@ -9,7 +9,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "dashboard"), str(ROOT / "scripts")]
 import monitoring_api as api  # noqa: E402
-import portfolio_api  # noqa: E402
 
 V1 = "v7-5a78ea5d15214e37bcae18f167ffcee3"
 V2 = "v74-76d07c0d32444cecaf07e875deacb519"
@@ -92,7 +91,7 @@ def ledger(tmp_path, monkeypatch):
 def test_persisted_refresh_pending_execution_gaps_and_absence(ledger):
     state, path = ledger
     before = path.read_bytes()
-    d = portfolio_api.get("monitoring", {"wallet": "h2:ai"})
+    d = api.get({"wallet": "h2:ai"})
     assert path.read_bytes() == before
     assert d["positions"] == d["trades"] == [] and d["operation_status"] == "PENDENTE"
     assert d["summary"]["cash"] == 100000 and d["summary"]["receivable"] is None
