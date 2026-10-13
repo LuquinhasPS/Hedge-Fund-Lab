@@ -66,14 +66,13 @@ try {
     await shot('simulator-v5-v6');
     await page.go(base+'/portfolio#carteira-contabil');
     await check('deep_links:legacy_demo_alias',`!document.querySelector('#simulador').hidden && document.querySelector('.hfl-secondary [aria-current]').textContent==='Simulador demonstrativo'`);
-    await page.go(base+'/portfolio#wallets');
+    await page.go(base+'/paper?wallet=h2%3Aai#acompanhamento');
     await select('h2:ai');
     await check('monitoring:selector_keeps_research_separate',`document.querySelector('#monitor-identity').textContent.includes('H2_PAPER_LEDGER') && document.querySelector('#monitor-status').textContent.includes('PENDENTE')`);
     await check('monitoring:no_implied_fill',`document.querySelectorAll('#monitor-positions tbody tr').length===0 && document.querySelector('#monitor-trades').textContent.includes('Nenhuma compra ou venda')`);
     await check('monitoring:missing_not_zero',`document.querySelector('#monitor-secondary').textContent.includes('Indisponível') && document.querySelector('#monitor-status').textContent.includes('2026-10-09')`);
     await select('h2:h2_v6_supervised');
     await check('monitoring:supervision_status_visible',`/AGUARDANDO_APROVACAO|EXPIRADA/.test(document.querySelector('#monitor-status').textContent) && document.querySelector('#monitor-last').textContent.includes('13/10/2026')`);
-    await page.click('a[href="#evidencias"]');
     await check('monitoring:timeline_evidence',`document.querySelector('#monitor-timeline').textContent.includes('Fechamento reconciliado') && document.querySelector('#monitor-timeline a').href.includes('/api/forward/')`);
     await shot('h2-operation-history');
     await page.click('#monitor-refresh');await wait(`document.querySelector('#monitoring').getAttribute('aria-busy')==='false' && !document.querySelector('#monitor-content').hidden`);
