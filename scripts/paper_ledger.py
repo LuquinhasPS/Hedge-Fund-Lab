@@ -578,6 +578,8 @@ class Store:
 
     @staticmethod
     def _load(conn, portfolio_id):
+        # ponytail: full replay is O(n) per read/command; verified checkpoints
+        # plus immutable segments are the upgrade for long ledgers.
         if (
             conn.execute("PRAGMA user_version").fetchone()[0] != VERSION
             or conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok"

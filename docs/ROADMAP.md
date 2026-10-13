@@ -550,7 +550,7 @@ privados nas páginas de evidência. Critérios de aceite por marco:
 
 ### 10.2 `HFL-PAPER-001` — Persistent Paper Portfolio Monitoring
 
-**Fundação de consulta V7.6.4; ledger persistente multiativos em qualificação offline V7.6.5. Execução oficial e monitoramento automático completo pendentes.**
+**Fundação de consulta V7.6.4; ledger persistente multiativos `LEDGER_QUALIFIED_OFFLINE` V7.6.5. Execução oficial e monitoramento automático completo pendentes.**
 [Arquitetura, auditoria de fontes e evidências](evidence/hfl_portfolio_ux_v764/README.md).
 [Ledger V7.6.5, qualificação sintética e auditoria H2](evidence/hfl_paper_ledger_v765/README.md).
 
@@ -562,6 +562,7 @@ privados nas páginas de evidência. Critérios de aceite por marco:
 - [x] Envelope versionado independente, SQLite transacional temporário, eventos/hash/replay/idempotência, D+2 com cobertura verificada, marcação/reconciliação e histórico por sessão — V7.6.5, somente fixtures sintéticas; reutiliza motor V5 sem alterar contratos selados.
 - [x] GET paginado/filtrado e opt-in de demonstração em /portfolio; caixa puro compacto; H2 em /paper com migração de deep links; referências V1/V2 somente consultivas.
 - [x] Auditoria somente leitura da pendência H2 de 13/10: original aguarda dados/reconciliação segundo seu contrato; supervisionada expirada sem aprovação; zero execuções.
+- [x] Qualificação V7.6.5: 49 testes direcionados/68 subchecks; Chrome 30/30; regressão 1801 passed, mesmas 14 falhas preexistentes, 129 subchecks; preservação violations=[] (11250 arquivos protegidos idênticos).
 - [ ] Mecanismo prospectivo multiativos **oficial**, autorização financeira humana autenticada e execução causal — `OFFICIAL_PAPER_DISABLED`; o status histórico `PAPER_LEDGER_NOT_IMPLEMENTED` do protocolo V7.6 permanece preservado em seu documento original. V7.6.5 implementa somente a qualificação isolada.
 - [ ] Atualização automática diária/ingestão e reconciliação, com fonte/licença/cache/integridade revisados.
 - [ ] Campos H2 não publicados (reservas, recebíveis, D+2, custo médio, PnL separado), sem importar política V5.
