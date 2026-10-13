@@ -73,4 +73,28 @@ auditoria da V7.5 foi feita pelo mesmo agente que a produziu.
 
 ## Verificação final
 
-Preenchida após os commits, com a árvore limpa.
+Executada depois dos commits `718203e` e `8f5a4dd`, com a árvore limpa.
+
+| Verificação | Resultado |
+|---|---|
+| `check_preservation.py --since preservation_before.json` ([preservation_since.json](preservation_since.json)) | `changes: []`, `violations: []` |
+| Baselines históricos | `violations: []`; só as duas mudanças OPERATIONAL legadas (`job.json`, `last_prepare.json` do Radar original) |
+| `verify_consolidation_v75.py` | `ok: true`: as 64 fontes da V7.5, inclusive os registros V1/V2 e os 5 pareceres, mantêm o SHA-256 |
+| `experiment_protocol_v76.py validate` | `errors: []`; contratos V2 e Radar iguais aos selados |
+| Registros criados em `data/` | nenhum (nenhum `v76-*`) |
+| Testes novos | 32 aprovados; 5/5 mutações detectadas |
+| Lint | `ruff check` e `ruff format` limpos nos dois arquivos novos |
+
+**Regressão** (`pytest -q`, [regression.txt](regression.txt)): **1738 aprovados,
+15 falhas**. A suíte **não** está verde. 1738 = 1706 da V7.5 + 32 testes da
+V7.6. As 15 falhas são as mesmas da V7.5 (comparação nome a nome) e estão
+classificadas em [TEST_FAILURE_TRIAGE.md](TEST_FAILURE_TRIAGE.md). Nenhuma
+envolve código da V7.6, e nenhum teste antigo foi alterado.
+
+## Restrições respeitadas
+
+Sem chamadas ao Gemini nem HTTP ao provedor; nenhuma credencial testada; sem
+inferência, Radar pago ou Final Test H2; nenhuma alteração em H2 v6, Radar
+original, recovery-01, Global PM V1/V2, contextos, claims, journals,
+autorizações, reservas, baselines ou evidências V7.5; nenhuma ordem; nenhum
+serviço iniciado; sem push.

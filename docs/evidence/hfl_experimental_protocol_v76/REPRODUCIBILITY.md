@@ -59,7 +59,16 @@ Testes de pipeline sem PostgreSQL: [TEST_FAILURE_TRIAGE.md](TEST_FAILURE_TRIAGE.
 | `plan` | contagem de chamadas, reservas, tetos e bloqueios; IDs determinísticos e únicos | custo efetivo |
 | `readiness` | portões e bloqueios; estado máximo `QUALIFIED_OFFLINE` | autorização de execução |
 
-## 4. Determinismo
+## 4. Hashes e fins de linha
+
+Os hashes de documentos (`EXPERIMENT_MANIFEST.json → documents`) são calculados
+sobre os bytes com fim de linha LF, como estão no Git. Numa cópia com
+`core.autocrlf=true`, o checkout converte para CRLF e o `validate` acusa
+`protocol_documents_changed_rebuild_required`. Use
+`git -c core.autocrlf=false clone …`, ou confira os blobs do Git. O mesmo
+vale para o pacote V7.5.
+
+## 5. Determinismo
 
 Os contextos de qualificação são congelados num instante fixo
 (`QUAL_AT = 2026-10-12T21:00:00+00:00`), então `qualification_sha256` se
