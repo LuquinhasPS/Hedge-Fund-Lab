@@ -16,6 +16,15 @@ export async function run(base, out, shotsDir) {
   const shot = async (page, name, full = true) => shotsDir && page.shot(path.join(shotsDir, name + ".png"), full);
 
   const report = await session(async (page) => {
+    // Refuse writes/provider traffic before transport, including forced V1 clicks.
+    page.listeners.push(msg => {
+      if (msg.method !== 'Fetch.requestPaused') return;
+      const {requestId, request} = msg.params;
+      const safe = request.method === 'GET' && new URL(request.url).origin === base;
+      page.send(safe ? 'Fetch.continueRequest' : 'Fetch.failRequest', safe ? {requestId} : {requestId, errorReason:'BlockedByClient'});
+    });
+    // Static data.json is a large local GET; API paths and providers remain intercepted.
+    await page.send('Fetch.enable', {patterns:[{urlPattern:base+'/api/*',requestStage:'Request'}, {urlPattern:'*googleapis*',requestStage:'Request'}, {urlPattern:'*generativelanguage*',requestStage:'Request'}]});
     const shell = () => page.eval(`(() => {
       const s = document.querySelector('.hfl-shell');
       return {

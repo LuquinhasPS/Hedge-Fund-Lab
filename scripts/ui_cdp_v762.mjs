@@ -153,8 +153,13 @@ export async function session(fn) {
   } finally {
     page.ws.close();
     chrome.proc.kill();
-    await sleep(300);
-    fs.rmSync(chrome.profile, { recursive: true, force: true });
+    if (chrome.proc.exitCode === null)
+      await Promise.race([new Promise(r=>chrome.proc.once('exit',r)), sleep(5000)]);
+    // Chrome releases profile handles asynchronously on Windows; retry native cleanup.
+    const profile=path.resolve(chrome.profile);
+    if (path.dirname(profile)!==path.resolve(os.tmpdir()) || !path.basename(profile).startsWith('hfl-cdp-'))
+      throw new Error('unexpected_chrome_profile_path');
+    fs.rmSync(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
   }
 }
 
