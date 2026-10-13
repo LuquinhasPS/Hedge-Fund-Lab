@@ -146,12 +146,20 @@ def routes():
         for p in re.findall(r'"([^"]+)"', paths):
             found[p] = page
     tree = ast.parse(source)
-    shell = next(
-        ast.literal_eval(n.value)
+    assigned = {
+        t.id: ast.literal_eval(n.value)
         for n in tree.body
         if isinstance(n, ast.Assign)
-        and any(getattr(t, "id", "") == "SHELL_LINKS" for t in n.targets)
-    )
+        for t in n.targets
+        if getattr(t, "id", "") in ("SHELL_LINKS", "AREAS")
+    }
+    if "AREAS" in assigned:  # V7.6.2: (id, label, href, environment, sections)
+        shell = {
+            area: [(href, label), *sections]
+            for area, label, href, _, sections in assigned["AREAS"]
+        }
+    else:  # V7.6.1 and earlier
+        shell = assigned["SHELL_LINKS"]
     return found, shell
 
 

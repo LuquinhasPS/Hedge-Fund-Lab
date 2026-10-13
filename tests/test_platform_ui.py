@@ -17,6 +17,8 @@ const document={getElementById:element,querySelectorAll:()=>Object.values(fields
 function fetch(url,options){return new Promise(resolve=>{const req={url,options,reply:(data,ok=true)=>resolve({ok,json:async()=>data})};pending.push(req);if(options?.method==='POST')posts.push(req)})}
 function take(part){const i=pending.findIndex(r=>r.url.includes(part));assert.ok(i>=0,'missing '+part);return pending.splice(i,1)[0]}
 const tick=()=>new Promise(r=>setImmediate(r));
+// A script that stalls on a never-resolved request must fail, not exit silently.
+let done=false;process.on('exit',()=>{if(!done)process.exitCode=1});
 const ctx=vm.createContext({document,fetch,URLSearchParams,location:{search:''},history:{replaceState(){}},window:{dispatchEvent(){}},CustomEvent:class{},crypto:{randomUUID:()=> 'a'.repeat(32)},setTimeout,clearTimeout,console});
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
 const fire=(id,event)=>element(id).listeners[event]();
@@ -33,27 +35,27 @@ const preflight={ready:true,state:'READY',paid:false,confirmation_token:'token',
  take('/api/platform/global?id=').reply(detail);await loading;
  assert.equal(element('workflow-mode').value,'SYNTHETIC_DEMO');
  assert.equal(element('workflow-session').value,'2026-10-09');
- // An older preflight must not enable a changed budget's confirmation.
- let slow=fire('workflow-preflight','click'),old=take('global-preflight');
- element('workflow-budget').value='0.30';fire('workflow-budget','input');old.reply(preflight);await slow;
- assert.equal(element('workflow-run').disabled,true);
- let ready=fire('workflow-preflight','click');take('global-preflight').reply(preflight);await ready;
- assert.equal(element('workflow-run').disabled,false);fire('workflow-run','click');
- assert.equal(element('workflow-confirm').open,true);assert.equal(element('workflow-authorize').disabled,true);
- element('workflow-budget').value='0.40';fire('workflow-budget','input');
- assert.equal(element('workflow-confirm').open,false);assert.equal(element('workflow-run').disabled,true);
- // A selection switch wins over a delayed record lookup.
- element('workflow-record').value=detail.id;loading=fire('workflow-record','change');old=take('/global?id=');
+ // V7.6.2 (HFL-UX-001): HFL-MULTIASSET-GLOBAL-PM-V1 is closed for new inferences in the
+ // panel. Before V7.6.2 this test drove preflight -> run -> confirmation -> prepare; those
+ // triggers must now do nothing and send nothing, while consultation and offline recovery stay.
+ fire('workflow-preflight','click');await tick();
+ assert.equal(pending.filter(r=>r.url.includes('global-preflight')).length,0);
+ assert.equal(element('workflow-preflight').disabled,true);assert.equal(element('workflow-run').disabled,true);
+ fire('workflow-run','click');assert.notEqual(element('workflow-confirm').open,true);
+ element('workflow-paid').checked=true;fire('workflow-authorize','click');
+ element('workflow-hypothetical').checked=element('workflow-fixture').checked=true;
+ fire('workflow-prepare','click');fire('workflow-prepare','click');await tick();
+ assert.equal(pending.filter(r=>r.url.includes('/selection')).length,0);
+ assert.equal(posts.length,0);
+ // A selection switch still wins over a delayed record lookup.
+ element('workflow-record').value=detail.id;loading=fire('workflow-record','change');let old=take('/global?id=');
  element('workflow-mode').value='CONSULTATIVE_SANDBOX';fire('workflow-mode','change');old.reply(detail);await loading;
  assert.equal(element('workflow-preflight').disabled,true);assert.equal(element('workflow-mode').value,'CONSULTATIVE_SANDBOX');
- // Repeated clicks during eligibility checking issue only one prepare command.
- element('workflow-hypothetical').checked=element('workflow-fixture').checked=true;
- let first=fire('workflow-prepare','click');await fire('workflow-prepare','click');
- assert.equal(pending.filter(r=>r.url.includes('/selection')).length,1);
- take('/selection').reply(selection);await tick();
- assert.equal(posts.length,1);assert.equal(posts[0].options.method,'POST');
- take('global-prepare').reply({error:'qualification_stop'},false);await first;
- assert.equal(posts.length,1);console.log('workflow races, consent invalidation and duplicate-click check: PASS');
+ // Offline recovery of an existing record remains available and is the only POST.
+ element('workflow-record').value=detail.id;loading=fire('workflow-record','change');take('/global?id=').reply(detail);await loading;
+ assert.equal(element('workflow-replay').disabled,false);fire('workflow-replay','click');await tick();
+ assert.equal(posts.length,1);assert.ok(posts[0].url.endsWith('/api/platform/global-replay'));
+ done=true;console.log('closed V1 triggers, selection race and offline recovery check: PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});
 """
     result = subprocess.run(
