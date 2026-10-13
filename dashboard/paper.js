@@ -50,7 +50,7 @@ function error(e) {
 }
 
 /* ── Navegação ─────────────────────────────────────────────── */
-const VIEWS = ["visao","sala","mercado","carteiras","agentes"], LEGACY = {room:"sala",wallets:"carteiras",supervisao:"sala"};
+const VIEWS = ["acompanhamento","visao","sala","mercado","carteiras","agentes"], LEGACY = {room:"sala",wallets:"carteiras",supervisao:"sala"};
 function route() {
   const hash = (typeof location === "undefined" ? "" : location.hash).slice(1);
   const view = VIEWS.includes(hash) ? hash : LEGACY[hash] || "visao";

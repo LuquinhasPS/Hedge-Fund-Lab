@@ -82,12 +82,14 @@ AREAS = (
     (
         "carteira",
         "Carteira multiativos",
-        "/portfolio#global-workflow",
+        "/portfolio#visao-geral",
         "HIPOTÉTICA · CONSULTIVA · SEM EXECUÇÃO",
         (
+            ("/portfolio#visao-geral", "Visão geral"),
+            ("/portfolio#posicoes", "Posições e acompanhamento"),
             ("/portfolio#global-workflow", "Gestor Global: registros"),
-            ("/portfolio#ai-proposal", "Propostas e simulações"),
-            ("/portfolio#carteira-contabil", "Carteira contábil (demonstração)"),
+            ("/portfolio#evidencias", "Histórico e evidências"),
+            ("/portfolio#simulador", "Simulador demonstrativo"),
         ),
     ),
     (
@@ -96,6 +98,7 @@ AREAS = (
         "/paper#sala",
         "PAPER PROSPECTIVO · CARTEIRAS VIRTUAIS",
         (
+            ("/paper#acompanhamento", "Acompanhamento paper"),
             ("/paper#visao", "Resumo das carteiras"),
             ("/paper#sala", "Decisão do dia"),
             ("/paper#carteiras", "Carteiras prospectivas"),
@@ -287,6 +290,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/portfolio.html",
             "/portfolio.css",
             "/portfolio.js",
+            "/monitoring.js",
+            "/monitoring.css",
             "/global-pm.js",
             "/global-pm.css",
             "/shell.css",

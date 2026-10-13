@@ -3,6 +3,116 @@
 // data-help="<id>" in the pages; definitions must not be repeated elsewhere.
 // Source: docs/evidence/hfl_methodology_ux_review_v761/CONTEXTUAL_HELP_GLOSSARY.md.
 window.HFL_GLOSSARY = Object.freeze({
+  custos: {
+    term: 'Custos acumulados',
+    short: 'Soma dos custos registrados nas operações desta carteira.',
+    long: 'Vem do ledger e da política de execução. Custos financeiros são diferentes do custo da API Gemini, informado em USD no histórico do gestor.',
+    caution: 'Custo de API não deve ser descontado do patrimônio sem contrato financeiro específico.',
+    ref: 'dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+  turnover: {
+    term: 'Giro da carteira',
+    short: 'Volume negociado em relação ao patrimônio, no período de referência.',
+    long: 'Calculado pelo motor financeiro conforme seu contrato. Custos acumulados são valores cobrados nas operações; não são o giro.',
+    caution: 'Sem cálculo publicado na fonte, o giro permanece indisponível.',
+    ref: 'scripts/multiasset_manager.py; scripts/multiasset_portfolio.py',
+  },
+  'validacao-financeira': {
+    term: 'Validação financeira',
+    short: 'Conferência determinística do plano pelo motor financeiro.',
+    long: 'Verifica caixa, quantidades, custos e risco segundo o contrato. Uma projeção aprovada não altera o ledger.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'proposta-consultiva': {
+    term: 'Proposta consultiva',
+    short: 'Intenção do gestor para a alocação da carteira.',
+    long: 'Pode ser validada sem autorização financeira ou execução. A watchlist contém observações, não posições.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'historico-reconciliado': {
+    term: 'Histórico reconciliado',
+    short: 'Sessões cujo estado financeiro foi conferido pelo runner.',
+    long: 'A tela só lê as sessões existentes. Pregões ausentes não são interpolados nem reconstruídos.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'execucao-paper': {
+    term: 'Execução paper',
+    short: 'Operação virtual registrada pelo simulador com preço e quantidade.',
+    long: 'Exige um evento persistido rastreável. Recomendação, validação e aprovação não são execução.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'liquidacao': {
+    term: 'Liquidação',
+    short: 'Conclusão financeira de uma negociação.',
+    long: 'No motor multiativos, vendas geram recebíveis D+2. O ledger H2 não publica essa decomposição; não transferir regras entre fontes.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'pnl-nao-realizado': {
+    term: 'Resultado não realizado',
+    short: 'Diferença entre valor marcado e custo contábil da posição ainda mantida.',
+    long: 'Pode variar até a venda. Não é dinheiro recebido; o backend calcula quando há base contábil disponível.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'pnl-realizado': {
+    term: 'Resultado realizado',
+    short: 'Ganho ou perda contabilizado ao encerrar parte de uma posição.',
+    long: 'Consulte a política de custos da fonte. Ausência de decomposição não significa resultado zero.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'peso-atual': {
+    term: 'Peso atual',
+    short: 'Participação registrada de um ativo no patrimônio.',
+    long: 'Deriva da posição observada, nunca do peso-alvo. Em snapshots hipotéticos descreve apenas aquele snapshot.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'marcacao-mercado': {
+    term: 'Marcação a mercado',
+    short: 'Avaliação das posições pelo preço de uma sessão identificada.',
+    long: 'Não confirma compra nem substitui preço de execução. H2 usa preços ajustados; o snapshot Global PM conserva sua origem legada de marcas.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'custo-medio': {
+    term: 'Custo médio',
+    short: 'Custo contábil por unidade da posição.',
+    long: 'Vem do motor financeiro, incluindo a política de custos daquela carteira. Ausente no ledger H2 publicado.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'capital-alocado': {
+    term: 'Capital alocado',
+    short: 'Valor aplicado em posições, separado do capital inicial.',
+    long: 'Capital inicial é o aporte de partida. Valor investido muda com as posições e suas marcas.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
+  'patrimonio': {
+    term: 'Patrimônio',
+    short: 'Valor da carteira na última marcação disponível.',
+    long: 'Inclui caixa, posições marcadas e recebíveis, quando a fonte os contabiliza. Consultar a tela não atualiza preços.',
+    caution: 'Verifique sempre a identidade, origem e sessão da carteira.',
+    ref: 'dashboard/monitoring_api.py; dashboard/forward_api.py; scripts/multiasset_portfolio.py',
+  },
+
   sma50: {
     term: 'SMA50',
     short: 'Média simples dos fechamentos de 50 sessões.',

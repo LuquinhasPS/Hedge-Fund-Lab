@@ -6,7 +6,7 @@
   <title>Operação diária PETR4 · Hedge-Fund-Lab</title>
   <link rel="stylesheet" href="/paper.css?v=7" />
   <script src="/vendor/chart.umd.js" defer></script>
-  <script src="/paper.js?v=7" defer></script>
+  <script src="/paper.js?v=7" defer></script><script src="/monitoring.js?v=764" defer></script><link rel="stylesheet" href="/monitoring.css?v=764">
 <link rel="stylesheet" href="/shell.css?v=7"><script src="/shell.js?v=7" defer></script>
 </head>
 <body class="hfl-platform">
@@ -15,6 +15,14 @@
   <main id="main">
     <div id="error" role="alert" hidden></div>
 
+    <section id="acompanhamento" data-view aria-labelledby="monitor-title"><h1 id="monitor-title">Acompanhamento paper H2</h1><p>Cinco carteiras independentes. Consultar registros não autoriza nem executa operações.</p><section id="monitoring" aria-label="Consulta de carteira" aria-live="polite">
+<div class="monitor-toolbar"><label>Carteira acompanhada <select id="monitor-wallet" aria-label="Carteira acompanhada"></select></label><button id="monitor-refresh" data-action="read">Atualizar visualização</button></div>
+<div id="monitor-error" class="ds-alert" role="alert" hidden></div><div id="monitor-identity"></div>
+<div id="monitor-content" hidden>
+<section class="monitor-section"><div id="monitor-summary" class="monitor-grid"></div><details><summary>Resultados, reservas e risco</summary><div id="monitor-secondary" class="monitor-grid"></div></details><div id="monitor-status" class="ds-card"></div><h2>Última decisão</h2><div id="monitor-last"></div><h2>Alocação atual <button class="ds-help" data-help="peso-atual"></button></h2><div class="monitor-composition"><canvas id="monitor-composition" role="img" aria-label="Composição registrada; valores na tabela a seguir"></canvas></div><div id="monitor-allocation"></div></section>
+<section class="monitor-section"><h2>Posições e acompanhamento</h2><div id="monitor-positions"></div><h3>Evolução do patrimônio <button class="ds-help" data-help="historico-reconciliado"></button></h3><p id="monitor-curve-note"></p><canvas id="monitor-curve" role="img" aria-label="Patrimônio nas sessões reconciliadas; valores na tabela abaixo" hidden></canvas><div id="monitor-curve-table"></div><h3>Eventos futuros documentados</h3><div id="monitor-future"></div></section>
+<section class="monitor-section"><h2>Histórico de operações <button class="ds-help" data-help="execucao-paper"></button></h2><div id="monitor-trades"></div><h3>Linha do tempo</h3><div id="monitor-timeline"></div><div id="monitor-evidence"></div></section>
+</div></section></section>
     <section id="visao" data-view aria-labelledby="visao-title">
       <div class="section-head"><div><p class="eyebrow">MESMO CAPITAL INICIAL · SIMULAÇÕES ALTERNATIVAS</p><h1 id="visao-title">Resumo das carteiras</h1></div></div>
       <p class="lead">Cinco carteiras virtuais acompanham os mesmos preços observados de PETR4: a H2 v6 original, a H2 v6 supervisionada e três referências. São alternativas paralelas: os patrimônios não se somam.</p>

@@ -13,7 +13,7 @@
   //: Pages that understand ?run=<radar run id>; the parameter is carried between them.
   const RUN_PAGES = new Set(['/market', '/radar', '/portfolio']);
   //: Hashes a page resolves to another view (mirrors paper.js VIEWS/LEGACY; '' = default view).
-  const HASH_ALIASES = { '/paper': { '': '#visao', '#supervisao': '#sala', '#room': '#sala', '#wallets': '#carteiras' } };
+  const HASH_ALIASES = { '/portfolio': { '': '#visao-geral', '#ai-proposal': '#simulador', '#carteira-contabil': '#simulador' }, '/paper': { '': '#visao', '#supervisao': '#sala', '#room': '#sala', '#wallets': '#carteiras' } };
 
   function setMenu(open) {
     menu.setAttribute('aria-expanded', String(open));
