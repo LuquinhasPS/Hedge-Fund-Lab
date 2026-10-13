@@ -29,6 +29,7 @@ CLASSIFICATIONS = (
 EVENTS = {
     "PORTFOLIO_CREATED": "INITIALIZED",
     "PROPOSAL_LINKED": "PROPOSED",
+    "PROPOSAL_REFERENCED": None,
     "VALIDATION_RECORDED": None,
     "AUTHORIZATION_RECORDED": "APPROVED",
     "PAPER_ORDER_CREATED": "RESERVED",
@@ -214,6 +215,7 @@ def reduce(state, event):
             or meta["scientific_identity"] is not None
             or meta["authorization_ids"] != []
             or not meta["provenance"]
+            or b.instant(meta["created_at"]) != b.instant(at)
         ):
             raise ValueError("synthetic_identity_and_policy_required")
         if (
@@ -247,6 +249,7 @@ def reduce(state, event):
             "unavailable_sessions": [],
             "validations": {},
             "authorizations": {},
+            "advisory_references": {},
             "execution_ids": {},
             "settlement_ids": {},
             "history": [],
@@ -298,6 +301,25 @@ def reduce(state, event):
                     financial, "MARKED", {"marks": engine_marks(quote)}
                 )
                 state["quote"] = quote
+        elif kind == "PROPOSAL_REFERENCED":
+            reference = b.check_seal(p["reference"])
+            rid = b.key(reference["record_id"])
+            if (
+                reference["classification"] != "CONSULTATIVE_SNAPSHOT"
+                or reference["status"] not in ("REJECTED_BY_VALIDATOR", "VALID_PROPOSAL")
+                or reference["execution_enabled"] is not False
+                or rid in state["advisory_references"]
+            ):
+                raise ValueError("advisory_reference_only")
+            for field in ("context_sha256", "result_sha256", "validation_sha256"):
+                value = reference[field]
+                if (
+                    not isinstance(value, str)
+                    or len(value) != 64
+                    or any(c not in "0123456789abcdef" for c in value)
+                ):
+                    raise ValueError("invalid_advisory_reference_hash")
+            state["advisory_references"][rid] = reference
         elif kind == "PROPOSAL_LINKED":
             record = b.check_seal(p["record"])
             if day != financial["marks"]["session"]:

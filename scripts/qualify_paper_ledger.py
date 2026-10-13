@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import paper_ledger as ledger  # noqa: E402
+
 from src.experiments.h2_evaluation_offline import no_network  # noqa: E402
 
 b, manager = ledger.b, ledger.manager
