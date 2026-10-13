@@ -24,6 +24,9 @@
 @media(max-width:640px){.monitor-grid{grid-template-columns:minmax(0,1fr)}#portfolio-views a{flex:1 1 45%}.monitor-toolbar button{width:100%}.monitor-dates{display:block}}
 
 .monitor-composition{max-width:360px; margin-block:var(--sp-4)}
+.monitor-demo{display:flex;align-items:center;gap:var(--sp-3);min-height:44px}
+.monitor-demo input{width:20px;height:20px;flex:none}
+#monitor-pagination{display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-3);margin-block:var(--sp-4)}
 
 /* The page tabs replace the shell's duplicate section links on Portfolio. */
 .portfolio-page .hfl-shell .hfl-secondary{display:none}

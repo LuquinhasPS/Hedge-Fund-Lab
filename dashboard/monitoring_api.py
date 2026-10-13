@@ -85,7 +85,7 @@ def global_snapshot(record_id):
         "available": True,
         "persistent_execution": False,
         "source": evidence,
-        "limitation": "Fotografia hipotética persistida usada pelo gestor. Ainda não existe carteira multiativos com operações paper persistidas. "
+        "limitation": "Fotografia hipotética persistida usada pelo gestor. Este snapshot não registra operações paper. O novo ledger está qualificado somente com dados sintéticos isolados. "
         "Novas sessões não são atualizadas automaticamente; execução financeira indisponível.",
         "summary": {
             "initial_capital": p["initial_capital"],
