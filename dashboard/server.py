@@ -40,6 +40,7 @@ import h2_api
 import market_api
 import monitoring_api
 import network_scope
+import paper_ledger_api
 import platform_api
 import portfolio_api
 import radar_api
@@ -475,6 +476,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if url.path == "/api/portfolio/monitoring":
                 return self._send_json(
                     monitoring_api.get({k: v[0] for k, v in query.items()})
+                )
+            if url.path == "/api/portfolio/ledger":
+                return self._send_json(
+                    paper_ledger_api.get({k: v[0] for k, v in query.items()})
                 )
             return self._send_json(
                 portfolio_api.get(
