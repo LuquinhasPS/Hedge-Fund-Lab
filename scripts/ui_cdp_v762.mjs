@@ -8,7 +8,6 @@ import path from "node:path";
 const CHROME =
   process.env.CHROME ||
   ["C:/Program Files/Google/Chrome/Application/chrome.exe", "/usr/bin/google-chrome", "/usr/bin/chromium"].find((p) => fs.existsSync(p));
-const PORT = 9333;
 const RUN = "radar-2026-10-09-recovery-01";
 export const PAGES = [
   ["home", "/"],
@@ -35,13 +34,14 @@ async function launch() {
     "--no-first-run",
     "--no-default-browser-check",
     "--hide-scrollbars",
-    `--remote-debugging-port=${PORT}`,
+    '--remote-debugging-port=0',
     `--user-data-dir=${profile}`,
     "about:blank",
   ]);
   for (let i = 0; i < 100; i++) {
     try {
-      const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
+      const port=fs.readFileSync(path.join(profile,'DevToolsActivePort'),'utf8').split('\n')[0];
+      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       const page = list.find((t) => t.type === "page");
       if (page) return { proc, profile, url: page.webSocketDebuggerUrl };
     } catch {}

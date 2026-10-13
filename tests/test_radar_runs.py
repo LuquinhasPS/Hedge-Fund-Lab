@@ -949,12 +949,14 @@ def test_radar_page_run_switch_cancels_pending_and_never_mixes_runs():
     script = r"""
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const fields={},pending=[];
-function element(id){return fields[id]??={id,value:'',checked:false,disabled:false,hidden:false,textContent:'',innerHTML:'',dataset:{},max:'',tabIndex:0,listeners:{},classList:{toggle(){}},addEventListener(k,f){this.listeners[k]=f},querySelectorAll(){return []},closest(){return element(id+'-label')},scrollIntoView(){},focus(){}}}
+function element(id){return fields[id]??={id,value:'',checked:false,disabled:false,hidden:false,textContent:'',innerHTML:'',dataset:{},max:'',tabIndex:0,listeners:{},classList:{toggle(){}},addEventListener(k,f){this.listeners[k]=f},querySelectorAll(){return []},closest(){return element(id+'-label')},scrollIntoView(){},focus(){},replaceChildren(){this.innerHTML=''}}}
 const document={getElementById:element};
 function fetch(url,options={}){return new Promise((resolve,reject)=>{const req={url,options,reply:(data,ok=true)=>resolve({ok,json:async()=>data})};options.signal?.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'})));pending.push(req)})}
 function take(part){const i=pending.findIndex(r=>r.url.includes(part));assert.ok(i>=0,'missing '+part+' in '+pending.map(r=>r.url));return pending.splice(i,1)[0]}
 const tick=()=>new Promise(r=>setImmediate(r));
 const ctx=vm.createContext({document,fetch,URLSearchParams,AbortController,location:{search:''},history:{replaceState(){}},setTimeout,clearTimeout,setInterval,clearInterval,console});
+ctx.window=ctx;ctx.dispatchEvent=()=>{};ctx.PopStateEvent=class {};
+vm.runInContext(fs.readFileSync(require('node:path').join(require('node:path').dirname(process.argv[1]),'market-ui.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
 const run=(id,mode='CONSULTATIVE_SANDBOX')=>({id,mode,session:'2026-10-09',universe:['PETR4'],state:'INPUTS_READY',reasons:[],opinions:0,incident:null,selected:id==='radar-b',source:'B3',classification:'OFFICIAL',same_treatment_as:null,prepared_at:null,inputs:1,claims:0,failures:0,calls_reserved:0,responses_recorded:0,budget_usd:3.32,usd_reserved:0,usd_reserved_uncertain:0,usd_observed_provider_tokens:0,budget:null,comparison:null});
 const view=id=>({run:run(id),items:[{ticker:'PETR4',session:'2026-10-09',mode:'live',status:'PREPARED',adjusted_close:1,generated_at:null}],universe:['PETR4'],examples:[],last_closed_session:'2026-10-09',job:null,csrf_token:'c',network_isolation:true,mutation_available:id==='radar-b',runner:'radar-b',last_prepare:null});
@@ -997,6 +999,8 @@ const fields={},pending=[];
 function element(id){return fields[id]??={id,value:'',disabled:false,hidden:true,textContent:'',innerHTML:'',dataset:{},listeners:{},classList:{toggle(){}},addEventListener(k,f){this.listeners[k]=f},querySelectorAll(){return [element(id+'-input')]},closest(){return element(id+'-label')}}}
 function fetch(url,options={}){return new Promise(resolve=>pending.push({url,reply:(data,ok)=>resolve({ok,json:async()=>data})}))}
 const ctx=vm.createContext({document:{getElementById:element},fetch,URLSearchParams,AbortController,location:{search:''},history:{replaceState(){}},setTimeout,clearTimeout,setInterval,clearInterval,console});
+ctx.window=ctx;ctx.dispatchEvent=()=>{};ctx.PopStateEvent=class {};
+vm.runInContext(fs.readFileSync(require('node:path').join(require('node:path').dirname(process.argv[1]),'market-ui.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
 (async()=>{
  pending.shift().reply({error:'registry_corrupted'},false);await new Promise(r=>setTimeout(r,20));

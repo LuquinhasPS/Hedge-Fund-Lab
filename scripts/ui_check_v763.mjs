@@ -8,7 +8,7 @@ import {session, VIEWPORTS} from './ui_cdp_v762.mjs';
 
 const [base, out, shots] = process.argv.slice(2);
 const RUN='radar-2026-10-09-recovery-01';
-const results=[], blocked=[], mocked=[], exceptions=[];
+const results=[], blocked=[], mocked=[], exceptions=[], transfers=[];
 let fixture=null;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const report=()=>fs.writeFileSync(out,JSON.stringify({passed:results.filter(r=>r.ok).length,failed:results.filter(r=>!r.ok).length,results,blocked,mocked,exceptions},null,2)+'\n');
@@ -16,8 +16,17 @@ fs.mkdirSync(path.dirname(out),{recursive:true}); if(shots)fs.mkdirSync(shots,{r
 try {
   await session(async page=>{
     page.listeners.push(msg=>{
+      if(['Network.loadingFailed','Network.loadingFinished','Network.responseReceived'].includes(msg.method))transfers.push({event:msg.method,...msg.params});
       if(msg.method!=='Fetch.requestPaused')return;
       const {requestId,request}=msg.params, u=new URL(request.url);
+      // ponytail: fulfill the 16 MB legacy export byte-for-byte to avoid local
+      // Chrome TCP resets; much larger exports need a dedicated static test server.
+      if(request.method==='GET' && u.origin===base && u.pathname==='/data.json') {
+        const bytes=fs.readFileSync(new URL('../dashboard/data.json',import.meta.url));
+        mocked.push({method:'GET',path:'/data.json',source:'LOCAL_UNALTERED_EXPORT',bytes:bytes.length});
+        page.send('Fetch.fulfillRequest',{requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:bytes.toString('base64')});
+        return;
+      }
       const mock=fixture?.(u,request);
       if(mock) {
         mocked.push({method:request.method,path:u.pathname});
@@ -31,7 +40,7 @@ try {
     };
     const wait=async expression=>{
       for(let i=0;i<600;i++){if(await page.eval(`Boolean(${expression})`))return;await sleep(50);}
-      throw Error('wait_timeout: '+expression);
+      throw Error('wait_timeout: '+expression+'; '+JSON.stringify(await page.eval(`({url:location.href,error:document.querySelector('#error-message')?.textContent,loaded:typeof STATE==='undefined'?null:!!STATE.data})`))+'; network='+JSON.stringify(transfers.filter(t=>t.response?.url?.includes('/data.json')||t.event==='Network.loadingFailed'||t.encodedDataLength>1000000)));
     };
     const select=async(selector,value)=>{
       // Native select is focused and operated by keyboard; no script changes its value.
@@ -45,14 +54,13 @@ try {
     // Verify the large static export before installing Fetch fixtures; no API URL
     // can be reached in this read-only legacy segment.
     await page.send('Network.setBlockedURLs',{urls:['*/api/*','*googleapis*','*generativelanguage*']});
+    await page.send('Fetch.enable',{patterns:[{urlPattern:'*',requestStage:'Request'}]});
     await page.go(base+'/legacy',5000);
-    console.log(await page.eval(`JSON.stringify({url:location.href,charts:typeof Chart==='undefined'?null:Object.keys(Chart.instances),error:document.querySelector('#error-message')?.textContent})`));
     await wait(`window.Chart && Chart.getChart('chart-portfolio-equity')`);
     await check('legacy:charts_still_render',`Chart.getChart('chart-portfolio-equity').data.datasets.length>0`);
     await page.click('button[data-tab=analise]');
     await wait(`Chart.getChart('chart-rsi')`);
     await check('legacy:indicator_charts_preserved',`Chart.getChart('chart-price').data.datasets.length>0 && Chart.getChart('chart-rsi').data.datasets.length>0 && Chart.getChart('chart-macd').data.datasets.length>0`);
-    await page.send('Fetch.enable',{patterns:[{urlPattern:'*',requestStage:'Request'}]});
     await page.send('Network.setBlockedURLs',{urls:[]});
     await page.go(base+'/');
     await page.click('a[href^="/market"]');
@@ -121,6 +129,7 @@ try {
     const cost={ready:true,operation:'Fixture local · comitês',treatment:'TEST_ONLY',context:'LOCAL_FIXTURE',run:'fixture-run',source:'LOCAL_TEST_FIXTURE',confirmationToken:'fixture-token',callsMax:6,estimatedUsd:0.02,reservedUsd:0.2,remainingUsd:1};
     const openCost=async data=>{await page.eval(`window.costResult=null;window.HFL.confirmCost(${JSON.stringify(data)}).then(v=>window.costResult=v);true`);};
     await openCost(cost);
+    await check('component:missing_data_has_no_market_fallback',`!HFLMarket.detail({ticker:'LOCAL_FIXTURE',session:'2026-10-09',status:'NONE'},'fixture').includes('B3 COTAHIST')`);
     await check('cost:disabled_and_facts',`document.querySelector('#hfl-cost-confirm').disabled && document.querySelector('#hfl-cost-dialog').textContent.includes('USD 0.200000')`);
     await page.click('#hfl-cost-dialog details summary');
     await check('cost:review_details',`document.querySelector('#hfl-cost-dialog details').open`);
