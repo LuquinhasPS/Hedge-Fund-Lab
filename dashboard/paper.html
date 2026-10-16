@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Operação diária PETR4 · Hedge-Fund-Lab</title>
+  <title>Legacy · Piloto PETR4 · Hedge-Fund-Lab</title>
   <link rel="stylesheet" href="/paper.css?v=7" />
   <script src="/vendor/chart.umd.js" defer></script>
   <script src="/paper.js?v=7" defer></script><script src="/monitoring.js?v=764" defer></script><link rel="stylesheet" href="/monitoring.css?v=764">
@@ -11,7 +11,8 @@
 </head>
 <body class="hfl-platform">
 <!-- platform-shell -->
-  <div class="module-header"><div class="bar"><span class="hfl-source">H2 v6 · PETR4 · paper prospectivo <button class="ds-help" data-help="paper-trading"></button></span><p id="updated" class="updated" aria-live="polite"></p></div></div>
+<aside class="hfl-warning" aria-label="Etapa anterior">Legacy · etapa anterior do projeto, preservada somente para consulta e documentação do TCC. A reorganização não executa, cancela ou reconcilia intenções antigas e não comprova encerramento financeiro. <a href="/legacy">Acervo histórico</a> · <a href="/">Carteiras multiativos</a></aside>
+  <div class="module-header"><div class="bar"><span class="hfl-source">Legacy · H2 v6 · PETR4 · histórico paper <button class="ds-help" data-help="paper-trading"></button></span><p id="updated" class="updated" aria-live="polite"></p></div></div>
   <main id="main">
     <div id="error" role="alert" hidden></div>
 
@@ -37,19 +38,14 @@
       <div class="section-head"><div><p class="eyebrow">FECHAMENTO → PRÓXIMA ABERTURA</p><h1 id="sala-title">Decisão do dia</h1></div><label>Deliberação registrada <select id="session" aria-label="Sessão da decisão"></select></label><button id="refresh" data-action="read">Consultar registros</button></div>
       <div id="decision" aria-live="polite"><p class="state" role="status">Lendo registros prospectivos…</p></div>
       <article class="card"><h2>Histórico de deliberações</h2><p class="muted">Consulta de decisões já gravadas. Abrir uma deliberação nunca executa os agentes novamente.</p><div id="history"></div></article>
-      <div class="card" id="operation"><h2>Operação com confirmação humana</h2>
-        <p class="steps">Atualizar dados → Preflight → Confirmar e executar agentes → Acompanhar → Resultado</p>
-        <p class="muted">Atualização congela dados oficiais, sem inferência. Preflight é offline. Executar agentes faz uma nova chamada paga ao Gemini; uma decisão já gravada só permite consulta. As sincronizações são determinísticas e gratuitas: a supervisionada registra a proposta da sessão e reconcilia ordens aprovadas.</p>
-        <div class="row"><button id="prepare" data-action="prepare">1. Atualizar dados</button><button id="preflight" data-action="verify">2. Verificar requisitos (preflight)</button><button id="execute" class="primary" data-action="paid" disabled>3. Revisar custo e executar agentes</button><button id="benchmarks" data-action="prepare">Sincronizar SMA e Bollinger · grátis</button><button id="supervised-sync" data-action="prepare">Sincronizar carteira supervisionada · grátis</button></div>
-        <div id="job" aria-live="polite"></div><div id="preflight-report"></div>
-      </div>
+      <article class="card" id="operation"><h2>Processo histórico</h2><p>Preparação, preflight, inferências pagas, sincronização, aprovação, rejeição, cancelamento e reconciliação estão indisponíveis pela aplicação web.</p><div id="job" aria-live="polite"></div></article>
     </section>
 
     <section id="mercado" data-view aria-labelledby="mercado-title" hidden>
       <div class="section-head"><div><p class="eyebrow">PREÇOS OBSERVADOS · MONITORAMENTO INFORMATIVO</p><h1 id="mercado-title">Mercado e abertura (PETR4)</h1></div><button id="market-refresh" data-action="read">Consultar mercado</button></div>
       <p class="lead">Acompanhe PETR4 e os limites aprovados. Cotações e cenários não confirmam execução: somente a reconciliação oficial registra resultados na carteira virtual.</p>
       <div id="market-content" aria-live="polite"><p class="state">Abra esta área para consultar os registros locais.</p></div>
-      <div class="row"><a href="#sala">Testar cenário na Decisão do dia →</a><a href="#carteiras">Consultar carteiras →</a></div>
+      <div class="row"><a href="#sala">Consultar decisão registrada →</a><a href="#carteiras">Consultar carteiras →</a></div>
     </section>
 
     <section id="carteiras" data-view aria-labelledby="carteiras-title" hidden>
@@ -80,8 +76,6 @@
       <div id="profile" aria-live="polite"></div>
     </section>
   </main>
-  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><h2 id="confirm-title">Autorizar inferência nova e paga</h2><div id="confirm-details"></div><p>Uma única tentativa operacional para esta sessão. Erros e interrupções exigem diagnóstico local; nenhuma repetição paga automática será permitida.</p><label class="inline"><input id="accept-charges" type="checkbox" /> Autorizo explicitamente executar os agentes H2 v6 e aceito o custo estimado do Gemini para este input.</label><div class="row"><button id="cancel-confirm">Cancelar</button><button id="submit-confirm" class="primary" data-action="paid" disabled>Autorizar esta inferência paga</button></div></dialog>
-  <dialog id="sup-dialog" aria-labelledby="sup-title"><h2 id="sup-title">Confirmar ação humana</h2><div id="sup-details"></div><p>Ação registrada uma única vez e auditada. Não pode ser editada; uma aprovação só pode ser cancelada antes do prazo.</p><label class="inline"><input id="sup-accept" type="checkbox" /> Confirmo esta ação sobre a carteira H2 v6 Supervisionada (paper trading). Ela não chama o Gemini e não altera a H2 v6 original.</label><div class="row"><button id="sup-dismiss">Voltar</button><button id="sup-submit" class="primary" disabled>Confirmar ação</button></div></dialog>
   <footer>H2 v6 · Paper trading single-asset · Sem retuning · Sem Final Test · Chart.js local</footer>
 </body>
 </html>

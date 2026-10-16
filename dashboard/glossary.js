@@ -372,7 +372,7 @@ window.HFL_GLOSSARY = Object.freeze({
   'sem-ordens-reais': {
     term: 'Sem ordens reais',
     short: 'Nenhuma funcionalidade do laboratório envia ordens a uma corretora.',
-    long: 'Carteiras são virtuais (paper) ou hipotéticas; propostas da IA são consultivas e a execução financeira está desabilitada.',
+    long: 'Carteiras podem ser simuladas ou registrar negócios reais já feitos externamente. A plataforma apenas contabiliza o que foi declarado; propostas da IA continuam consultivas, sem envio de ordens.',
     example: 'Uma proposta validada não vira operação.',
     caution: 'Algumas ações podem consumir orçamento de API (inferência paga); elas são marcadas e exigem confirmação.',
     ref: 'execution_enabled: false nos registros',

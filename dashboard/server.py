@@ -15,11 +15,14 @@ Endpoints (somente leitura; servidor escuta apenas em 127.0.0.1):
     /api/h2/analysis     — preço x decisões, ciclos, exposição, multiagente (?source)
     /api/h2/decision     — Technical → Risk → Portfolio → execução de uma sessão (?source&run&session)
     /api/h2/artifact     — download de artifact selado (?source&run&name)
-    /                    — Dashboard legado (Chart.js)
+    /                    — Carteiras multiativos
+    /legacy              — Acervo histórico somente consulta
+    /legacy/backtests    — Dashboard de backtests antigos (Chart.js)
     /logs                — Visualizador de logs em tempo real (SSE)
     /api/logs            — SSE stream do arquivo de logs
 """
 
+import gzip
 import html
 import http.server
 import json
@@ -37,15 +40,21 @@ import forward_api
 import forward_jobs
 import global_pm_api
 import h2_api
+import manual_portfolio_api
 import market_api
 import monitoring_api
 import network_scope
 import paper_ledger_api
+import pilot_api
 import platform_api
 import portfolio_api
+import portfolio_history_api
+import radar_analysis_api
 import radar_api
 import radar_corporate_events
 import radar_runs
+import stock_history_api
+import wallet_manager_api
 from dotenv import dotenv_values
 
 logger = logging.getLogger("hedgefund.dashboard")
@@ -57,37 +66,33 @@ ENV_FILE = PROJECT_ROOT / ".env"
 LOG_FILE = PROJECT_ROOT / "data" / "logs" / "hedgefund.log"
 
 
-SUPERVISION = {"confirm", "decision_session", "decision_sha256"}
-#: Exact JSON fields per POST command; anything else is refused.
-POST_FIELDS = {
-    "prepare": set(),
-    "preflight": set(),
-    "benchmarks": set(),
-    "run": {"confirm", "confirmation_token"},
-    "supervision/sync": set(),
-    "supervision/approve": SUPERVISION | {"limits"},
-    "supervision/reject": SUPERVISION,
-    "supervision/cancel": SUPERVISION,
-    "scenario": {"decision_session", "decision_sha256", "limits", "hypothetical_open"},
-}
-#: Global navigation (HFL-UX-001, UX-M3): six areas by user goal plus global help.
+#: Active areas plus a separate secondary Legacy entry (DP-16).
 #: (id, label, href, environment strip, ((href, label), ...) section links)
 AREAS = (
-    ("inicio", "Início", "/", "AMBIENTE EXPERIMENTAL · SEM ORDENS REAIS", ()),
+    ("inicio", "Carteira", "/", "REGISTRO LOCAL · SEM ENVIO DE ORDENS", ()),
+    ("operacoes", "Operações", "/operations", "REGISTRO LOCAL · SEM ENVIO DE ORDENS", ()),
+    (
+        "agentes",
+        "Agentes",
+        "/radar",
+        "ANÁLISES CONSULTIVAS · GASTOS EXIGEM CONFIRMAÇÃO",
+        (),
+    ),
+    ("comparacao", "Comparação", "/comparison", "CARTEIRAS INDEPENDENTES", ()),
     (
         "mercado",
-        "Mercado",
-        "/market",
+        "Dados",
+        "/data",
         "CONSULTIVO · PARECERES DE IA, SEM ORDENS",
-        (("/market", "Explorar ativos"), ("/radar", "Radar de comitês")),
+        (("/data", "Central de dados"), ("/market", "Explorar ativos")),
     ),
     (
         "carteira",
-        "Carteira multiativos",
-        "/portfolio#visao-geral",
+        "Laboratório",
+        "/laboratory",
         "HIPOTÉTICA · CONSULTIVA · SEM EXECUÇÃO",
         (
-            ("/portfolio#visao-geral", "Visão geral"),
+            ("/portfolio#visao-geral", "Consulta demonstrativa"),
             ("/portfolio#posicoes", "Posições e acompanhamento"),
             ("/portfolio#global-workflow", "Gestor Global: registros"),
             ("/portfolio#evidencias", "Histórico e evidências"),
@@ -95,27 +100,20 @@ AREAS = (
         ),
     ),
     (
-        "operacao",
-        "Operação diária PETR4",
-        "/paper#sala",
-        "PAPER PROSPECTIVO · CARTEIRAS VIRTUAIS",
+        "legacy",
+        "Legacy",
+        "/legacy",
+        "ETAPA ANTERIOR · SOMENTE CONSULTA · DOCUMENTAÇÃO DO TCC",
         (
-            ("/paper#acompanhamento", "Acompanhamento paper"),
-            ("/paper#visao", "Resumo das carteiras"),
-            ("/paper#sala", "Decisão do dia"),
-            ("/paper#carteiras", "Carteiras prospectivas"),
-            ("/paper#mercado", "Mercado e abertura"),
-        ),
-    ),
-    (
-        "pesquisa",
-        "Pesquisa",
-        "/h2",
-        "REGISTRO HISTÓRICO · SOMENTE LEITURA",
-        (
-            ("/h2", "Experimento H2"),
-            ("/paper#agentes", "Catálogo de agentes H2"),
-            ("/legacy", "Backtests legados"),
+            ("/legacy", "Acervo histórico"),
+            ("/legacy/paper#visao", "Piloto PETR4"),
+            ("/legacy/paper#acompanhamento", "Patrimônio e pendências"),
+            ("/legacy/paper#sala", "Decisões registradas"),
+            ("/legacy/paper#carteiras", "Carteiras independentes"),
+            ("/legacy/paper#mercado", "Preços registrados"),
+            ("/legacy/paper#agentes", "Agentes H2"),
+            ("/legacy/h2", "Pesquisa H2"),
+            ("/legacy/backtests", "Backtests históricos"),
         ),
     ),
     (
@@ -127,14 +125,29 @@ AREAS = (
     ),
 )
 #: Default area per page when JavaScript is unavailable; shell.js refines it by URL hash.
+PRODUCT_PAGES = {
+    "/operations": "platform.html",
+    "/comparison": "platform.html",
+    "/dividends": "platform.html",
+    "/wallets/new": "platform.html",
+    "/laboratory": "platform.html",
+    "/data": "data.html",
+}
+PRODUCT_AREAS = {
+    "/operations": "operacoes",
+    "/comparison": "comparacao",
+    "/laboratory": "carteira",
+}
 PAGE_AREA = {
     "platform.html": "inicio",
-    "radar.html": "mercado",
+    "radar.html": "agentes",
+    "data.html": "mercado",
     "market.html": "mercado",
     "portfolio.html": "carteira",
-    "paper.html": "operacao",
-    "h2.html": "pesquisa",
-    "index.html": "pesquisa",
+    "legacy.html": "legacy",
+    "paper.html": "legacy",
+    "h2.html": "legacy",
+    "index.html": "legacy",
     "logs.html": "auditoria",
 }
 
@@ -155,10 +168,15 @@ def strict_json(body):
     )
 
 
-SUPERVISION_ACTIONS = {
-    "supervision/approve": "APPROVE",
-    "supervision/reject": "REJECT",
-    "supervision/cancel": "CANCEL",
+LEGACY_PAGES = {
+    "/legacy": "legacy.html",
+    "/legacy/": "legacy.html",
+    "/legacy/paper": "paper.html",
+    "/legacy/paper/": "paper.html",
+    "/legacy/h2": "h2.html",
+    "/legacy/h2/": "h2.html",
+    "/legacy/backtests": "index.html",
+    "/legacy/backtests/": "index.html",
 }
 
 
@@ -199,10 +217,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.startswith("/api/h2/"):
             return self._handle_h2()
         path = urlsplit(self.path).path
+        if path in PRODUCT_PAGES:
+            return self._serve_static(PRODUCT_PAGES[path])
         if path == "/":
             return self._serve_static("platform.html")
-        if path in ("/legacy", "/legacy/"):
-            return self._serve_static("index.html")
+        if path in LEGACY_PAGES:
+            return self._serve_static(LEGACY_PAGES[path])
         if path in ("/logs", "/logs.html"):
             return self._serve_static("logs.html")
         if path in ("/h2", "/h2/", "/h2.html"):
@@ -244,6 +264,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 and self.headers.get("Sec-Fetch-Dest") == "document"
                 and urlsplit(self.path).path
                 in (
+                    *LEGACY_PAGES,
                     "/",
                     "/h2",
                     "/h2/",
@@ -285,6 +306,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/radar.html",
             "/radar.css",
             "/radar.js",
+            "/radar-analysis.js",
+            "/wallet-manager.js",
             "/market.html",
             "/market.js",
             "/market-ui.js",
@@ -300,6 +323,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             "/shell.js",
             "/platform.css",
             "/platform.js",
+            "/manual-portfolio.js",
+            "/personal-charts.js",
+            "/stock-explorer.js",
+            "/product.css",
+            "/product.js",
             "/global-workflow.js",
             "/design-system.css",
             "/glossary.js",
@@ -319,8 +347,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         pages = {
             "/": "platform.html",
-            "/legacy": "index.html",
-            "/legacy/": "index.html",
+            **PRODUCT_PAGES,
+            **LEGACY_PAGES,
             "/index.html": "index.html",
         }
         for name in ("h2", "paper", "radar", "market", "portfolio", "logs"):
@@ -386,9 +414,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 body = self.rfile.read(int(lengths[0]))
             except OSError:
                 return self._send_json({"error": "incomplete_payload"}, 400)
-        jobs = forward_jobs.JOBS
         if not self._local_request(post=True):
             return self._send_json({"error": "local_origin_required"}, 403)
+        url = urlsplit(self.path)
+        # Entire namespaces are exclusive to the independent PETR4/H2 experiment.
+        # Refuse before CSRF, runner dispatch, approval or reconciliation writes.
+        if url.path.startswith(("/api/forward/", "/api/h2/")):
+            return self._send_json({"error": "legacy_read_only"}, 403)
+        jobs = forward_jobs.JOBS
         tokens = self.headers.get_all("X-CSRF-Token", [])
         import hmac
 
@@ -396,79 +429,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             tokens[0].encode("utf-8"), jobs.csrf.encode("utf-8")
         ):
             return self._send_json({"error": "invalid_csrf"}, 403)
-        url = urlsplit(self.path)
         if url.path.startswith("/api/radar/"):
             return self._handle_radar(body)
+        if url.path.startswith("/api/portfolio/manual/"):
+            return self._handle_manual(body)
+        refreshers = {
+            "/api/portfolio/stock-history/refresh": stock_history_api.refresh,
+            "/api/portfolio/stock-history/intraday/refresh": stock_history_api.refresh_intraday,
+        }
+        if url.path in refreshers:
+            try:
+                if (
+                    url.query
+                    or body is None
+                    or len(body) > 4096
+                    or self.headers.get("Content-Type") != "application/json"
+                ):
+                    raise ValueError("invalid_payload")
+                return self._send_json(refreshers[url.path](strict_json(body)))
+            except (ValueError, KeyError, TypeError, OSError, sqlite3.Error) as exc:
+                return self._send_json(
+                    {
+                        "error": str(exc)
+                        if re.fullmatch(r"[a-z_0-9]+", str(exc))
+                        else "stock_history_refresh_failed"
+                    },
+                    400,
+                )
         if url.path.startswith("/api/platform/"):
             return self._handle_platform(body)
-        command = url.path.removeprefix("/api/forward/")
-        if (
-            url.query
-            or url.path != f"/api/forward/{command}"
-            or command not in POST_FIELDS
-        ):
-            return self._send_json(None, 404)
-        if (
-            len(lengths) != 1
-            or not re.fullmatch(r"[0-9]{1,4}", lengths[0])
-            or not 0 < int(lengths[0]) <= 4096
-            or self.headers.get("Transfer-Encoding")
-            or self.headers.get("Content-Type") != "application/json"
-        ):
-            return self._send_json({"error": "invalid_payload"}, 400)
-        try:
-            # Bound slow local clients as well as payload size.
-            self.connection.settimeout(3)
-
-            def unique(pairs):
-                result = {}
-                for k, v in pairs:
-                    if k in result:
-                        raise ValueError("duplicate_key")
-                    result[k] = v
-                return result
-
-            payload = json.loads(
-                body,
-                object_pairs_hook=unique,
-                parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
-            )
-            fields = POST_FIELDS[command]
-            if (
-                not isinstance(payload, dict)
-                or set(payload) != fields
-                or ("confirm" in fields and payload["confirm"] is not True)
-                or (
-                    command == "run"
-                    and not isinstance(payload["confirmation_token"], str)
-                )
-            ):
-                raise ValueError("invalid_payload")
-            action = SUPERVISION_ACTIONS.get(command)
-            if command == "scenario":
-                return self._send_json(market_api.scenario(payload))
-            if action:
-                # Order approval never authorizes a model call; it only writes
-                # one immutable record for the supervised paper wallet.
-                return self._send_json(forward_api.supervise(action, payload), 201)
-            return self._send_json(
-                jobs.start(
-                    "supervised" if command == "supervision/sync" else command,
-                    payload.get("confirmation_token"),
-                ),
-                202,
-            )
-        except (forward_jobs.Conflict, forward_api.sup.Conflict) as exc:
-            return self._send_json({"error": str(exc)}, 409)
-        except (ValueError, TypeError, OSError) as exc:
-            # Validation codes such as invalid_limit:max_buy_price are safe to show.
-            code = str(exc) if re.fullmatch(r"[a-z_]+(:[a-z_]+)?", str(exc)) else None
-            return self._send_json(
-                {"error": code or "invalid_payload_or_local_state"}, 400
-            )
+        return self._send_json(None, 404)
 
     def _handle_portfolio(self):
         url = urlsplit(self.path)
+        if url.path == "/api/portfolio/manual":
+            return self._handle_manual()
         try:
             query = parse_qs(url.query, keep_blank_values=True)
             if any(len(v) != 1 for v in query.values()):
@@ -481,14 +476,60 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return self._send_json(
                     paper_ledger_api.get({k: v[0] for k, v in query.items()})
                 )
+            if url.path == "/api/portfolio/pilot":
+                return self._send_json(pilot_api.get({k: v[0] for k, v in query.items()}))
+            if url.path == "/api/portfolio/history":
+                return self._send_json(
+                    portfolio_history_api.get({k: v[0] for k, v in query.items()})
+                )
+            if url.path == "/api/portfolio/stock-history/intraday":
+                return self._send_json(
+                    stock_history_api.get_intraday({k: v[0] for k, v in query.items()})
+                )
+            if url.path == "/api/portfolio/stock-history":
+                result = stock_history_api.get({k: v[0] for k, v in query.items()})
+                result["csrf_token"] = forward_jobs.JOBS.csrf
+                return self._send_json(result)
             return self._send_json(
                 portfolio_api.get(
                     url.path.removeprefix("/api/portfolio/"),
                     {k: v[0] for k, v in query.items()},
                 )
             )
-        except (ValueError, KeyError, OSError, TypeError, ArithmeticError):
+        except (ValueError, KeyError, OSError, TypeError, ArithmeticError, sqlite3.Error):
             return self._send_json({"error": "portfolio_integrity_or_query_failed"}, 400)
+
+    def _handle_manual(self, body=None):
+        url = urlsplit(self.path)
+        try:
+            if self.command == "GET":
+                query = parse_qs(url.query, keep_blank_values=True)
+                if any(len(v) != 1 for v in query.values()):
+                    raise ValueError("invalid_query")
+                result = manual_portfolio_api.get({k: v[0] for k, v in query.items()})
+                result["csrf_token"] = forward_jobs.JOBS.csrf
+                return self._send_json(result)
+            if (
+                url.query
+                or body is None
+                or not 0 < len(body) <= 4096
+                or self.headers.get("Content-Type") != "application/json"
+            ):
+                raise ValueError("invalid_payload")
+            result = manual_portfolio_api.post(
+                url.path.removeprefix("/api/portfolio/manual/"), strict_json(body)
+            )
+            return self._send_json(result)
+        except manual_portfolio_api.Invalid as exc:
+            return self._send_json({"error": str(exc), "field": exc.field}, 400)
+        except (ValueError, KeyError, TypeError, ArithmeticError, OSError, sqlite3.Error):
+            return self._send_json(
+                {
+                    "error": "Não foi possível consultar ou gravar. Preserve os dados e tente novamente.",
+                    "field": "form",
+                },
+                400,
+            )
 
     def _handle_platform(self, body=None):
         url = urlsplit(self.path)
@@ -498,10 +539,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 query = parse_qs(url.query, keep_blank_values=True)
                 if any(len(v) != 1 for v in query.values()):
                     raise ValueError("invalid_query")
+                if command == "radar-analysis":
+                    return self._send_json(
+                        radar_analysis_api.get({k: v[0] for k, v in query.items()})
+                    )
+                if command == "wallet-manager":
+                    return self._send_json(
+                        wallet_manager_api.get({k: v[0] for k, v in query.items()})
+                    )
                 return self._send_json(
                     platform_api.get(command, {k: v[0] for k, v in query.items()})
                 )
-            if command not in {"global-prepare", "global-run", "global-replay"}:
+            if not command.startswith("wallet-manager/") and command not in {
+                "global-prepare",
+                "global-run",
+                "global-replay",
+                "radar-budget-authorization",
+                "radar-analysis",
+            }:
                 return self._send_json(None, 404)
             if (
                 url.query
@@ -510,6 +565,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 or self.headers.get("Content-Type") != "application/json"
             ):
                 raise ValueError("invalid_payload")
+            if command == "radar-analysis":
+                return self._send_json(radar_analysis_api.create(strict_json(body)), 201)
+            if command.startswith("wallet-manager/"):
+                return self._send_json(
+                    wallet_manager_api.post(
+                        command.removeprefix("wallet-manager/"), strict_json(body)
+                    )
+                )
+            if command == "radar-budget-authorization":
+                with platform_api.RADAR_DISPATCH_LOCK:
+                    return self._send_json(
+                        platform_api.authorize_radar_budget(
+                            strict_json(body), self.headers.get_all("X-HFL-Radar-Run", [])
+                        ),
+                        201,
+                    )
             return self._send_json(
                 platform_api.GLOBAL_JOBS.start(
                     command.removeprefix("global-"), strict_json(body)
@@ -520,6 +591,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._send_json(
                 {"error": "global_job_exists_or_busy_consult_recovery"}, 409
             )
+        except manual_portfolio_api.Invalid as exc:
+            return self._send_json({"error": str(exc), "field": exc.field}, 400)
         except (
             ValueError,
             KeyError,
@@ -586,10 +659,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 object_pairs_hook=unique,
                 parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
             )
-            platform_api.radar_post_gate(
-                command, payload, self.headers.get_all("X-HFL-Radar-Run", [])
-            )
-            return self._send_json(radar_api.post(command, payload))
+            with platform_api.RADAR_DISPATCH_LOCK:
+                platform_api.radar_post_gate(
+                    command, payload, self.headers.get_all("X-HFL-Radar-Run", [])
+                )
+                return self._send_json(radar_api.post(command, payload))
         except (ValueError, TypeError, OSError, KeyError, sqlite3.Error) as exc:
             code = (
                 str(exc)
@@ -643,8 +717,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         body = json.dumps(
             value, ensure_ascii=False, allow_nan=False, default=str
         ).encode()
+        compressed = len(body) > 65536 and "gzip" in [
+            v.strip() for v in self.headers.get("Accept-Encoding", "").split(",")
+        ]
+        if compressed:
+            body = gzip.compress(body)
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Vary", "Accept-Encoding")
+        if compressed:
+            self.send_header("Content-Encoding", "gzip")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -659,7 +741,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         content = path.read_text(encoding="utf-8")
         if "<!-- platform-shell -->" in content:
-            current = PAGE_AREA.get(filename, "inicio")
+            current = PRODUCT_AREAS.get(
+                urlsplit(self.path).path, PAGE_AREA.get(filename, "inicio")
+            )
             area = next(a for a in AREAS if a[0] == current)
             marks = {
                 key: (' aria-current="true"', "") if key == current else ("", " hidden")
@@ -669,6 +753,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 f'<a href="{html.escape(href)}" data-area="{key}" data-env="{html.escape(env)}"'
                 f"{marks[key][0]}>{html.escape(label)}</a>"
                 for key, label, href, env, _ in AREAS
+                if key not in {"legacy", "carteira", "auditoria"}
             )
             links = "".join(
                 f'<a href="{html.escape(href)}" data-area="{key}"{marks[key][1]}>{html.escape(label)}</a>'
@@ -679,6 +764,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 (DIR / "shell.html")
                 .read_text(encoding="utf-8")
                 .replace("{{areas}}", areas)
+                .replace(
+                    "{{legacy}}",
+                    "".join(
+                        f'<a href="{href}" data-area="{key}" data-env="{env}"{marks[key][0]}>{label}</a>'
+                        for key, label, href, env, _ in AREAS
+                        if key in {"legacy", "carteira", "auditoria"}
+                    ),
+                )
                 .replace("{{links}}", links)
                 .replace("{{area}}", current)
                 .replace("{{area_label}}", html.escape(area[1]))

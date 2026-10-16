@@ -153,7 +153,7 @@ class Server(unittest.TestCase):
                     len(
                         re.findall(r'<a href="[^"]*" data-area="[a-z]+" data-env=', body)
                     ),
-                    6,
+                    5,
                 )
                 self.assertNotIn('<nav class="header-nav"', body)
                 self.assertNotIn('nav class="tabs"', body)
@@ -193,9 +193,9 @@ class Server(unittest.TestCase):
             "/": "inicio",
             "/radar": "mercado",
             "/portfolio": "carteira",
-            "/paper": "operacao",
-            "/h2": "pesquisa",
-            "/legacy": "pesquisa",
+            "/paper": "legacy",
+            "/h2": "legacy",
+            "/legacy": "legacy",
             "/logs": "auditoria",
         }
         for route, area in expected.items():
@@ -227,6 +227,7 @@ class Server(unittest.TestCase):
                 encoding="utf-8",
                 timeout=900,
             )
+            self.assertTrue(out.exists(), done.stdout[-2000:] + done.stderr[-2000:])
             report = json.loads(out.read_text(encoding="utf-8"))
         failures = [r for r in report["results"] if not r["ok"]]
         self.assertEqual(failures, [], done.stdout[-2000:] + done.stderr[-2000:])
@@ -317,8 +318,6 @@ class Static(unittest.TestCase):
         self.assertEqual(
             paid,
             {
-                ("paper.html", "execute"),
-                ("paper.html", "submit-confirm"),
                 ("radar.html", "execute"),
             },
         )

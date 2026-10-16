@@ -3,6 +3,7 @@
 Never calls reconciliation, order approval, market downloads or shell commands.
 """
 
+import math
 import os
 import re
 import sqlite3
@@ -24,6 +25,7 @@ b, pm, cli, radar = global_api.b, global_api.pm, global_api.cli, global_api.rada
 committee_outcome = runs.committee_outcome
 ROOT = forward.ROOT
 OPERATIONS = ROOT / "data/platform/v7"
+RADAR_DISPATCH_LOCK = threading.RLock()
 ID = re.compile(r"v7-[0-9a-f]{32}")
 #: Global PM V2 records are read-only here; prepare/preflight/run are CLI-only (V7.4).
 ID2 = re.compile(r"v74-[a-z0-9-]{1,64}")
@@ -326,6 +328,8 @@ def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=No
     """Per official ticker: input, normalization, risk restriction, opinion and next step."""
     root = root or global_api.OFFICIAL_RADAR
     selection = run_selection(mode, day, symbols, root)
+    job = radar_job(root) or {}
+    preparing = job.get("command") == "prepare" and job.get("status") == "RUNNING"
     last = root / "last_prepare.json"
     # last_prepare.json only reports the latest prepare call; inputs are the authority.
     blocked = {
@@ -356,6 +360,16 @@ def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=No
             "preflight": "READY" if check.get("ready") else check.get("error"),
         }
         if not (radar.folder_for(root, ticker, day) / "input.json").exists():
+            if preparing:
+                item.update(
+                    state="PREPARING",
+                    input_state="PREPARING",
+                    preflight="PREPARING",
+                    error=None,
+                    action="Preparo em andamento; aguarde o resultado desta tentativa no Radar.",
+                )
+                items.append(item)
+                continue
             error = blocked.get(ticker)
             corporate = bool(error) and any(k in error for k in CORPORATE_ERRORS)
             item.update(
@@ -367,12 +381,16 @@ def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=No
                 if error
                 else "PREPARATION_REQUIRED",
                 error=error,
-                action="Preparar dados em /radar (botão 1) ou pelo CLI equivalente; "
+                action="Fator de ajuste Yahoo indisponível para a sessão. Aguarde a fonte "
+                "fornecer uma linha válida e prepare novamente; preços RAW B3 sozinhos "
+                "não completam o histórico ajustado dos agentes."
+                if error and "no adjustment factor" in error
+                else "Preparar dados em /radar (botão 1) ou pelo CLI equivalente; "
                 "gratuito, grava inputs, sem Gemini."
                 + (
                     " O bloqueio registrado é anterior ou não confirmado pela B3: se "
                     "persistir após o preparo normalizado, o ativo fica fora."
-                    if error
+                    if corporate
                     else ""
                 ),
             )
@@ -554,12 +572,47 @@ def radar_post_gate(command, payload, headers):
     )
 
 
-def jobs_status():
+def authorize_radar_budget(payload, headers):
+    """Web review of the existing immutable budget authorization; never starts calls."""
+    fields = {"run", "budget_token", "max_aggregate_usd", "confirm"}
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != fields
+        or payload["confirm"] is not True
+    ):
+        raise ValueError("explicit_budget_authorization_required")
+    limit = payload["max_aggregate_usd"]
+    if type(limit) not in (int, float) or not math.isfinite(limit) or limit <= 0:
+        raise ValueError("invalid_aggregate_budget")
+    if not isinstance(payload["budget_token"], str) or not re.fullmatch(
+        r"[0-9a-f]{64}", payload["budget_token"]
+    ):
+        raise ValueError("invalid_budget_token")
+    owner = runner()
+    if not owner or owner["id"] != payload["run"] or headers != [owner["id"]]:
+        raise ValueError("radar_run_header_mismatch_reload_page")
+    if not owner["accepts_new_calls"] or owner["mode"] != "CONSULTATIVE_SANDBOX":
+        raise ValueError("run_not_accepting_new_calls")
+    if radar_api.ACTIVE or (runs.root_of(owner) / "operation.lock").exists():
+        raise ValueError("radar_busy_or_stale_lock")
+    money = runs.budget(owner["id"], runs.load())
+    if limit < money["aggregate_exposure_usd"]:
+        raise ValueError("aggregate_budget_below_exposure")
+    record = runs.authorize_budget(owner["id"], payload["budget_token"])
+    return {
+        "run": owner["id"],
+        "authorized_exposure_usd": record["aggregate_exposure_usd"],
+        "budget_token": record["budget_token"],
+        "provider_calls": 0,
+    }
+
+
+def jobs_status(*, include_legacy=True):
     result = []
     # ponytail: local JSON jobs are scanned on demand; archive/index if this grows
     # beyond a local laboratory. Existing runners remain the state authority.
     for path in sorted(
-        forward_jobs.JOBS.root.glob("job-*.json"),
+        forward_jobs.JOBS.root.glob("job-*.json") if include_legacy else (),
         key=lambda p: p.stat().st_mtime_ns,
         reverse=True,
     ):
@@ -612,6 +665,37 @@ def jobs_status():
         )
     result += GLOBAL_JOBS.status()
     return sorted(result, key=lambda j: j.get("started_at", ""), reverse=True)
+
+
+def active_overview():
+    """Home/audit of the active platform; no independent PETR4/H2 reads."""
+    registry = attempt(runs.overview)
+    chosen = next(
+        (r for r in (registry.get("data") or {}).get("runs", []) if r["selected"]), None
+    )
+    root = runs.root_of(chosen) if chosen else global_api.OFFICIAL_RADAR
+    selection = (
+        attempt(
+            lambda: radar_readiness(
+                chosen["session"], chosen["universe"], root, chosen["mode"], chosen["id"]
+            )
+        )
+        if chosen
+        else {"available": False}
+    )
+    return {
+        "identity": "HFL-PLATFORM-V7",
+        "observed_at": pm.now(),
+        "read_only": True,
+        "radar_runs": registry,
+        "radar_run_selected": (chosen or {}).get("id"),
+        "official_selection": selection,
+        "global_records": global_records(),
+        "synthetic_v5": attempt(lambda: portfolio_api.get("status", {})),
+        "jobs": attempt(lambda: jobs_status(include_legacy=False)),
+        "execution_multiasset_available": False,
+        "provider_calls": 0,
+    }
 
 
 def overview(at=None):
@@ -1259,11 +1343,13 @@ GLOBAL_JOBS = GlobalJobs()
 
 
 def get(command, query):
-    if command in ("overview", "readiness") and not query:
+    if command == "overview" and not query:
+        return active_overview()
+    if command in ("legacy-overview", "readiness") and not query:
         return overview()
     if command == "jobs" and not query:
         return {
-            "jobs": jobs_status(),
+            "jobs": jobs_status(include_legacy=False),
             "global_records": global_records(),
             "read_only": True,
         }
@@ -1287,6 +1373,8 @@ def get(command, query):
             "runner": (runner() or {}).get("id"),
             "read_only": True,
         }
+    if command == "radar-budget" and set(query) == {"run"}:
+        return {**runs.budget(query["run"], runs.load()), "read_only": True}
     if command == "radar-view" and set(query) == {"run"}:
         return radar_view(query["run"])
     if command == "radar-view" and set(query) == {"mode"}:

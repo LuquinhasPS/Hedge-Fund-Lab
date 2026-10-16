@@ -12,7 +12,7 @@
   const details = (title, data) => `<details><summary>${esc(title)}</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details>`;
   const table = (headers, rows, empty) => rows.length ? `<div class="ds-table-wrap" tabindex="0" role="region" aria-label="${esc(headers[0])}"><table><thead><tr>${headers.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<p class="ds-empty">${esc(empty)}</p>`;
   let catalog, revision=0, decisionRevision=0, catalogRevision=0, curveChart, allocationChart, eventPage;
-  const paper=location.pathname.startsWith('/paper');
+  const paper=['/paper','/paper/','/paper.html','/legacy/paper','/legacy/paper/'].includes(location.pathname);
   if(el('monitor-demo'))el('monitor-demo').checked=new URLSearchParams(location.search).get('demo')==='1';
   function timeline(rows) {
     el('monitor-timeline').innerHTML=table(['Evento','Sessão','Data / hora','Status','Evidência'],rows.map(t=>[esc(t.kind),esc(t.session),stamp(t.at),esc(t.status),`<a href="${esc(t.evidence)}">Fonte</a>${t.sha256?`<small class="monitor-hash">${esc(t.sha256)}</small>`:''}`]),'Nenhum evento comprovado.');

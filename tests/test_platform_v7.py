@@ -135,7 +135,7 @@ class PlatformChecks(unittest.TestCase):
                 # V7.6.2 (HFL-UX-001): "Pesquisa e Auditoria" became two areas of the
                 # unified navigation; the shell must still be on every page.
                 self.assertIn('aria-label="Navegação principal"'.encode(), body)
-                self.assertIn(b">Pesquisa</a>", body)
+                self.assertIn(b">Legacy</a>", body)
                 self.assertIn(b">Auditoria</a>", body)
                 head, empty, hh = self.request("HEAD", path)
                 self.assertEqual(head, 200)

@@ -299,7 +299,7 @@ def test_http_scenario_security_and_no_jobs(world, monkeypatch):
 
     before = tree(w.root), tree(w.forward)
     try:
-        assert call("/api/forward/scenario", body)[0] == 200
+        assert call("/api/forward/scenario", body)[0] == 403
         assert call("/api/forward/market")[0] == 200
         for changes in [
             {"Origin": "http://evil.example"},
@@ -315,10 +315,10 @@ def test_http_scenario_security_and_no_jobs(world, monkeypatch):
             ),
             "[]",
         ]:
-            assert call("/api/forward/scenario", invalid)[0] == 400
-        assert call("/api/forward/scenario?x=1", body)[0] == 404
+            assert call("/api/forward/scenario", invalid)[0] == 403
+        assert call("/api/forward/scenario?x=1", body)[0] == 403
         assert call("/api/forward/market?session=2026-10-09")[0] == 400
-        assert call("/api/forward/scenario", body.replace(digest, "0" * 64))[0] == 409
+        assert call("/api/forward/scenario", body.replace(digest, "0" * 64))[0] == 403
         assert before == (tree(w.root), tree(w.forward))
     finally:
         instance.shutdown()

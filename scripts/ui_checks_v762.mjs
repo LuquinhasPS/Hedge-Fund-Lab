@@ -31,7 +31,7 @@ export async function run(base, out, shotsDir) {
         navs: document.querySelectorAll('nav[aria-label="Navegação principal"]').length,
         legacyNavs: document.querySelectorAll('.module-header nav:not([role=tablist]), nav.header-nav, .workspace').length,
         legacyLabels: [...document.querySelectorAll('a,button,h1,h2')].map(e => e.textContent.trim()).filter(t => /^(Gestor de Carteira|Radar de Ativos|Operação Paper|Radar Multiativos|Pesquisa e Auditoria|Sala de Decisão|Prontidão para 13\\/10)$/.test(t)),
-        area: s.querySelector('.hfl-primary a[aria-current]')?.dataset.area,
+        area: s.querySelector('.hfl-primary a[aria-current],.hfl-archive a[aria-current]')?.dataset.area,
         section: s.querySelector('.hfl-secondary a[aria-current]')?.textContent || null,
         crumbs: [...s.querySelectorAll('.hfl-crumbs li:not([hidden])')].map(li => li.textContent.trim()),
         env: s.querySelector('.hfl-env').textContent,
@@ -43,7 +43,7 @@ export async function run(base, out, shotsDir) {
     })()`);
 
     // 1. Every page: one global navigation, no legacy menus, correct area, no overflow.
-    const expected = { home: ["inicio", null], radar: ["mercado", "Radar de comitês"], portfolio: ["carteira", "Visão geral"], paper: ["operacao", "Resumo das carteiras"], h2: ["pesquisa", "Experimento H2"], logs: ["auditoria", "Logs técnicos"], legacy: ["pesquisa", "Backtests legados"] };
+    const expected = { home: ["inicio", null], radar: ["mercado", "Radar de comitês"], portfolio: ["carteira", "Consulta demonstrativa"], paper: ["legacy", "Piloto PETR4"], h2: ["legacy", "Pesquisa H2"], logs: ["auditoria", "Logs técnicos"], legacy: ["legacy", "Acervo histórico"] };
     for (const [vname, v] of Object.entries(VIEWPORTS)) {
       await page.viewport(v);
       for (const [name, route] of PAGES) {
@@ -68,7 +68,7 @@ export async function run(base, out, shotsDir) {
 
     // 2. Hash routes, deep links, reload, history.
     await page.viewport(VIEWPORTS.desktop);
-    for (const [route, area, section] of [["/paper#agentes", "pesquisa", "Catálogo de agentes H2"], ["/paper#supervisao", "operacao", "Decisão do dia"], ["/#audit", "auditoria", "Registros e processos"], ["/#wallets", "inicio", null], ["/h2#provisional/audit", "pesquisa", "Experimento H2"], ["/portfolio#ai-proposal", "carteira", "Simulador demonstrativo"]]) {
+    for (const [route, area, section] of [["/paper#agentes", "legacy", "Agentes H2"], ["/paper#supervisao", "legacy", "Decisões registradas"], ["/#audit", "auditoria", "Registros e processos"], ["/#wallets", "legacy", "Carteiras independentes"], ["/h2#provisional/audit", "legacy", "Pesquisa H2"], ["/portfolio#ai-proposal", "carteira", "Simulador demonstrativo"]]) {
       await page.go(base + route);
       const s = await shell();
       check(`route:${route}`, s.area === area && s.section === section, s);
@@ -85,13 +85,13 @@ export async function run(base, out, shotsDir) {
     const pdeep = await page.eval(`({ search: location.search, mercado: document.querySelector('.hfl-primary a[data-area=mercado]').getAttribute('href'), mode: !document.getElementById('workflow-mode') })`);
     check("deeplink:portfolio_run_kept", pdeep.search.includes(RUN) && pdeep.mercado.includes("run=" + RUN) && pdeep.mode === true, pdeep);
     await page.go(base + "/paper#sala");
-    await page.click('.hfl-secondary a[href="/paper#carteiras"]');
+    await page.click('.hfl-secondary a[href="/legacy/paper#carteiras"]');
     await sleep(400);
     const afterClick = await shell();
     await page.eval("history.back()");
     await sleep(600);
     const afterBack = await shell();
-    check("history:hash_navigation_and_back", afterClick.section === "Carteiras prospectivas" && afterBack.section === "Decisão do dia", { afterClick: afterClick.section, afterBack: afterBack.section });
+    check("history:hash_navigation_and_back", afterClick.section === "Carteiras independentes" && afterBack.section === "Decisões registradas", { afterClick: afterClick.section, afterBack: afterBack.section });
 
     // 3. Keyboard: skip link first, then the global navigation with a visible focus ring.
     await page.go(base + "/");
@@ -107,6 +107,7 @@ export async function run(base, out, shotsDir) {
 
     // 4. Contextual help: click, keyboard, Escape, close button, touch, viewport bounds.
     await page.go(base + "/", 3500);
+    await page.click("#home-laboratory > summary");
     await page.click('.home-facts .ds-help[data-help="sem-ordens-reais"]');
     let h = await page.eval(`(() => { const p = document.getElementById('ds-help-popover'); const b = document.querySelector('.home-facts .ds-help[data-help="sem-ordens-reais"]'); return { open: p && !p.hidden, expanded: b.getAttribute('aria-expanded'), focusInside: p?.contains(document.activeElement), title: p?.querySelector('h2')?.textContent, role: p?.getAttribute('role') }; })()`);
     check("help:opens_on_click", h.open && h.expanded === "true" && h.focusInside && h.title === window_term("sem-ordens-reais") && h.role === "dialog", h);
@@ -134,6 +135,8 @@ export async function run(base, out, shotsDir) {
 
     await page.viewport(VIEWPORTS.phone);
     await page.go(base + "/", 3500);
+    await page.click("#home-laboratory > summary");
+    await page.eval('document.querySelector(".home-facts .ds-help[data-help=inferencia-paga]").scrollIntoView({block:"center"})');
     await page.tap('.home-facts .ds-help[data-help="inferencia-paga"]');
     h = await page.eval(`(() => { const p = document.getElementById('ds-help-popover'); const r = p.getBoundingClientRect(); return { open: !p.hidden, left: r.left, right: r.right, vw: innerWidth }; })()`);
     check("help:touch_opens_within_viewport", h.open && h.left >= 0 && h.right <= h.vw, h);
@@ -143,9 +146,10 @@ export async function run(base, out, shotsDir) {
     // 5. Mobile menu: hidden by default, opens by tap, Escape closes.
     let m = await page.eval(`({ menu: getComputedStyle(document.querySelector('.hfl-menu')).display, nav: getComputedStyle(document.querySelector('.hfl-links')).display })`);
     check("mobile:menu_collapsed", m.menu !== "none" && m.nav === "none", m);
+    await page.eval('document.querySelector(".hfl-menu").scrollIntoView({block:"center"})');
     await page.tap(".hfl-menu");
     m = await page.eval(`({ expanded: document.querySelector('.hfl-menu').getAttribute('aria-expanded'), nav: getComputedStyle(document.querySelector('.hfl-links')).display, links: document.querySelectorAll('.hfl-primary a').length, safety: getComputedStyle(document.querySelector('.hfl-local')).display })`);
-    check("mobile:menu_opens_by_tap", m.expanded === "true" && m.nav !== "none" && m.links === 6 && m.safety !== "none", m);
+    check("mobile:menu_opens_by_tap", m.expanded === "true" && m.nav !== "none" && m.links === 4 && m.safety !== "none", m);
     await shot(page, "after-mobile-menu-phone", false);
     await page.key("Escape");
     m = await page.eval(`({ expanded: document.querySelector('.hfl-menu').getAttribute('aria-expanded'), focus: document.activeElement.className })`);
@@ -173,6 +177,8 @@ export async function run(base, out, shotsDir) {
 
     // 7. States and action natures are distinguishable without color.
     await page.go(base + "/", 3500);
+    await page.click("#home-laboratory > summary");
+    await sleep(1800);
     const st = await page.eval(`[...document.querySelectorAll('#home-state .ds-state')].map(e => ({ state: e.dataset.state, tone: e.dataset.tone, text: e.innerText.trim(), icon: e.querySelector('.ds-state-icon')?.textContent }))`);
     const valid = st.find((s) => s.state === "VALID_PROPOSAL"), rejected = st.find((s) => s.state === "REJECTED_BY_VALIDATOR");
     check("states:home_shows_real_v1_v2", valid && rejected && valid.tone !== rejected.tone && valid.icon !== rejected.icon && /validada/.test(valid.text) && /Rejeitada/.test(rejected.text), st);

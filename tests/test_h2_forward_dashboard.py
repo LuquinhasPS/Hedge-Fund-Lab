@@ -380,7 +380,7 @@ def test_http_origin_csrf_payload_and_static_isolation(http_server):
         '{"x":NaN}',
         "x" * 4097,
     ):
-        assert request(instance, "/api/forward/preflight", "POST", body, valid)[0] == 400
+        assert request(instance, "/api/forward/preflight", "POST", body, valid)[0] == 403
     assert (
         request(
             instance,
@@ -389,7 +389,7 @@ def test_http_origin_csrf_payload_and_static_isolation(http_server):
             '{"confirm":false,"confirmation_token":"bad"}',
             valid,
         )[0]
-        == 400
+        == 403
     )
     assert (
         request(
@@ -399,12 +399,11 @@ def test_http_origin_csrf_payload_and_static_isolation(http_server):
             '{"confirm":true,"confirmation_token":"bad"}',
             valid,
         )[0]
-        == 409
+        == 403
     )
     code, data = request(instance, "/api/forward/preflight", "POST", "{}", valid)
-    assert code == 202
-    job = wait_job(c, json.loads(data))
-    assert job["report"]["ready"]
+    assert code == 403 and json.loads(data)["error"] == "legacy_read_only"
+    assert not list(c.root.glob("job-*.json"))
 
 
 def test_benchmarks_causal_common_inception_settlement_and_no_backfill(
@@ -506,7 +505,7 @@ def test_projection_never_opens_journal_or_reserved_data(monkeypatch):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node unavailable")
-def test_browser_never_posts_on_load_and_requires_explicit_checked_confirmation(tmp_path):
+def test_legacy_browser_never_posts_and_preserves_consultation(tmp_path):
     harness = tmp_path / "paper.cjs"
     harness.write_text(
         r"""
@@ -533,22 +532,9 @@ const tick=()=>new Promise(r=>setImmediate(r));
 const posts=()=>requests.filter(r=>r.method==='POST');
 (async()=>{
   await tick(); await tick();
-  assert.equal(posts().length,0); assert.equal(elements.execute.disabled,true);
-  elements.execute.dispatch('click'); assert.equal(elements['confirm-dialog'].open,false);
-  current.job={id:'pre1',command:'preflight',state:'COMPLETE',report:{ready:true,state:'READY',confirmation_token:'SIGNED_OFFLINE_TOKEN',calendar:{target_session:'2026-10-13'},input:{sha256:'a'.repeat(64)},model:{model:'FAKE'},estimate:{usd_expected:.01,usd_prudent_budget:.02}}};
-  await vm.runInContext('pollStatus(false)',ctx);
-  assert.equal(elements.execute.disabled,false);
-  elements.execute.dispatch('click'); assert.equal(elements['confirm-dialog'].open,true);
-  assert.equal(elements['submit-confirm'].disabled,true); assert.equal(posts().length,0);
-  elements['submit-confirm'].dispatch('click'); assert.equal(posts().length,0);
-  elements['accept-charges'].checked=true; elements['accept-charges'].dispatch('change');
-  assert.equal(elements['submit-confirm'].disabled,false);
-  elements['submit-confirm'].dispatch('click'); elements['submit-confirm'].dispatch('click');
-  await tick(); await tick();
-  assert.equal(posts().length,1);
-  assert.deepEqual(JSON.parse(posts()[0].body),{confirm:true,confirmation_token:'SIGNED_OFFLINE_TOKEN'});
-  assert.equal(posts()[0].headers['X-CSRF-Token'],'OFFLINE_CSRF');
-  assert.equal(elements.execute.disabled,true);
+  assert.equal(posts().length,0);
+  assert.equal(elements.execute,undefined); assert.equal(elements.prepare,undefined);
+  assert.equal(vm.runInContext('typeof submit',ctx),'undefined');
   // Local quorum simulator mirrors src/agents/technical_analyst.py and never fetches.
   const before=requests.length, q=(...a)=>vm.runInContext(`quorum(${a.map(v=>JSON.stringify(v)).join(',')})`,ctx);
   assert.equal(q(5,.6,{COMPRA:3,VENDA:2,MANTER:0},true).winner,'COMPRA');
@@ -559,20 +545,12 @@ const posts=()=>requests.filter(r=>r.method==='POST');
   assert.equal(q(4,.5,{COMPRA:2,VENDA:0,MANTER:2},false).winner,'MANTER');
   assert.ok(q(5,.6,{COMPRA:6,VENDA:0,MANTER:0},true).error);
   assert.equal(requests.length,before);
-  // Supervised order approval: explicit checkbox, one POST, never the paid run endpoint.
-  vm.runInContext(`supervisionView={now:'2026-10-10T17:00:00-03:00',selected:{decision_session:'2026-10-09',decision_sha256:'${'b'.repeat(64)}',direction:'COMPRA',recommended_target:1,deadline:'2026-10-13T10:00:00-03:00'}}`,ctx);
-  const runs=posts().length;
-  vm.runInContext('askSupervision("approve")',ctx);
-  assert.equal(elements['sup-dialog'].open,true); assert.equal(elements['sup-submit'].disabled,true);
-  await vm.runInContext('confirmSupervision()',ctx); assert.equal(posts().length,runs);
-  elements['sup-accept'].checked=true; elements['sup-accept'].dispatch('change');
-  assert.equal(elements['sup-submit'].disabled,false);
-  await Promise.all([vm.runInContext('confirmSupervision()',ctx),vm.runInContext('confirmSupervision()',ctx)]);
-  assert.equal(posts().length,runs+1);
-  assert.ok(posts().at(-1).url.endsWith('/api/forward/supervision/approve'));
-  assert.deepEqual(JSON.parse(posts().at(-1).body),{confirm:true,decision_session:'2026-10-09',decision_sha256:'b'.repeat(64),limits:{}});
-  assert.equal(posts().filter(p=>p.url.endsWith('/run')).length,1);
-  console.log('OFFLINE HUMAN CONFIRMATION OK');
+  // Approved historical proposal remains visible without controls or automatic POSTs.
+  vm.runInContext(`supervisionView={initialized:true,position:{},audit:{ok:true,events:1},selected:{decision_session:'2026-10-09',order_state:'APROVADA',approval:{action:'APPROVE',limits:{}},direction:'COMPRA',recommended_target:1,deadline:'2026-10-13T10:00:00-03:00'}}; renderSupervision({session:'2026-10-09'})`,ctx);
+  assert.ok(elements['supervision-panel'].innerHTML.includes('Aprovada'));
+  assert.ok(!elements['supervision-panel'].innerHTML.includes('data-action='));
+  assert.equal(posts().length,0);
+  console.log('LEGACY READ ONLY OK');
 })().catch(e=>{console.error(e);process.exit(1)});
 """,
         encoding="utf-8",
@@ -792,4 +770,4 @@ def test_agents_endpoint_is_read_only(http_server):
     assert request(instance, "/api/forward/agents")[0] == 200
     assert request(instance, "/api/forward/agents?session=2026-10-09")[0] == 400
     headers = {"Origin": origin, "X-CSRF-Token": c.csrf, "Content-Type": "application/json"}
-    assert request(instance, "/api/forward/agents", "POST", "{}", headers)[0] == 404
+    assert request(instance, "/api/forward/agents", "POST", "{}", headers)[0] == 403

@@ -9,18 +9,21 @@ const synthetic=()=>state?.run?.mode==='SYNTHETIC_DEMO';
 const isolated=()=>synthetic()||state?.network_isolation===true;
 const readonly=()=>!state||state.mutation_available!==true;
 function transfer(){ $('radar-to-global').href='/portfolio?'+new URLSearchParams({run:runId(),tickers:chosen().join(','),session:$('session').value,mode:state?.run?.mode||''})+'#global-workflow'; $('radar-to-market').href=M.link('/market',runId()); }
-let state = null, csrf = '', selected = new Set(), report = null, poll = null;
+let state = null, csrf = '', selected = new Set(), report = null, poll = null, budgetPosting = false, guided = null;
 const cash = value => value == null ? '—' : Number(value).toFixed(4);
 const dateTime = value => value ? new Date(value).toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo'}) : '—';
 const chosen = () => [...selected];
 const selection = () => ({tickers:chosen(), session:$('session').value, max_usd:Number($('budget').value), replay:$('replay').checked});
-const messages = {invalid_or_duplicate_ticker:'Ticker inválido ou já selecionado. Use um código de ação da B3, como PETR4.',select_one_to_five_tickers:'Selecione de um a cinco ativos.',invalid_budget:'Informe um orçamento maior que zero e de até US$ 5.',explicit_paid_authorization_required:'Autorize explicitamente o custo deste lote antes de executar.',preflight_or_confirmation_changed:'A seleção ou os dados mudaram. Faça um novo preflight.',radar_busy_or_stale_lock:'O radar está ocupado ou tem uma execução interrompida. Consulte o status antes de continuar.',registry_unavailable:'Registro de execuções Radar ausente: nenhuma execução é selecionada automaticamente e todas as operações ficam bloqueadas.',registry_corrupted:'Registro de execuções Radar corrompido: nenhuma execução é selecionada automaticamente e todas as operações ficam bloqueadas.',unknown_radar_run:'Execução Radar desconhecida. Escolha uma execução do registro.',run_not_accepting_new_calls:'Esta execução não aceita novas chamadas.',runner_not_a_registered_run:'O servidor não tem execução operacional registrada: preparo e execução bloqueados.',radar_run_header_mismatch_reload_page:'A execução operacional do servidor mudou. Recarregue a página.',selection_outside_run_identity:'Sessão ou ativos fora da identidade desta execução.',aggregate_budget_authorization_required:'Exposição agregada acima do limite local: exige autorização de orçamento separada (CLI) antes de qualquer lote pago.',run_budget_exceeded:'Reserva acima do orçamento desta execução.',network_isolation_not_qualified_restart_server:'Servidor sem isolamento de rede qualificado: reinicie-o antes de qualquer execução paga.'};
+const messages = {invalid_or_duplicate_ticker:'Ticker inválido ou já selecionado. Use um código de ação da B3, como PETR4.',select_one_to_five_tickers:'Selecione de um a cinco ativos.',aggregate_budget_below_exposure:'O teto informado não cobre a exposição agregada atual. Refaça o preflight.',invalid_aggregate_budget:'Informe um teto agregado positivo em USD.',budget_changed_review_again:'As reservas mudaram. Refaça o preflight e revise os valores novamente.',explicit_budget_authorization_required:'Revise os valores e marque o consentimento de orçamento.',invalid_budget:'Informe um orçamento maior que zero e de até US$ 5.',explicit_paid_authorization_required:'Autorize explicitamente o custo deste lote antes de executar.',preflight_or_confirmation_changed:'A seleção ou os dados mudaram. Faça um novo preflight.',radar_busy_or_stale_lock:'O radar está ocupado ou tem uma execução interrompida. Consulte o status antes de continuar.',registry_unavailable:'Registro de execuções Radar ausente: nenhuma execução é selecionada automaticamente e todas as operações ficam bloqueadas.',registry_corrupted:'Registro de execuções Radar corrompido: nenhuma execução é selecionada automaticamente e todas as operações ficam bloqueadas.',unknown_radar_run:'Execução Radar desconhecida. Escolha uma execução do registro.',run_not_accepting_new_calls:'Esta execução não aceita novas chamadas.',runner_not_a_registered_run:'O servidor não tem execução operacional registrada: preparo e execução bloqueados.',radar_run_header_mismatch_reload_page:'A execução operacional do servidor mudou. Recarregue a página.',selection_outside_run_identity:'Sessão ou ativos fora da identidade desta execução.',aggregate_budget_authorization_required:'Exposição agregada acima do limite local: exige autorização de orçamento separada (CLI) antes de qualquer lote pago.',run_budget_exceeded:'Reserva acima do orçamento desta execução.',network_isolation_not_qualified_restart_server:'Servidor sem isolamento de rede qualificado: reinicie-o antes de qualquer execução paga.'};
 function error(exc) { if(exc?.name==='AbortError')return; $('error').textContent = messages[exc.message] || exc.message || String(exc); $('error').hidden = false; }
-function invalidate() { viewVersion++; transfer(); report = null; $('confirmation').hidden = true; $('paid').checked = false; $('preflight-result').textContent = 'Preflight necessário para confirmar este lote.'; }
+function invalidate() { $('budget-review').hidden=true; $('budget-consent').checked=false; viewVersion++; transfer(); report = null; $('confirmation').hidden = true; $('paid').checked = false; $('preflight-result').textContent = 'Preflight necessário para confirmar este lote.'; }
+window.addEventListener('hfl:analysis-stage',event=>{if(event.detail!=='workflow')invalidate();});
 async function api(path, payload) {
   if(payload!==undefined && readonly())throw Error('Execução somente leitura nesta visualização.');
   let url='/api/radar/'+path;
   const run=encodeURIComponent(runId());
+  if(path==='budget')url='/api/platform/radar-budget?run='+run;
+  if(path==='budget-authorization')url='/api/platform/radar-budget-authorization';
   if(path==='status')url='/api/platform/radar-view?run='+run;
   if(path.startsWith('detail?'))url='/api/platform/radar-detail?run='+run+'&'+path.slice(7);
   const response = await fetch(url, payload === undefined ? {signal:aborter.signal} : {method:'POST', signal:aborter.signal, headers:{'Content-Type':'application/json','X-CSRF-Token':csrf,'X-HFL-Radar-Run':state.run.id}, body:JSON.stringify(payload)});
@@ -85,22 +88,38 @@ async function refresh(first=false) {
   $('filter-asset').innerHTML='<option value="">Todos</option>'+state.run.universe.map(t=>`<option>${escape(t)}</option>`).join(''); $('filter-asset').value=query.get('asset')||'';
   if (state.job?.status === 'RUNNING' && !poll) poll = setInterval(() => refresh().catch(error), 2000);
   if (state.job?.status !== 'RUNNING' && poll) { clearInterval(poll); poll = null; }
+  if (state.job?.command === 'prepare' && state.job.status === 'RUNNING') {
+    report=null; $('confirmation').hidden=true; $('paid').checked=false;
+    $('preflight-result').textContent='Preparação em andamento. Aguarde sua conclusão antes de verificar os requisitos.';
+  }
   $('error').hidden=true;
-  if (!readonly() && state.last_prepare?.items.some(i => i.status === 'BLOCKED')) {
-    $('error').textContent = 'Bloqueios do último preparo: ' + state.last_prepare.items.filter(i => i.status === 'BLOCKED').map(i => `${i.ticker} (${i.session}): ${i.error}`).join(' · ') + '. Preparar novamente aplica a normalização de bonificação confirmada pela B3; se o bloqueio persistir, a divergência não é explicada pela B3 e o ativo fica fora.'; $('error').hidden = false;
+  if (!readonly() && !(state.job?.command === 'prepare' && state.job.status === 'RUNNING') && state.last_prepare?.items.some(i => i.status === 'BLOCKED')) {
+    const blocked=state.last_prepare.items.filter(i=>i.status==='BLOCKED');
+    $('error').textContent = 'Preparo de ' + dateTime(state.last_prepare.generated_at) + ' bloqueado para '+blocked.map(i=>i.ticker).join(', ')+': '+[...new Set(blocked.map(i=>i.error))].join(' · ')+'. Ver diagnóstico por ativo abaixo. Nenhum agente foi executado.'; $('error').hidden = false;
   }
   await inputs(version);
+  if(version!==viewVersion)return;
+  if ($('guided-check')) $('guided-check').disabled=readonly()||!selected.size||state.job?.status==='RUNNING';
+  if(guided?.run===runId()) {
+    if(state.job?.status==='RUNNING') $('guided-status').textContent='Preparando os dados. Aguarde a coleta e a validação; nenhuma chamada de IA foi feita.';
+    else {
+      guided=null;
+      await reviewPreflight();
+      $('guided-status').textContent=report?.ready?'Dados prontos. Revise o custo e as autorizações abaixo.':'Os dados ainda não estão prontos. Confira o diagnóstico abaixo; nenhum agente foi executado.';
+      if($('diagnostic-details'))$('diagnostic-details').open=!report?.ready;
+    }
+  }
   if(first && query.get('asset')) {
     const row=state.items.find(i=>i.ticker===query.get('asset') && i.session===state.run.session);
     if(row) await openDetail(row.ticker,row.session);
   }
 }
 const pct = v => (Number(v) * 100).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '%';
-const inputLabels = {FROZEN:'Input congelado', PREPARATION_REQUIRED:'Preparação necessária', UNRESOLVED_DIVERGENCE:'Divergência não resolvida', BLOCKED_DATA:'Dados bloqueados', INTEGRITY_ERROR:'Integridade divergente'};
+const inputLabels = {FROZEN:'Input congelado', PREPARING:'Preparo em andamento', PREPARATION_REQUIRED:'Preparação necessária', UNRESOLVED_DIVERGENCE:'Divergência não resolvida', BLOCKED_DATA:'Dados bloqueados', INTEGRITY_ERROR:'Integridade divergente'};
 const opinionLabels = {PENDING:'Parecer pendente', COMPLETED:'Parecer concluído', RECOVERY_REQUIRED:'Recuperação offline', NONE:'Sem parecer'};
 const outcomeLabels = {COMMITTEE_COMPLETED:'Comitê concluído', COMMITTEE_PARTIAL:'Comitê parcial', RECOVERABLE_OFFLINE:'Falha recuperável offline', NO_RECOVERABLE_ENVELOPE:'Falha sem envelope recuperável', UNCERTAIN_CALLS:'Chamada de resultado incerto'};
 const billingLabels = {PROVIDER_USAGE_RECORDED:'uso registrado pelo provedor', SYNTHETIC_NO_PROVIDER:'sintético, sem provedor', NO_SEND_EVIDENCE:'bloqueio local antes da conexão; cobrança a confirmar no provedor', UNKNOWN:'cobrança desconhecida'};
-const preflightLabels = {READY:'pronto', INPUT_REQUIRED:'preparar dados', gemini_api_key_missing:'chave Gemini ausente no servidor', inference_already_reserved_replay_only:'já reservado · só recuperação'};
+const preflightLabels = {READY:'pronto', PREPARING:'aguardar preparo', INPUT_REQUIRED:'preparar dados', gemini_api_key_missing:'chave Gemini ausente no servidor', inference_already_reserved_replay_only:'já reservado · só recuperação'};
 function normalization(input) {
   if (!input) return '—';
   const n = input.normalization;
@@ -119,8 +138,9 @@ async function inputs(version) {
   const d = await response.json();
   if (version !== viewVersion) return;
   if (!response.ok) { box.innerHTML = '<p class="warning">Conferência dos inputs indisponível.</p>'; box.hidden = false; return; }
-  box.innerHTML = `<p><strong>Conferência dos inputs · ${escape(d.summary)}</strong> · execução ${escape(d.run)} · sessão ${escape(d.session)} · Gestor Global ${d.global_pm_ready ? 'elegível' : 'bloqueado até existirem todos os pareceres'}</p><div class="table-scroll input-check" tabindex="0" role="region" aria-label="Conferência dos inputs, tabela rolável"><table><thead><tr><th>Ativo</th><th>Input</th><th>Dados</th><th>Parecer</th><th>Risco individual</th><th>Preflight / próxima ação</th></tr></thead><tbody>${d.items.map(i => `<tr><td data-label="Ativo"><strong>${escape(i.ticker)}</strong></td><td data-label="Input">${escape(inputLabels[i.input_state] || i.input_state)}${i.input ? `<small>${i.input.bars} barras desde ${escape(i.input.history_start)} · ${modeLabel(i.input.mode)}</small><small>SHA ${escape(i.input.input_sha256.slice(0, 12))}…</small>` : ''}</td><td data-label="Dados">${normalization(i.input)}${i.input ? `<small>Bruto R$ ${escape(i.input.raw_close)} · ajustado R$ ${escape(i.input.adjusted_close)}</small>` : ''}</td><td data-label="Parecer">${escape(opinionLabels[i.opinion] || i.opinion)}${i.outcome && i.outcome.state !== 'COMMITTEE_COMPLETED' ? `<small class="warning">${escape(outcomeLabels[i.outcome.state] || i.outcome.state)} · ${escape(i.outcome.calls_reserved)} chamadas reservadas</small><small>${escape(billingLabels[i.outcome.billing] || i.outcome.billing)}</small>` : ''}</td><td data-label="Risco individual">${riskCell(i)}</td><td data-label="Preflight">${escape(preflightLabels[i.preflight] || i.preflight || '—')}<small>${escape(i.action)}</small></td></tr>`).join('')}</tbody></table></div><p class="muted small">Preparar dados e executar análises são ações independentes: preparar é gratuito e não chama Gemini. Input íntegro não é parecer favorável; o Risk só existe após o comitê. Preparo pelo CLI: <code>${escape(d.prepare_command)}</code></p>`;
+  box.innerHTML = `<p><strong>Conferência dos inputs · ${escape(d.summary)}</strong> · execução ${escape(d.run)} · sessão ${escape(d.session)} · Gestor Global ${d.global_pm_ready ? 'elegível' : 'bloqueado até existirem todos os pareceres'}</p><div class="table-scroll input-check" tabindex="0" role="region" aria-label="Conferência dos inputs, tabela rolável"><table><thead><tr><th>Ativo</th><th>Input</th><th>Dados</th><th>Parecer</th><th>Risco individual</th><th>Preflight / próxima ação</th></tr></thead><tbody>${d.items.map(i => `<tr><td data-label="Ativo"><strong>${escape(i.ticker)}</strong></td><td data-label="Input">${escape(inputLabels[i.input_state] || i.input_state)}${i.input ? `<small>${i.input.bars} barras desde ${escape(i.input.history_start)} · ${modeLabel(i.input.mode)}</small><small>SHA ${escape(i.input.input_sha256.slice(0, 12))}…</small>` : ''}</td><td data-label="Dados">${normalization(i.input)}${i.input ? `<small>Bruto R$ ${escape(i.input.raw_close)} · ajustado R$ ${escape(i.input.adjusted_close)}</small>` : ''}${i.error ? `<small class="warning">${escape(i.error)}</small>` : ''}</td><td data-label="Parecer">${escape(opinionLabels[i.opinion] || i.opinion)}${i.outcome && i.outcome.state !== 'COMMITTEE_COMPLETED' ? `<small class="warning">${escape(outcomeLabels[i.outcome.state] || i.outcome.state)} · ${escape(i.outcome.calls_reserved)} chamadas reservadas</small><small>${escape(billingLabels[i.outcome.billing] || i.outcome.billing)}</small>` : ''}</td><td data-label="Risco individual">${riskCell(i)}</td><td data-label="Preflight">${escape(preflightLabels[i.preflight] || i.preflight || '—')}<small>${escape(i.action)}</small></td></tr>`).join('')}</tbody></table></div><p class="muted small">Preparar dados e executar análises são ações independentes: preparar é gratuito e não chama Gemini. Input íntegro não é parecer favorável; o Risk só existe após o comitê. Preparo pelo CLI: <code>${escape(d.prepare_command)}</code></p>`;
   box.hidden = false;
+  return d;
 }
 function guarded(handler) { return async event => { $('error').hidden = true; try { await handler(event); } catch(exc) { error(exc); } }; }
 $('add-form').addEventListener('submit', guarded(async event => {
@@ -133,17 +153,60 @@ $('universe').addEventListener('change', event => { const ticker=event.target.da
 $('universe').addEventListener('click', guarded(async event => { const ticker=event.target.closest('[data-remove]')?.dataset.remove; if(ticker) { await api('universe',{tickers:state.universe.filter(t=>t!==ticker)}); selected.delete(ticker); invalidate(); await refresh(); } }));
 ['budget','replay'].forEach(id => $(id).addEventListener('change', invalidate));
 $('prepare').addEventListener('click', guarded(async () => { invalidate(); await api('prepare',{tickers:chosen(),session:$('session').value,mode:$('mode').value}); await refresh(); }));
+$('guided-check')?.addEventListener('click',guarded(async()=>{
+  if(readonly()||!selected.size||state.job?.status==='RUNNING')return;
+  invalidate();$('guided-check').disabled=true;
+  $('guided-status').textContent='Iniciando a preparação dos dados; esta etapa não executa agentes.';
+  try{await api('prepare',{tickers:chosen(),session:$('session').value,mode:$('mode').value});guided={run:runId()};await refresh();}
+  catch(e){guided=null;$('guided-check').disabled=false;throw e;}
+}));
 function budgetBlocked() { const a = state?.run?.budget?.authorization; return !!a && a.required && a.state !== 'VALID'; }
-$('preflight').addEventListener('click', guarded(async () => {
-  const version=viewVersion,next=await api('preflight',selection());if(version!==viewVersion)return;report=next;
-  const money = state.run.budget, old = money ? money.runs.filter(x => x.run !== state.run.id && x.usd_reserved > 0) : [];
-  $('preflight-result').innerHTML = `<p><strong>${report.ready ? 'Preflight Radar aprovado' : 'Preflight bloqueado'}</strong> · execução ${escape(state.run.id)} · sessão ${escape(report.session)}</p><ul>${report.items.map(i=>`<li>${escape(i.ticker)}: ${i.ready ? 'pronto · ' + modeLabel(i.mode) : escape(i.error)}</li>`).join('')}</ul><p>Estimativa do lote: <strong>US$ ${cash(report.usd_estimated)}</strong> · Teto reservado: <strong>US$ ${cash(report.usd_reserved)}</strong> · Reservas já registradas nesta execução: US$ ${cash(report.global_budget_used)} · Orçamento da execução: US$ ${cash(state.run.budget_usd)}.</p>${money ? `<p>${old.map(x => `Execução ${escape(x.run)}: reserva US$ ${cash(x.usd_reserved)} · ${x.reservations.map(b => escape(forensic(b.forensic))).join(', ')} · valor reservado, não custo faturado.`).join('<br>')}${old.length?'<br>':''}Exposição agregada conservadora após este lote: <strong>US$ ${cash(money.aggregate_exposure_usd)}</strong> / limite local US$ ${cash(money.aggregate_cap_usd)} · até ${money.planned.calls_max} chamadas, ${money.planned.calls_planned} planejadas · ${escape(authLabels[money.authorization.state]||money.authorization.state)}.</p>` : ''}<p class="muted">Até 6 chamadas por ativo (5 analistas + Risk; Risk dispensado por veto determinístico). Estimativa baseada em 2.500 tokens de entrada e 800 de saída por chamada. Reserva conservadora: 32.768 de entrada e 8.192 de saída, incluindo pensamento, sem retries automáticos. <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Tarifas e hipóteses</a>.</p>${report.usd_reserved > report.max_usd || report.global_budget_used + report.usd_reserved > report.global_budget_cap ? '<p class="warning">Orçamento insuficiente para a reserva conservadora do lote.</p>' : ''}${budgetBlocked() && !report.replay ? '<p class="warning">Exposição agregada acima do limite local sem autorização de orçamento separada: execução paga bloqueada. Ver runbook (radar_runs.py budget / authorize-budget).</p>' : ''}`;
+async function reviewPreflight() {
+  const version=viewVersion, readiness=await inputs(version);if(version!==viewVersion)return;
+  if(readiness?.items.some(i=>i.input_state==='PREPARING')) {
+    report=null; $('confirmation').hidden=true; $('paid').checked=false;
+    $('preflight-result').textContent='Preparação em andamento. Aguarde sua conclusão antes de verificar os requisitos.';
+    return;
+  }
+  const reasons=new Map((readiness?.items||[]).filter(i=>['BLOCKED_DATA','UNRESOLVED_DIVERGENCE','PREPARATION_REQUIRED'].includes(i.input_state)).map(i=>[i.ticker,[i.error,i.action].filter(Boolean).join(' · ')]));
+  const [next,money]=await Promise.all([api('preflight',selection()),api('budget')]);if(version!==viewVersion)return;report=next;state.run.budget=money;
+  const old = money ? money.runs.filter(x => x.run !== state.run.id && x.usd_reserved > 0) : [];
+  $('preflight-result').innerHTML = `<p><strong>${report.ready ? budgetBlocked()?'Dados prontos · revisão de orçamento pendente':'Preflight Radar aprovado' : 'Preflight bloqueado'}</strong> · execução ${escape(state.run.id)} · sessão ${escape(report.session)}</p><ul>${report.items.map(i=>`<li>${escape(i.ticker)}: ${i.ready ? 'pronto · ' + modeLabel(i.mode) : escape(reasons.get(i.ticker) || i.error)}</li>`).join('')}</ul><p>Estimativa do lote: <strong>US$ ${cash(report.usd_estimated)}</strong> · Teto reservado: <strong>US$ ${cash(report.usd_reserved)}</strong> · Reservas já registradas nesta execução: US$ ${cash(report.global_budget_used)} · Orçamento da execução: US$ ${cash(state.run.budget_usd)}.</p>${money ? `<p>${old.map(x => `Execução ${escape(x.run)}: reserva US$ ${cash(x.usd_reserved)} · ${x.reservations.map(b => escape(forensic(b.forensic))).join(', ')} · valor reservado, não custo faturado.`).join('<br>')}${old.length?'<br>':''}Exposição agregada conservadora após este lote: <strong>US$ ${cash(money.aggregate_exposure_usd)}</strong> / limite local US$ ${cash(money.aggregate_cap_usd)} · até ${money.planned.calls_max} chamadas, ${money.planned.calls_planned} planejadas · ${escape(authLabels[money.authorization.state]||money.authorization.state)}.</p>` : ''}<p class="muted">Até 6 chamadas por ativo (5 analistas + Risk; Risk dispensado por veto determinístico). Estimativa baseada em 2.500 tokens de entrada e 800 de saída por chamada. Reserva conservadora: 32.768 de entrada e 8.192 de saída, incluindo pensamento, sem retries automáticos. <a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Tarifas e hipóteses</a>.</p>${report.usd_reserved > report.max_usd || report.global_budget_used + report.usd_reserved > report.global_budget_cap ? '<p class="warning">Orçamento insuficiente para a reserva conservadora do lote.</p>' : ''}${budgetBlocked() && !report.replay ? '<p class="warning">Exposição agregada acima do limite local sem autorização de orçamento separada: revise e autorize os valores no painel abaixo antes de confirmar o lote.</p>' : ''}`;
   $('confirmation').hidden = !report.ready;
   const paid = !report.replay && report.items.some(i=>i.mode==='live');
-  $('paid').closest('label').hidden = !paid; $('paid').checked = false; $('execute').disabled = paid || !isolated();
+  $('paid').closest('label').hidden = !paid; $('paid').checked = false; $('execute').disabled = paid || !isolated() || readonly();
   $('execute').textContent = report.replay ? '3. Confirmar recuperação offline' : paid ? '3. Confirmar e executar chamadas pagas' : '3. Executar exemplo sintético · US$ 0'; $('execute').dataset.action = report.replay ? 'read' : paid ? 'paid' : 'simulate';
+  renderBudgetReview();
+}
+$('preflight').addEventListener('click', guarded(reviewPreflight));
+function renderBudgetReview() {
+  const money=state.run.budget, show=report?.ready&&!report.replay&&budgetBlocked();
+  $('budget-review').hidden=!show;$('budget-consent').checked=false;
+  if(!show)return;
+  $('aggregate-budget').value='';$('aggregate-budget').min=String(money.aggregate_exposure_usd);
+  $('budget-review-summary').textContent=`Execução ${state.run.id} · sessão ${state.run.session.split('-').reverse().join('/')} · ativos ${money.planned.tickers.join(', ')}. Reservas anteriores: US$ ${cash(money.other_runs_reserved_usd)}. Reserva desta execução: US$ ${cash(money.run_reserved_usd)}. Novo lote: US$ ${cash(money.planned.usd_reserved)}. Exposição agregada: US$ ${Number(money.aggregate_exposure_usd).toFixed(6)}. Limite geral atual: US$ ${cash(money.aggregate_cap_usd)}. Reservas não são cobrança confirmada.`;
+  updateBudgetControl();
+}
+function updateBudgetControl() {
+  const money=state?.run?.budget,limit=Number($('aggregate-budget').value);
+  const scope=money?.planned.tickers.length===selected.size&&money.planned.tickers.every(t=>selected.has(t));
+  const valid=money&&Number.isFinite(limit)&&limit>0&&limit>=money.aggregate_exposure_usd;
+  $('budget-authorize').disabled=budgetPosting||readonly()||!report?.ready||!$('budget-consent').checked||!valid||!scope;
+  $('budget-review-status').textContent=!scope?'Esta autorização cobre todos os ativos pendentes indicados. Selecione esse conjunto e refaça o preflight.':!valid?'Informe um teto que cubra a exposição agregada apresentada.':'O registro de orçamento não executa chamadas. A confirmação paga do lote continua na etapa 3.';
+}
+['aggregate-budget','budget-consent'].forEach(id=>$(id).addEventListener('input',updateBudgetControl));
+$('budget-authorize').addEventListener('click',guarded(async()=>{
+  updateBudgetControl();if($('budget-authorize').disabled)return;
+  const version=viewVersion,payload={run:runId(),budget_token:state.run.budget.budget_token,max_aggregate_usd:Number($('aggregate-budget').value),confirm:true};
+  budgetPosting=true;$('budget-authorize').disabled=true;$('execute').disabled=true;
+  try{
+    await api('budget-authorization',payload);
+    if(version!==viewVersion)return;
+    invalidate();await refresh();await reviewPreflight();
+  }catch(e){if(version===viewVersion)invalidate();throw e;
+  }finally{budgetPosting=false;}
 }));
-$('paid').addEventListener('change', () => { $('execute').disabled = !$('paid').checked || !isolated() || budgetBlocked(); });
+$('paid').addEventListener('change', () => { $('execute').disabled = !report?.ready || !$('paid').checked || !isolated() || budgetBlocked() || readonly() || budgetPosting; });
 $('execute').addEventListener('click', guarded(async () => {
   if(!report?.ready) throw new Error('Refaça o preflight.');
   const current=report, version=viewVersion;
@@ -172,7 +235,7 @@ $('results').addEventListener('click', guarded(async event => {
 }));
 function syncUrl() {
   query.set('run',runId());
-  history.replaceState(null,'','/radar?'+query);
+  history.replaceState(null,'','/radar?'+query+location.hash);
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 ['asset','signal','risk','final'].forEach(key=>{
@@ -195,6 +258,7 @@ $('compare').addEventListener('click', guarded(async () => {
   $('comparison').innerHTML=`<p class="muted small">Mesma execução ${escape(state.run.id)} e sessão ${escape(rows[0].session)}; as gerações ocorreram nos horários individuais abaixo.</p><div class="side-by-side">${rows.map(r=>`<article class="comparison-card">${detailHtml(r,true)}</article>`).join('')}</div>`;
 }));
 function choose(id) {
+  guided=null;
   // Cancel every pending request of the previous run: no record of two runs is mixed.
   aborter.abort(); aborter = new AbortController(); state = null; selected = new Set();
   if (poll) { clearInterval(poll); poll = null; }

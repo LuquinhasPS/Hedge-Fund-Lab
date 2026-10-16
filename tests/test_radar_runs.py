@@ -834,7 +834,7 @@ def http_lab(lab, monkeypatch):
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     port = httpd.server_address[1]
 
-    def post(command, payload, run=None):
+    def post(command, payload, run=None, platform=False):
         headers = {
             "Origin": f"http://127.0.0.1:{port}",
             "Content-Type": "application/json",
@@ -843,7 +843,12 @@ def http_lab(lab, monkeypatch):
         if run:
             headers["X-HFL-Radar-Run"] = run
         c = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
-        c.request("POST", "/api/radar/" + command, json.dumps(payload), headers)
+        c.request(
+            "POST",
+            ("/api/platform/" if platform else "/api/radar/") + command,
+            json.dumps(payload),
+            headers,
+        )
         response = c.getresponse()
         result = response.status, json.loads(response.read())
         c.close()
@@ -853,6 +858,57 @@ def http_lab(lab, monkeypatch):
     yield post
     httpd.shutdown()
     httpd.server_close()
+
+
+def test_web_budget_review_validates_scope_ceiling_and_snapshot(
+    lab, http_lab, monkeypatch
+):
+    data = incident_and_recovery(lab)
+    monkeypatch.setattr(api.radar_api, "ACTIVE", False)
+    money = api.get("radar-budget", {"run": "radar-new"})
+    assert money["read_only"] and money["authorization"]["state"] == "ABSENT"
+    body = {
+        "run": "radar-new",
+        "budget_token": money["budget_token"],
+        "max_aggregate_usd": 10,
+        "confirm": True,
+    }
+    before = tree(lab / "old")
+    for change in (
+        {"confirm": False},
+        {"confirm": 1},
+        {"max_aggregate_usd": True},
+        {"max_aggregate_usd": -1},
+        {"max_aggregate_usd": float("nan")},
+        {"max_aggregate_usd": 5},
+        {"budget_token": "0" * 64},
+        {"run": "radar-old"},
+        {"extra": True},
+    ):
+        status, _ = http_lab(
+            "radar-budget-authorization", body | change, run="radar-new", platform=True
+        )
+        assert status == 400
+    assert (
+        http_lab("radar-budget-authorization", body, run="radar-old", platform=True)[0]
+        == 400
+    )
+    assert not (lab / "new/budget_authorizations").exists()
+    monkeypatch.setattr(api.radar_api, "ACTIVE", True)
+    assert (
+        http_lab("radar-budget-authorization", body, run="radar-new", platform=True)[0]
+        == 400
+    )
+    monkeypatch.setattr(api.radar_api, "ACTIVE", False)
+    status, result = http_lab(
+        "radar-budget-authorization", body, run="radar-new", platform=True
+    )
+    assert status == 201 and result["provider_calls"] == 0
+    assert result["authorized_exposure_usd"] == money["aggregate_exposure_usd"]
+    assert runs.budget("radar-new", data)["authorization"]["state"] == "VALID"
+    assert tree(lab / "old") == before and http_lab.calls == []
+    assert not list((lab / "new").rglob("claim.json"))
+    assert radar.budget_used(lab / "new") == 0
 
 
 def run_payload(**extra):
@@ -926,6 +982,39 @@ def test_server_binds_only_a_selected_run_that_accepts_calls(lab, monkeypatch):
     assert runs.bind(api.radar_api) is None and api.radar_api.ROOT == radar.OUTPUT
 
 
+def test_readiness_does_not_reuse_old_blocks_during_new_prepare(lab, monkeypatch):
+    root = lab / "preparing"
+    prepare(root, ["PETR4"])
+    radar.write(
+        root / "last_prepare.json",
+        {
+            "generated_at": "2026-10-14T03:02:00-03:00",
+            "items": [
+                {
+                    "ticker": t,
+                    "session": DAY,
+                    "status": "BLOCKED",
+                    "error": "no adjustment factor",
+                }
+                for t in ["PETR4", "VALE3"]
+            ],
+        },
+    )
+    job = {"command": "prepare", "status": "RUNNING"}
+    monkeypatch.setattr(api, "radar_job", lambda root: job)
+    report = api.radar_readiness(DAY, ["PETR4", "VALE3"], root)
+    petr, vale = report["items"]
+    assert petr["input_state"] == "FROZEN" and report["inputs_ready"] == 1
+    assert vale["input_state"] == vale["preflight"] == "PREPARING"
+    assert vale["error"] is None and "aguarde" in vale["action"]
+    job["status"] = "COMPLETED"
+    blocked = api.radar_readiness(DAY, ["VALE3"], root)["items"][0]
+    assert blocked["input_state"] == "BLOCKED_DATA"
+    assert blocked["error"] == "no adjustment factor"
+    assert "Fator de ajuste Yahoo indisponível" in blocked["action"]
+    assert "não confirmado pela B3" not in blocked["action"]
+
+
 def test_snapshot_classifies_registry_and_late_covered_areas(tmp_path):
     (tmp_path / "data/radar/r").mkdir(parents=True)
     (tmp_path / "data/radar/registry.json").write_text(
@@ -954,8 +1043,8 @@ const document={getElementById:element};
 function fetch(url,options={}){return new Promise((resolve,reject)=>{const req={url,options,reply:(data,ok=true)=>resolve({ok,json:async()=>data})};options.signal?.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'})));pending.push(req)})}
 function take(part){const i=pending.findIndex(r=>r.url.includes(part));assert.ok(i>=0,'missing '+part+' in '+pending.map(r=>r.url));return pending.splice(i,1)[0]}
 const tick=()=>new Promise(r=>setImmediate(r));
-const ctx=vm.createContext({document,fetch,URLSearchParams,AbortController,location:{search:''},history:{replaceState(){}},setTimeout,clearTimeout,setInterval,clearInterval,console});
-ctx.window=ctx;ctx.dispatchEvent=()=>{};ctx.PopStateEvent=class {};
+const ctx=vm.createContext({document,fetch,URLSearchParams,AbortController,location:{search:'',hash:''},history:{replaceState(){}},setTimeout,clearTimeout,setInterval(){return 1},clearInterval(){},console});
+ctx.window=ctx;ctx.addEventListener=()=>{};ctx.dispatchEvent=()=>{};ctx.PopStateEvent=class {};
 vm.runInContext(fs.readFileSync(require('node:path').join(require('node:path').dirname(process.argv[1]),'market-ui.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
 const run=(id,mode='CONSULTATIVE_SANDBOX')=>({id,mode,session:'2026-10-09',universe:['PETR4'],state:'INPUTS_READY',reasons:[],opinions:0,incident:null,selected:id==='radar-b',source:'B3',classification:'OFFICIAL',same_treatment_as:null,prepared_at:null,inputs:1,claims:0,failures:0,calls_reserved:0,responses_recorded:0,budget_usd:3.32,usd_reserved:0,usd_reserved_uncertain:0,usd_observed_provider_tokens:0,budget:null,comparison:null});
@@ -974,12 +1063,24 @@ const view=id=>({run:run(id),items:[{ticker:'PETR4',session:'2026-10-09',mode:'l
  assert.ok(element('run-card').innerHTML.includes('radar-b'));assert.ok(!element('run-card').innerHTML.includes('radar-a'));
  assert.equal(element('prepare').disabled,false);
  element('preflight').listeners.click();await tick();
+ take('radar-readiness').reply({summary:'s',run:'radar-b',session:'2026-10-09',items:[],prepare_command:'cmd'});await tick();
  const post=take('/api/radar/preflight');
  assert.equal(post.options.headers['X-HFL-Radar-Run'],'radar-b');
  element('radar-run').value='radar-a';element('radar-run').listeners.change();await tick();
  assert.equal(post.options.signal.aborted,true);
  take('radar-view?run=radar-a').reply(view('radar-a'));await tick();
  assert.equal(element('prepare').disabled,true);
+ // A previous failure must not appear as the result of the new, running preparation.
+ const oldFailure={generated_at:'2026-10-14T03:02:00-03:00',items:[{ticker:'PETR4',session:'2026-10-13',status:'BLOCKED',error:'no adjustment factor'}]};
+ element('radar-run').value='radar-b';element('radar-run').listeners.change();await tick();
+ take('radar-view?run=radar-b').reply({...view('radar-b'),job:{command:'prepare',status:'RUNNING'},last_prepare:oldFailure});await tick();
+ take('radar-readiness').reply({summary:'s',run:'radar-b',session:'2026-10-09',items:[],prepare_command:'cmd'});await tick();
+ assert.equal(element('error').hidden,true);
+ const refresh=vm.runInContext('refresh()',ctx);
+ take('radar-view?run=radar-b').reply({...view('radar-b'),last_prepare:oldFailure});await tick();
+ take('radar-readiness').reply({summary:'s',run:'radar-b',session:'2026-10-09',items:[],prepare_command:'cmd'});await refresh;
+ assert.equal(element('error').hidden,false);assert.match(element('error').textContent,/14\/10\/2026/);
+ assert.ok(!element('error').textContent.includes('bonificação'));
  console.log('run switch, abort and run-scoped writes: PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});
 """
@@ -998,8 +1099,8 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const fields={},pending=[];
 function element(id){return fields[id]??={id,value:'',disabled:false,hidden:true,textContent:'',innerHTML:'',dataset:{},listeners:{},classList:{toggle(){}},addEventListener(k,f){this.listeners[k]=f},querySelectorAll(){return [element(id+'-input')]},closest(){return element(id+'-label')}}}
 function fetch(url,options={}){return new Promise(resolve=>pending.push({url,reply:(data,ok)=>resolve({ok,json:async()=>data})}))}
-const ctx=vm.createContext({document:{getElementById:element},fetch,URLSearchParams,AbortController,location:{search:''},history:{replaceState(){}},setTimeout,clearTimeout,setInterval,clearInterval,console});
-ctx.window=ctx;ctx.dispatchEvent=()=>{};ctx.PopStateEvent=class {};
+const ctx=vm.createContext({document:{getElementById:element},fetch,URLSearchParams,AbortController,location:{search:'',hash:''},history:{replaceState(){}},setTimeout,clearTimeout,setInterval,clearInterval,console});
+ctx.window=ctx;ctx.addEventListener=()=>{};ctx.dispatchEvent=()=>{};ctx.PopStateEvent=class {};
 vm.runInContext(fs.readFileSync(require('node:path').join(require('node:path').dirname(process.argv[1]),'market-ui.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
 (async()=>{
@@ -1014,6 +1115,20 @@ vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
 """
     result = subprocess.run(
         [shutil.which("node") or "node", "-e", script, str(ROOT / "dashboard/radar.js")],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_radar_budget_authorization_is_reviewed_in_ui_before_paid_confirmation():
+    result = subprocess.run(
+        [
+            shutil.which("node") or "node",
+            str(ROOT / "tests/radar_budget_ui_check.js"),
+            str(ROOT / "dashboard/radar.js"),
+        ],
         capture_output=True,
         text=True,
         timeout=30,
