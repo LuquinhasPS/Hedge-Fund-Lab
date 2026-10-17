@@ -10,7 +10,7 @@ decisões em [DIRECAO_DO_PROJETO](DIRECAO_DO_PROJETO.md).
 | ID | Entrega | DP / item | Estado |
 |---|---|---|---|
 | T1 | Histórico da WEG: WEGE4 até 31/05/2007, WEGE3 desde 01/06/2007 | DP-29 B / APP-03 | **Concluído 17/10**: WEGE3 desde 02/08/2004 (702 linhas de WEGE4), 0 conflitos; troca 16,10 → 16,70 |
-| T2 | Gestor usa caixa com proventos recebidos | DP-30 / APP-05 | **Bloqueado por decisão de Lucas** (A ou B, ver T2); rastreio feito, nenhuma edição |
+| T2 | Gestor usa caixa com proventos recebidos | DP-30 / APP-05 | **Decidido 17/10: opção A** (lançar no livro); pronto para rodar, ver T2 |
 | T3 | Backtest de regras no Laboratório | DP-31 / Laboratório | Não iniciado (agente interrompido sem alterações) |
 | T4 | Pesquisa "munição para os agentes" | DP-27, DP-31 | Não iniciado (agente interrompido sem alterações) |
 | T5 | Docs, verificação integrada e commits | — | Após T1–T4 |
@@ -87,7 +87,33 @@ na prévia faria a prévia aceitar o que a aplicação recusa. Opções:
   recebidos ainda não utilizáveis pelo gestor", com o valor informativo.
   Pequeno e consistente; a carteira subutiliza caixa até existir A.
 
-Recomendação do rastreio: B agora, A depois.
+**Decisão de Lucas (17/10): opção A.** Especificação para o agente (Sonnet;
+arquivos: `dashboard/manual_portfolio_api.py`, `dashboard/dividends_api.py`,
+`dashboard/portfolio_history_api.py`, `dashboard/wallet_manager_api.py`,
+`dashboard/market_base_api.py` só no `_run`, e os testes correspondentes):
+
+1. Novo tipo de lançamento no livro, por exemplo `DIVIDEND`, com carteira,
+   ativo, tipo (DIVIDENDO/JCP/OUTRO), data-com, data de pagamento, quantidade,
+   valor bruto e líquido, fonte (snapshot B3 e hash). Chave idempotente
+   `carteira+ativo+data-com+pagamento+tipo`: repetir não duplica.
+2. `replay` credita o líquido no caixa do livro na data de pagamento e o
+   invariante passa a fechar com `capital + resultado realizado + proventos
+   recebidos`. Histórico de lançamentos e correções continua preservado.
+3. Quem lança: a atualização de dados (`_run`, após `dividends_api.update`)
+   grava, para cada carteira simulada ou pessoal, os eventos com estado
+   RECEBIDO ainda não lançados. Só RECEBIDO entra no livro; A RECEBER e
+   ANUNCIADO continuam calculados na leitura.
+4. `portfolio_history_api`: `cash_available` deixa de somar recebidos (já
+   estão no caixa do livro) e o patrimônio não pode contá-los duas vezes;
+   a receber segue somado ao patrimônio, fora do caixa.
+5. Gestor: passa a ver o caixa do livro já com proventos. Lançar provento
+   muda a revisão da carteira e invalida propostas abertas; a tela deve dizer
+   "carteira mudou (provento lançado); abra nova análise".
+6. Buy & Hold: o lançamento vale igual (DP-11: proventos em caixa).
+7. Testes: idempotência, invariante, dupla contagem ausente no histórico,
+   proposta aberta invalidada, gestor usando o caixa novo, evento a receber
+   não lançado. Rodar a bateria do T5.
+
 
 ## T3 — Backtest de regras (Sonnet)
 
