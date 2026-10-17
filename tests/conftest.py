@@ -10,6 +10,8 @@ import pytest
 
 # server.main() must never start the real market-base network update in tests
 os.environ["HFL_MARKET_BASE_AUTOUPDATE"] = "0"
+# the CDI default fetcher answers "not published" instead of reaching api.bcb.gov.br
+os.environ["HFL_RATES_OFFLINE"] = "1"
 
 # Adiciona src/ ao path
 SRC = Path(__file__).resolve().parent.parent / "src"

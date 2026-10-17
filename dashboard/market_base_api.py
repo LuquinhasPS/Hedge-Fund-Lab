@@ -36,10 +36,33 @@ MAX_BYTES = 512 * 1024 * 1024  # downloaded ZIP (2026 annual is ~95 MB)
 # Annual text members reach several hundred MB; parsing streams, so this only
 # guards against a zip bomb.
 MAX_MEMBER = 2 * 1024 * 1024 * 1024
+# Old B3 code -> current code (Lucas, 17/10: normalize to today's ticker) and the
+# last year the old code traded. Only clean renames: no overlapping sessions and
+# price continuity at the switch (ITAU4 -> ITUB4 on 2009-05-20: no overlap, +1.97%).
+# WEGE4 -> WEGE3 is NOT here: both classes traded together until 2007-05-31.
+ALIASES = {"ITAU4": "ITUB4"}
+ALIAS_LAST_YEAR = {"ITAU4": 2009}
 FIELDS = ("open", "high", "low", "close", "volume")
 UPDATE_LOCK = Lock()
 USER_AGENT = "HedgeFundLab/1.0 (uso local; TCC)"
 JOB_LOCK = Lock()
+
+
+class _B3Agent(request.BaseHandler):
+    """Project user-agent on B3 requests only (B3 answers 403 to "Python-urllib")."""
+
+    def https_request(self, req):
+        if (req.host or "").endswith("bmfbovespa.com.br"):
+            req.add_unredirected_header("User-Agent", USER_AGENT)
+        return req
+
+    http_request = https_request
+
+
+def install_b3_user_agent():
+    # The sealed src/pipeline/b3_official.py (Radar preparation) calls urlopen with
+    # the default agent; a process-wide opener fixes it without editing that module.
+    request.install_opener(request.build_opener(_B3Agent))
 
 
 def fetch_http(url):
@@ -64,6 +87,7 @@ def parse(raw, symbols=TICKERS):
     QUATOT 152:170 that read_cotahist reports as volume.
     """
     rows, seen = {s: [] for s in symbols}, set()
+    names = {s: s for s in symbols} | {o: n for o, n in ALIASES.items() if n in rows}
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         members = archive.infolist()
         if len(members) != 1 or members[0].file_size > MAX_MEMBER:
@@ -75,10 +99,11 @@ def parse(raw, symbols=TICKERS):
                 day = f"{line[2:6]}-{line[6:8]}-{line[8:10]}"
                 seen.add(day)
                 symbol = line[12:24].strip()
-                if line[24:27] != "010" or line[10:12] != "02" or symbol not in rows:
+                if line[24:27] != "010" or line[10:12] != "02" or symbol not in names:
                     continue
-                rows[symbol].append(
+                rows[names[symbol]].append(
                     {
+                        **({"source_symbol": symbol} if symbol in ALIASES else {}),
                         "date": day,
                         "open": int(line[56:69]) / 100,
                         "high": int(line[69:82]) / 100,
@@ -94,10 +119,18 @@ def parse(raw, symbols=TICKERS):
 
 
 def target(kind, key):
-    """Plan item for an annual year (int) or a daily session (date)."""
-    name = f"COTAHIST_A{key}.ZIP" if kind == "annual" else f"COTAHIST_D{key:%d%m%Y}.ZIP"
+    """Plan item: annual year (int), daily session (date) or (year, old code) alias supplement."""
+    alias = kind == "annual-alias"
+    year = key[0] if alias else key
+    name = f"COTAHIST_A{year}.ZIP" if kind != "daily" else f"COTAHIST_D{key:%d%m%Y}.ZIP"
     url = COTAHIST_URL.replace("COTAHIST_A{year}.ZIP", name)
-    return {"file": name, "kind": kind, "key": key, "url": url}
+    # supplement = the same ZIP re-read for one old code, stored as <annual>+<code>
+    return {
+        "file": f"{name}+{key[1]}" if alias else name,
+        "kind": kind,
+        "key": key,
+        "url": url,
+    }
 
 
 @lru_cache(maxsize=4)
@@ -135,6 +168,15 @@ def plan(closed, have=None):
     missing = [d for d in this_year if str(d) not in covered]
     # ponytail: ~10 sessions is the break-even between one annual and many daily
     # requests; a 404 daily is not remembered and is retried on every update.
+    # Annual records written before an alias existed lack its rows: one supplement
+    # per (file, old code), while the old code could still trade that year.
+    done = {(f["year"], a) for f in have if "year" in f for a in f.get("aliases", [])}
+    items += [
+        target("annual-alias", (y, a))
+        for y in sorted(years)
+        for a in ALIASES
+        if y <= ALIAS_LAST_YEAR[a] and (y, a) not in done
+    ]
     if end.year not in years and len(missing) > 10:
         return [*items, target("annual", end.year)]
     return [*items, *(target("daily", d) for d in missing)]
@@ -150,6 +192,12 @@ def acquire(item, fetch):
     rows, seen = parse(raw)
     if not seen:
         raise ValueError("cotahist_without_records")
+    alias = item["kind"] == "annual-alias"
+    if alias:  # only the rows that came from that old code
+        rows = {
+            t: [r for r in v if r.get("source_symbol") == item["key"][1]]
+            for t, v in rows.items()
+        }
     record = {
         "identity": IDENTITY,
         "url": item["url"],
@@ -161,10 +209,15 @@ def acquire(item, fetch):
         "parser": PARSER,
         "rows": rows,
     }
-    if item["kind"] == "annual":
-        if {d[:4] for d in seen} != {str(item["key"])}:
+    if item["kind"] in ("annual", "annual-alias"):
+        year = item["key"][0] if alias else item["key"]
+        if {d[:4] for d in seen} != {str(year)}:
             raise ValueError("annual_file_year_mismatch")
-        record |= {"year": item["key"], "through": max(seen)}
+        record |= {
+            "year": year,
+            "through": max(seen),
+            "aliases": [item["key"][1]] if alias else sorted(ALIASES),
+        }
     else:
         if seen != {str(item["key"])}:
             raise ValueError("daily_file_session_mismatch")
@@ -299,7 +352,14 @@ def _run(fetch):
                     yahoo[ticker] = "OK"
                 except Exception as e:
                     yahoo[ticker] = f"{type(e).__name__}: {e}"
-        JOB["last"] = {**last, "yahoo": yahoo}
+        import reference_rates_api as rates  # circular: it needs this module's ROOT
+
+        try:  # DP-28 CDI: same fetcher contract (url -> bytes); never aborts the rest
+            rates.update(last["closed"], fetch)
+            cdi = "OK"
+        except Exception as e:
+            cdi = f"{type(e).__name__}: {e}"
+        JOB["last"] = {**last, "yahoo": yahoo, "cdi": cdi}
         JOB["error"] = None
     except Exception as e:
         JOB["error"] = f"{type(e).__name__}: {e}"
@@ -341,6 +401,22 @@ def benchmark(since):
     ]
     before = [r for r in rows if r["date"] < since]
     anchor = before[-1] if before else None
+    import reference_rates_api as rates
+
+    try:
+        stored = rates.daily()
+        start = (anchor and anchor["date"]) or max(
+            (d for d in stored if d < since), default=None
+        )
+        ref = rates.cdi(start, closed, stored) if start else None
+        cdi = {
+            "provider": rates.PROVIDER,
+            "anchor": start,
+            "rows": ref["rows"] if ref and len(ref["rows"]) > 1 else [],
+            "acquired_at": ref and ref["acquired_at"],
+        }
+    except ValueError as e:  # e.g. cdi_conflict:<date>: no series rather than a guess
+        cdi = {"provider": rates.PROVIDER, "anchor": None, "rows": [], "error": str(e)}
     return {
         "symbol": "IBOV",
         "provider_symbol": "^BVSP",
@@ -353,4 +429,5 @@ def benchmark(since):
         if anchor
         else "Sem fechamento anterior a since; a série começa em since.",
         "rows": ([anchor] if anchor else []) + [r for r in rows if r["date"] >= since],
+        "cdi": cdi,
     }

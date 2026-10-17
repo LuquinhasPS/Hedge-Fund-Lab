@@ -257,3 +257,54 @@ def test_ibov_benchmark_anchor_bounds_and_skip(base, monkeypatch):
     monkeypatch.setattr(m.stock, "download", lambda t, c: done.append(t))
     m._run(None)
     assert "IBOV" not in done and m.JOB["last"]["yahoo"]["IBOV"] == "OK"
+
+
+def test_alias_rows_are_normalized_supplemented_once_and_overlap_conflicts(base):
+    raw = make_zip(
+        [line("2009-05-19", "ITAU4", 29.45), line("2009-05-20", "ITUB4", 30.0)]
+    )
+    rows, _ = m.parse(raw)
+    assert [(r["date"], r.get("source_symbol")) for r in rows["ITUB4"]] == [
+        ("2009-05-19", "ITAU4"),
+        ("2009-05-20", None),
+    ]
+    # an annual sealed before the alias existed lacks the ITAU4 rows
+    m.radar.write(
+        m.ROOT / "b3" / "COTAHIST_A2009.ZIP.json",
+        m.b.sealed(
+            {
+                "identity": m.IDENTITY,
+                "url": "u",
+                "file_name": "COTAHIST_A2009.ZIP",
+                "kind": "annual",
+                "raw_sha256": "x",
+                "bytes": 1,
+                "parser": "old",
+                "acquired_at": m.radar.now().isoformat(),
+                "year": 2009,
+                "through": "2009-05-20",
+                "rows": {"ITUB4": [{**rows["ITUB4"][1]}]},
+            }
+        ),
+        immutable=True,
+    )
+    base.FIRST_YEAR = 2009
+    files = lambda p: [i["file"] for i in m.plan("2010-01-04", p) if "+" in i["file"]]  # noqa: E731
+    assert files(None) == ["COTAHIST_A2009.ZIP+ITAU4"]  # not 2010+: ITAU4 gone
+    m.update(fetcher({"COTAHIST_A2009.ZIP": raw}), "2010-01-04")
+    assert files(None) == []  # idempotent
+    assert [r["close"] for r in m.merged("ITUB4")] == [29.45, 30.0]
+    # same date under both codes with different prices -> conflict, never merged
+    both = make_zip([line("2009-05-20", "ITAU4", 25.0)])
+    m.acquire(m.target("daily", date(2009, 5, 20)), lambda url: both)
+    assert m.merged("ITUB4")[-1]["conflict"] and m.coverage()["ITUB4"]["conflicts"] == 1
+
+
+def test_b3_user_agent_only_on_b3_hosts():
+    from urllib import request
+
+    agent = m._B3Agent()
+    b3 = agent.https_request(request.Request("https://bvmf.bmfbovespa.com.br/x.ZIP"))
+    other = agent.https_request(request.Request("https://example.com/x"))
+    assert b3.unredirected_hdrs == {"User-agent": m.USER_AGENT}
+    assert other.unredirected_hdrs == {}

@@ -896,6 +896,8 @@ def main():
     # Offline checks guard only their own request context; a paid worker thread is
     # never blocked by a concurrent GET (incident 2026-10-12 02:59 BRT).
     network_scope.install()
+    # DP-27: B3 refuses the default Python agent; Radar preparation reuses urlopen.
+    market_base_api.install_b3_user_agent()
     # Configura logger mínimo para o dashboard (standalone)
     logging.basicConfig(
         level=logging.INFO,

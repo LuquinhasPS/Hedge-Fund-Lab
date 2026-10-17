@@ -8,7 +8,7 @@
   const esc=v=>String(v??'Indisponível').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money=v=>v==null?'Indisponível':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const view={'/operations':'operations','/comparison':'comparison','/dividends':'dividends','/wallets/new':'create','/laboratory':'laboratory'}[route]||'wallet';
-  const titles={wallet:'Visão da carteira',operations:'Operações',comparison:'Comparar carteiras',dividends:'Proventos',create:'Criar carteira'},subtitles={comparison:'Compare a trajetória das carteiras do mesmo grupo e o Ibovespa desde o início comum.'};
+  const titles={wallet:'Visão da carteira',operations:'Operações',comparison:'Comparar carteiras',dividends:'Proventos',create:'Criar carteira'},subtitles={comparison:'Compare a trajetória das carteiras do mesmo grupo com o Ibovespa e o CDI desde o início comum.'};
   let selected=params.get('wallet')||'';
   function carry(id){
     document.querySelectorAll('.hfl-primary a,.hfl-archive a,.product-wallet-link').forEach(a=>{
@@ -37,7 +37,7 @@
     try{
       const hist=Object.fromEntries(await Promise.all(wallets.map(async w=>{try{const h=await getJson('/api/portfolio/history?'+new URLSearchParams({wallet:w.id}),signal);return [w.id,h.wallet===w.id&&h.read_only===true?h:null];}catch(e){if(e.name==='AbortError')throw e;return [w.id,null];}})));
       // ponytail: benchmark is best-effort; any failure only switches the note to "indisponível".
-      let bench=null;if(ref)try{const b=await getJson('/api/platform/market-base/benchmark?'+new URLSearchParams({since:ref}),signal);if(b.anchor&&b.rows?.length)bench=b;}catch(e){if(e.name==='AbortError')throw e;}
+      let bench=null,cd=null;if(ref)try{const b=await getJson('/api/platform/market-base/benchmark?'+new URLSearchParams({since:ref}),signal);if(b.anchor&&b.rows?.length)bench=b;if(b.cdi?.anchor&&b.cdi.rows?.length>1)cd=b.cdi;}catch(e){if(e.name==='AbortError')throw e;}
       if(v!==cmpRev)return;
       const ok=used.filter(w=>hist[w.id]),anchored=ok.some(w=>hist[w.id].initial_anchor_available);
       const sessions=[...new Set(ok.flatMap(w=>hist[w.id].daily_history.map(p=>p.session)))].sort();
@@ -46,13 +46,15 @@
         return {w,data:[...(anchored?[h.initial_anchor_available?0:null]:[]),...sessions.map(s=>m[s]?.state==='AVAILABLE'&&m[s].equity!=null?(Number(m[s].equity)/cap-1)*100:null)]};});
       const bm=bench&&Object.fromEntries(bench.rows.map(r=>[r.date,Number(r.close)])),a0=bench&&bm[bench.anchor];
       const ib=a0?[...(anchored?[0]:[]),...sessions.map(s=>bm[s]==null?null:(bm[s]/a0-1)*100)]:null;
+      const cm=cd&&Object.fromEntries(cd.rows.map(r=>[r.date,Number(r.index)])),cdl=cd?[...(anchored?[0]:[]),...sessions.map(s=>cm[s]==null?null:(cm[s]-1)*100)]:null;
       let t=(!group?'Não há grupo comparativo cadastrado. ':!me?.comparison_group?'A carteira selecionada é pessoal e fica fora do grupo comparado (DP-19). ':'')+'Retorno acumulado sobre o capital inicial, por fechamentos B3 marcados ('+sessions.length+' pregões). ';
       t+=ib?'Ibovespa (Yahoo ^BVSP) é referência externa ancorada no fechamento de '+dm(bench.anchor).slice(0,5)+' e inclui proventos reinvestidos; as carteiras ainda não contabilizam proventos (APP-04). ':'Ibovespa indisponível no momento. As carteiras ainda não contabilizam proventos (APP-04). ';
+      t+=cd?'CDI (Banco Central, série 12) acumulado desde '+dm(cd.anchor).slice(0,5)+'. ':'CDI indisponível no momento. ';
       t+='Diferença observada é descritiva, não indica superioridade.';
       if(skipped.length)t+=' Fora do gráfico por início diferente de '+dm(ref)+': '+skipped.map(w=>w.name).join(', ')+'.';
       note.textContent=t;
       const color=w=>palette[wallets.indexOf(w)%palette.length];
-      const sets=[...wl.map(x=>({label:x.w.name,data:x.data,borderColor:color(x.w),backgroundColor:color(x.w),borderWidth:2.5,pointRadius:4,spanGaps:false,tension:0})),...(ib?[{label:'Ibovespa (referência)',data:ib,borderColor:'#58647b',backgroundColor:'transparent',pointBackgroundColor:'#58647b',borderWidth:2,borderDash:[6,4],pointRadius:3,pointStyle:'rect',spanGaps:false,tension:0}]:[])];
+      const sets=[...wl.map(x=>({label:x.w.name,data:x.data,borderColor:color(x.w),backgroundColor:color(x.w),borderWidth:2.5,pointRadius:4,spanGaps:false,tension:0})),...(ib?[{label:'Ibovespa (referência)',data:ib,borderColor:'#58647b',backgroundColor:'transparent',pointBackgroundColor:'#58647b',borderWidth:2,borderDash:[6,4],pointRadius:3,pointStyle:'rect',spanGaps:false,tension:0}]:[]),...(cdl?[{label:'CDI (referência)',data:cdl,borderColor:'#85570c',backgroundColor:'transparent',pointBackgroundColor:'#85570c',borderWidth:2,borderDash:[2,3],pointRadius:3,pointStyle:'triangle',spanGaps:false,tension:0}]:[])];
       const any=sets.some(s=>s.data.some(x=>x!=null));
       el('cmp-wrap').hidden=!any;
       if(any){
@@ -68,6 +70,7 @@
         return good(x)&&good(y)&&x.anchor_session===y.anchor_session&&x.end_session===y.end_session?sp((x.return_fraction-y.return_fraction)*100)+' p.p.':'—';};
       const rows=wallets.map(w=>{const h=hist[w.id],l=last(h);return '<tr><td><a href="/?wallet='+encodeURIComponent(w.id)+'">'+esc(w.name)+'</a></td><td>'+esc(w.nature_label)+'<small>'+esc(w.comparison_group||'Pessoal; sem grupo comparativo')+'</small></td><td>'+(l?money(l.equity)+'<small>fechamento '+dm(l.session).slice(0,5)+'</small>':money(w.equity))+'</td><td>'+(h?ret(per(h,'inception')):'Indisponível')+'</td><td>'+(h?ret(per(h,'1d')):'Indisponível')+'</td><td>'+diff(w)+'</td><td>'+money(w.cash)+'</td><td>'+(w.trades?.length??0)+'</td><td>'+money(w.costs)+'</td></tr>';});
       if(ib){const n=bench.rows.at(-1),p=bench.rows.at(-2);rows.push('<tr><td>Ibovespa (referência)<small>Yahoo ^BVSP · inclui proventos</small></td><td>Índice externo</td><td>—</td><td>'+(n.date>bench.anchor?sp((Number(n.close)/a0-1)*100)+'%<small>'+dm(bench.anchor).slice(0,5)+' → '+dm(n.date).slice(0,5)+'</small>':'histórico insuficiente')+'</td><td>'+(p&&n.date>p.date?sp((Number(n.close)/Number(p.close)-1)*100)+'%<small>'+dm(p.date).slice(0,5)+' → '+dm(n.date).slice(0,5)+'</small>':'histórico insuficiente')+'</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>');}
+      if(cd){const n=cd.rows.at(-1),p=cd.rows.at(-2);rows.push('<tr><td>CDI (referência)<small>Banco Central · SGS 12</small></td><td>Taxa externa</td><td>—</td><td>'+sp((n.index-1)*100)+'%<small>'+dm(cd.anchor).slice(0,5)+' → '+dm(n.date).slice(0,5)+'</small></td><td>'+sp((n.index/p.index-1)*100)+'%<small>'+dm(p.date).slice(0,5)+' → '+dm(n.date).slice(0,5)+'</small>'+'</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>');}
       box.innerHTML='<div class="ds-table-wrap product-compare-table" tabindex="0" role="region" aria-label="Carteiras comparadas"><table class="ds-table"><thead><tr>'+['Carteira','Natureza / grupo','Patrimônio marcado','Retorno desde o início','Dia','Diferença vs Buy & Hold','Caixa','Operações','Custos'].map(h=>'<th scope="col">'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
     }catch(e){if(e.name!=='AbortError'&&v===cmpRev){note.textContent='Comparação indisponível. Nenhum valor foi estimado.';box.textContent='';}}
   }

@@ -10,6 +10,29 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## CDI, códigos antigos e user-agent da B3 — DP-28/29, 17/10/2026
+
+Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. Lucas incluiu o CDI na DP-28 (Banco Central, SGS série 12) e decidiu normalizar códigos antigos da B3 (DP-29). `dashboard/reference_rates_api.py` busca a série em janelas de 9 anos desde 03/01/2000 e, depois, em incrementos; cada janela vira um JSON selado e imutável em `market-base-v1/rates/`, e datas sobrepostas divergentes são registradas como conflito. Acúmulo: a taxa da data d rende de d até o próximo dia útil; índice 1,0 na âncora. A mesma atualização da base (job DP-27) atualiza o CDI; `benchmark` inclui `cdi`; a Comparação mostra o CDI em linha pontilhada e a linha "CDI (referência)" na tabela. Carga real: 6.728 dias de 03/01/2000 a 15/10/2026; 16/10 ainda não publicado pelo BC.
+
+Códigos antigos (DP-29): `ALIASES = {"ITAU4": "ITUB4"}` em `dashboard/market_base_api.py`; linhas de ITAU4 viram ITUB4 com `source_symbol: "ITAU4"`; registros suplementares imutáveis `b3/COTAHIST_A<ano>.ZIP+ITAU4.json` para 2000–2009, extraídos de anuais rebaixados só para o código antigo. ITUB4 agora desde 03/01/2000 (6.642 linhas, 1 lacuna, 0 conflitos).
+
+User-agent (Radar, 403): a B3 recusa o user-agent padrão do Python. O servidor instala ao iniciar um opener que envia "HedgeFundLab/1.0 (uso local; TCC)" somente para hosts `*.bmfbovespa.com.br` (`market_base_api.install_b3_user_agent`), sem editar o módulo selado `src/pipeline/b3_official.py` e sem alterar chamadas a outros domínios (ex.: inferência).
+
+Verificação:
+- Renome ITAU4 → ITUB4: ITAU4 de 03/01/2000 a 19/05/2009, ITUB4 desde 20/05/2009, zero pregões sobrepostos; último fechamento ITAU4 29,45 vs primeiro ITUB4 30,03 (+1,97%).
+- `poetry run pytest tests/test_market_base.py tests/test_reference_rates.py tests/test_portfolio_history.py tests/test_legacy_web.py tests/test_wallet_manager.py tests/test_manual_portfolio.py tests/test_market_update.py tests/test_radar_network_isolation.py tests/test_stock_history.py -q` → 97 aprovados, 1 ignorado. Os testes usam `HFL_RATES_OFFLINE=1` (conftest) e não chegam à rede.
+- `node tests/comparison_browser_check.mjs <base> <out>` PASS com Ibovespa e CDI (desktop e celular, somente GET); captura revisada.
+- Ao vivo: urlopen simples da B3 retornou 200.
+
+Limites:
+- WEGE4 não traduzido: negociou junto com WEGE3 (61 pregões em comum, classes distintas até 31/05/2007); WEGE3 segue desde 08/09/2004 com 616 pregões sem negócio; misturar exige decisão de Lucas.
+- CDI com defasagem de publicação: 16/10 ainda não publicado pelo BC.
+- Lacunas de datas do CDI não são detectadas.
+- O opener existe só no servidor; CLIs fora dele não instalam o opener.
+- O servidor do Lucas na porta 8081 foi iniciado antes da consulta do Ibovespa e precisou ser reiniciado para ela aparecer.
+
+Próximo passo: commit desta entrega após revisão de Lucas; APP-04 (proventos) conforme DP-30, ainda não entregue.
+
 ## Comparação com retorno acumulado e Ibovespa — DP-28, APP-03/UX-M5, 16/10/2026
 
 Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. Lucas decidiu (DP-28, 16/10) a opção A
@@ -80,7 +103,7 @@ preenchido.
 Achados: a B3 responde HTTP 403 ao user-agent padrão do Python; a base envia
 "HedgeFundLab/1.0 (uso local; TCC)". O módulo selado `src/pipeline/b3_official.py`, usado
 pela preparação de análise do Radar, baixa com o agente padrão, então novas sessões do Radar
-provavelmente falharão com 403. Não alterado (selado). Anuais descompactados chegam a centenas
+provavelmente falharão com 403. Não alterado (selado). Resolvido em 17/10 pelo opener de user-agent da B3 no servidor (seção acima). Anuais descompactados chegam a centenas
 de MB; limites de 2 GB por membro e 512 MB de download, com leitura em streaming.
 
 Verificação:
