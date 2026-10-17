@@ -310,3 +310,29 @@ def test_b3_user_agent_only_on_b3_hosts():
     other = agent.https_request(request.Request("https://example.com/x"))
     assert b3.unredirected_hdrs == {"User-agent": m.USER_AGENT}
     assert other.unredirected_hdrs == {}
+
+
+def test_wege_cutoff_maps_old_code_and_drops_thin_current_class_before_switch(base):
+    raw = make_zip(
+        [
+            line("2007-05-30", "WEGE3", 5.0),  # thin ordinary class: excluded (DP-29)
+            line("2007-05-31", "WEGE4", 16.1),
+            line("2007-05-31", "WEGE3", 9.0),  # overlapping date: no conflict
+        ]
+    )
+    nxt = make_zip([line("2007-06-01", "WEGE3", 16.7)])
+    m.acquire(m.target("annual", 2007), lambda url: raw)
+    m.acquire(m.target("daily", date(2007, 6, 1)), lambda url: nxt)
+    rows = m.merged("WEGE3")
+    assert [(r["date"], r["close"], r.get("source_symbol")) for r in rows] == [
+        ("2007-05-31", 16.1, "WEGE4"),
+        ("2007-06-01", 16.7, None),
+    ]
+    assert m.coverage()["WEGE3"]["conflicts"] == 0
+    # annual sealed before WEGE4 existed (aliases: ITAU4 only) gets one supplement; 2008+ none
+    old = [{"kind": "annual", "year": y, "aliases": ["ITAU4"]} for y in (2007, 2008)]
+    todo = lambda have: [
+        i["file"] for i in m.plan("2009-01-02", have) if "+" in i["file"]
+    ]  # noqa: E731
+    assert todo(old) == ["COTAHIST_A2007.ZIP+WEGE4"]
+    assert todo(m.acquired()) == []

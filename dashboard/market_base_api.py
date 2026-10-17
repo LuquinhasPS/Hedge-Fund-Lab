@@ -36,12 +36,14 @@ MAX_BYTES = 512 * 1024 * 1024  # downloaded ZIP (2026 annual is ~95 MB)
 # Annual text members reach several hundred MB; parsing streams, so this only
 # guards against a zip bomb.
 MAX_MEMBER = 2 * 1024 * 1024 * 1024
-# Old B3 code -> current code (Lucas, 17/10: normalize to today's ticker) and the
-# last year the old code traded. Only clean renames: no overlapping sessions and
-# price continuity at the switch (ITAU4 -> ITUB4 on 2009-05-20: no overlap, +1.97%).
-# WEGE4 -> WEGE3 is NOT here: both classes traded together until 2007-05-31.
-ALIASES = {"ITAU4": "ITUB4"}
-ALIAS_LAST_YEAR = {"ITAU4": 2009}
+# Old B3 code -> (current code, last session of the old code): Lucas, 17/10, normalize
+# to today's ticker. ITAU4 -> ITUB4 (2009-05-20) is a plain rename: no overlap, +1.97%.
+# WEGE4 -> WEGE3 (DP-29 option B): the old code is the series up to 2007-05-31.
+ALIASES = {"ITAU4": ("ITUB4", "2009-05-19"), "WEGE4": ("WEGE3", "2007-05-31")}
+# Native rows of a current code before this date are dropped at read time in merged()
+# (stored records stay untouched): WEGE3 before 2007-06-01 was the thin ordinary class
+# trading beside WEGE4 (616 no-trade sessions, 61 overlapping dates), DP-29.
+EXCLUDE_BEFORE = {"WEGE3": "2007-06-01"}
 FIELDS = ("open", "high", "low", "close", "volume")
 UPDATE_LOCK = Lock()
 USER_AGENT = "HedgeFundLab/1.0 (uso local; TCC)"
@@ -87,7 +89,7 @@ def parse(raw, symbols=TICKERS):
     QUATOT 152:170 that read_cotahist reports as volume.
     """
     rows, seen = {s: [] for s in symbols}, set()
-    names = {s: s for s in symbols} | {o: n for o, n in ALIASES.items() if n in rows}
+    names = {s: s for s in symbols} | {o: n for o, (n, _) in ALIASES.items() if n in rows}
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         members = archive.infolist()
         if len(members) != 1 or members[0].file_size > MAX_MEMBER:
@@ -175,7 +177,7 @@ def plan(closed, have=None):
         target("annual-alias", (y, a))
         for y in sorted(years)
         for a in ALIASES
-        if y <= ALIAS_LAST_YEAR[a] and (y, a) not in done
+        if y <= int(ALIASES[a][1][:4]) and (y, a) not in done
     ]
     if end.year not in years and len(missing) > 10:
         return [*items, target("annual", end.year)]
@@ -262,6 +264,11 @@ def merged(ticker, as_of=None):
     for f in acquired():
         for row in f["rows"].get(ticker, []):
             if as_of and row["date"] > as_of[:10]:
+                continue
+            if (
+                row["date"] < EXCLUDE_BEFORE.get(ticker, "")
+                and "source_symbol" not in row
+            ):
                 continue
             seen.setdefault(row["date"], []).append((f["acquired_at"], row))
     out = []
