@@ -10,6 +10,13 @@ import pytest
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(PROJECT / "dashboard"), str(PROJECT / "scripts"), str(PROJECT)]
 import portfolio_history_api as h  # noqa: E402
+from test_market_base import daily  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def empty_market_base(tmp_path, monkeypatch):
+    monkeypatch.setattr(h.base, "ROOT", tmp_path / "market-base")  # real data never leaks
+    h.base._verified.cache_clear()
 
 
 @pytest.fixture
@@ -182,7 +189,7 @@ def test_no_prices_all_cash_zero_capital_and_no_history_before_start(portfolio):
 
 def test_get_is_read_only_and_strict_about_wallet_identity(portfolio, monkeypatch):
     before = h.manual.path().read_bytes()
-    monkeypatch.setattr(h, "quote_book", lambda symbols: (book(), []))
+    monkeypatch.setattr(h, "quote_book", lambda symbols, since=None: (book(), []))
     monkeypatch.setattr(h.radar, "now", lambda: pd.Timestamp("2026-10-15T12:00:00-03:00"))
     d = h.get({"wallet": portfolio["id"]})
     assert d["wallet_revision"] == portfolio["revision"] and d["read_only"]
@@ -273,3 +280,21 @@ def test_cached_input_is_rechecked_when_a_source_file_changes(sources, monkeypat
     quotes, issues = h.quote_book(["PETR4"])
     assert len(quotes["2026-10-14"]["PETR4"]["sources"]) == 1
     assert len(issues) == 1
+
+
+def test_market_base_supplies_sessions_and_disagreement_is_a_gap(sources):
+    entries, data = sources
+    for day, close in (("2026-10-13", 9.5), ("2026-10-14", 11.0)):
+        item = h.base.target("daily", pd.Timestamp(day).date())
+        h.base.acquire(item, lambda url, day=day, close=close: daily(day, close))
+    quotes, issues = h.quote_book(["PETR4"], "2026-10-13")
+    assert quotes["2026-10-13"]["PETR4"]["price"] == "9.5"  # only in the base
+    assert quotes["2026-10-13"]["PETR4"]["sources"][0]["source"] == "B3_MARKET_BASE"
+    assert quotes["2026-10-14"]["PETR4"]["price"] == "11.0"  # equal Decimals merge
+    assert len(quotes["2026-10-14"]["PETR4"]["sources"]) == 3 and not issues
+    assert "2026-10-13" not in h.quote_book(["PETR4"], "2026-10-14")[0]  # floor
+    h.verified_input.cache_clear()
+    data["raw_bar"]["fechamento"] = 11.5  # radar now disagrees with the base
+    quotes, issues = h.quote_book(["PETR4"], "2026-10-13")
+    assert quotes["2026-10-14"]["PETR4"] is None
+    assert issues[-1]["reason"] == "CONFLICTING_RAW_REFERENCES"

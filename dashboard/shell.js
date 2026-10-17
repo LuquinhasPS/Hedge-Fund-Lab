@@ -84,61 +84,59 @@
   new MutationObserver((changes) => changes.forEach((c) => c.addedNodes.forEach((n) => { if (n.nodeType === 1) tables(n); }))).observe(document.querySelector('main') || document.body, { childList: true, subtree: true });
 })();
 
-// Shared data update: reuses the registered Radar runner and its existing POST gates.
+// Shared market-base update (DP-27): local B3/Yahoo price base only; never runs agents.
 (() => {
   const el=id=>document.getElementById(id), open=el('hfl-market-open');
   if(!open)return;
-  const dialog=el('hfl-market-dialog'), start=el('hfl-market-start'), status=el('hfl-market-status'), reload=el('hfl-market-reload');
-  let view=null, working=false, loading=false, timer=null, trackedJob=null;
-  const messages={radar_busy_or_stale_lock:'Há uma operação ativa ou um bloqueio que precisa de revisão no Radar.',radar_run_header_mismatch_reload_page:'A execução operacional mudou. Feche e abra este painel novamente.',run_not_accepting_new_calls:'Esta execução está preservada somente para consulta.',local_origin_required:'Abra o dashboard pelo endereço local do servidor.',invalid_csrf:'A conexão com o servidor mudou. Feche e abra este painel novamente.'};
-  async function get(url){const r=await fetch(url,{cache:'no-store'}),d=await r.json();if(!r.ok)throw Error(messages[d?.error]||d?.error||'Consulta indisponível.');return d;}
-  function fail(e){working=false;loading=false;start.disabled=true;open.textContent='Atualizar dados da bolsa';dialog.setAttribute('aria-busy','false');status.textContent='Não foi possível atualizar: '+e.message+' Consulte o Radar antes de tentar novamente.';}
+  const dialog=el('hfl-market-dialog'), start=el('hfl-market-start'), status=el('hfl-market-status'), reload=el('hfl-market-reload'), scope=el('hfl-market-scope'), list=el('hfl-market-coverage');
+  let view=null, working=false, loading=false, timer=null;
+  const day=v=>v.split('-').reverse().join('/');
+  // COTAHIST_D15102026.ZIP -> 15/10 ; COTAHIST_A2026.ZIP -> arquivo anual 2026
+  const fileLabel=f=>{const m=/_D(\d\d)(\d\d)\d{4}/.exec(f),y=/_A(\d{4})/.exec(f);return m?m[1]+'/'+m[2]:y?'arquivo anual '+y[1]:f;};
+  async function call(url,post){
+    const r=await fetch(url,post?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':view?.csrf_token||''},body:'{}'}:{cache:'no-store'}),d=await r.json();
+    if(!r.ok)throw Error(d?.error||'Consulta indisponível.');return d;
+  }
+  function busy(on){working=on;open.textContent=on?'Atualizando dados…':'Atualizar dados da bolsa';dialog.setAttribute('aria-busy',on?'true':'false');}
+  function fail(e){busy(false);loading=false;start.disabled=false;status.textContent='Não foi possível atualizar: '+e.message;}
+  function render(){
+    const cov=view.coverage||{}, ts=Object.keys(cov), lasts=ts.filter(t=>cov[t]).map(t=>cov[t].last).sort(), base=lasts[0]||null;
+    const current=!!base&&lasts.length===ts.length&&base>=view.closed;
+    scope.textContent=(base?'Base local: dados até '+day(base):'Base local: sem dados ainda')+' · Último pregão fechado: '+day(view.closed)+'.';
+    list.replaceChildren(...ts.map(t=>{const li=document.createElement('li');li.textContent=t+' · '+(cov[t]?'desde '+day(cov[t].first)+' · até '+day(cov[t].last):'sem dados ainda');return li;}));
+    start.disabled=working||current;
+    if(!working)status.textContent=(current?'Base em dia. ':'')+(view.last?summary(view.last):'');
+  }
+  function summary(l){
+    const res=l.results||[], got=res.filter(r=>r.status==='ACQUIRED').length, miss=res.filter(r=>r.status==='NOT_PUBLISHED'), bad=res.filter(r=>r.status==='FAILED');
+    const yahoo=Object.entries(l.yahoo||{}).filter(([,v])=>v!=='OK');
+    return [(got===1?'1 arquivo novo':got+' arquivos novos')+' da B3.',
+      miss.length?'B3 ainda não publicou: '+miss.map(r=>fileLabel(r.file)).join(', ')+'.':'',
+      bad.length?'Falha: '+bad.map(r=>fileLabel(r.file)+' ('+r.error+')').join('; ')+'.':'',
+      yahoo.length?'Yahoo: '+yahoo.map(([t,v])=>t+' ('+v+')').join('; ')+'.':'',
+      'Nenhum agente foi executado.'].filter(Boolean).join(' ');
+  }
+  function follow(){
+    if(view.running){busy(true);render();status.textContent='Atualização em andamento. Acompanhando…';timer=setTimeout(poll,1500);return;}
+    const was=working;busy(false);render();
+    // Finished: the existing "Atualizar esta visualização" button reloads the open page's data.
+    if(was){reload.hidden=false;if(view.error)status.textContent='Não foi possível atualizar: '+view.error;}
+  }
+  async function poll(){try{view=await call('/api/platform/market-base');follow();}catch(e){fail(e);}}
   async function inspect(){
     if(loading||working)return;
-    loading=true;view=null;start.disabled=true;reload.hidden=true;trackedJob=null;
-    el('hfl-market-scope').textContent='Consultando a execução operacional…';
-    status.textContent='Consultando registros locais…';
-    try{
-      const registry=await get('/api/platform/radar-runs');
-      if(!registry.runner)throw Error('Nenhuma execução operacional disponível.');
-      view=await get('/api/platform/radar-view?'+new URLSearchParams({run:registry.runner}));
-      const r=view.run;
-      el('hfl-market-scope').textContent=`Sessão ${r.session.split('-').reverse().join('/')} · ${r.universe.join(', ')} · B3 oficial + fator ajustado.`;
-      el('hfl-market-radar').href='/radar?'+new URLSearchParams({run:r.id});
-      if(!view.mutation_available||r.mode!=='CONSULTATIVE_SANDBOX')throw Error('Execução disponível somente para consulta.');
-      if(view.job?.status==='RUNNING'&&view.job.command==='prepare'){
-        working=true;trackedJob=view.job.id;open.textContent='Atualizando dados…';dialog.setAttribute('aria-busy','true');status.textContent='Atualização de dados em andamento. Acompanhando a preparação já iniciada, sem duplicá-la.';timer=setTimeout(poll,500);
-      }else if(view.job?.status==='RUNNING'){
-        status.textContent='Já há uma operação em andamento. Acompanhe pelo Radar; nenhuma nova atualização foi iniciada.';
-      }else{
-        status.textContent='A atualização grava dados de referência. Não chama agentes nem cria operações financeiras.'+(view.last_closed_session&&r.session<view.last_closed_session?' Há uma sessão encerrada mais recente; escolha a execução correspondente no Radar para prepará-la.':'');
-        start.disabled=false;
-      }
-    }catch(e){fail(e);}finally{loading=false;}
+    loading=true;reload.hidden=true;start.disabled=true;scope.textContent='Consultando a base local…';status.textContent='';
+    try{view=await call('/api/platform/market-base');follow();}catch(e){fail(e);}finally{loading=false;}
   }
-  async function poll(){
-    try{
-      const current=await get('/api/platform/radar-view?'+new URLSearchParams({run:view.run.id})), job=current.job;
-      if(!job||job.id!==trackedJob)throw Error('O registro da atualização mudou; confira seu resultado no Radar.');
-      if(job.status==='RUNNING'){timer=setTimeout(poll,1500);return;}
-      working=false;open.textContent='Atualizar dados da bolsa';dialog.setAttribute('aria-busy','false');reload.hidden=false;
-      if(job.status!=='COMPLETED')throw Error('A preparação não foi concluída ('+job.status+').');
-      const items=job.items||[], blocked=items.filter(i=>i.status==='BLOCKED');
-      const ready=items.filter(i=>['PREPARED','EXISTING','COMPLETED'].includes(i.status));
-      status.textContent=blocked.length?`Atualização com bloqueios: ${blocked.map(i=>i.ticker).join(', ')}. Consulte o diagnóstico no Radar.`:ready.length===view.run.universe.length?`Dados de referência disponíveis para os ${ready.length} ativos na sessão ${view.run.session.split('-').reverse().join('/')}. Registros já congelados são preservados. Nenhum agente foi executado.`:'Preparação concluída; confira a cobertura e os estados de cada ativo no Radar.';
-    }catch(e){fail(e);}
-  }
-  open.addEventListener('click',()=>{dialog.showModal();if(!working)inspect();});
+  open.addEventListener('click',()=>{dialog.showModal();inspect();});
+  // ponytail: closing only stops polling; the server keeps updating and the next open follows it.
+  dialog.addEventListener('close',()=>{clearTimeout(timer);busy(false);});
   el('hfl-market-close').addEventListener('click',()=>dialog.close());
   reload.addEventListener('click',()=>location.reload());
   start.addEventListener('click',async()=>{
     if(working||loading||!view||start.disabled)return;
-    working=true;start.disabled=true;reload.hidden=true;open.textContent='Atualizando dados…';dialog.setAttribute('aria-busy','true');status.textContent='Atualizando preços e histórico… Você pode fechar este painel; a preparação continua no servidor.';
-    try{
-      const r=await fetch('/api/radar/prepare',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':view.csrf_token,'X-HFL-Radar-Run':view.run.id},body:JSON.stringify({tickers:view.run.universe,session:view.run.session,mode:'live'})});
-      const job=await r.json();if(!r.ok)throw Error(messages[job?.error]||job?.error||'Preparação recusada.');
-      trackedJob=job.id;timer=setTimeout(poll,500);
-    }catch(e){fail(e);}
+    busy(true);start.disabled=true;reload.hidden=true;status.textContent='Atualizando a base local…';
+    try{view=await call('/api/platform/market-base/update',true);follow();}catch(e){fail(e);}
   });
   window.addEventListener('pagehide',()=>clearTimeout(timer));
 })();

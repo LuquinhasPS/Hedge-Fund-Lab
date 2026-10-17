@@ -1,11 +1,15 @@
 """Fixtures compartilhadas para todos os testes do Hedge-fund-lab."""
 
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+
+# server.main() must never start the real market-base network update in tests
+os.environ["HFL_MARKET_BASE_AUTOUPDATE"] = "0"
 
 # Adiciona src/ ao path
 SRC = Path(__file__).resolve().parent.parent / "src"

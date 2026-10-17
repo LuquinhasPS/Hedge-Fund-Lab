@@ -29,7 +29,7 @@ await session(async page=>{
   }
   assert.equal(await page.eval(`document.querySelector('#personal-chart-error').hidden`),true);
   assert.equal(await page.eval(`document.querySelector('#personal-stock-error').hidden`),true);
-  assert.match(await page.eval(`document.querySelector('#personal-metrics').textContent`),/99.831,60/);
+  assert.match(await page.eval(`document.querySelector('#personal-metrics').textContent`),/Patrimônio estimadoR\$\s\d{2}\.\d{3},\d{2}/); // value moves with each new close (DP-27)
   assert.equal(await page.eval(`document.querySelector('#routine-title').textContent`),'Rotina do dia');
   assert.match(await page.eval(`document.querySelector('#routine-mark').textContent`),/Último fechamento marcado: \d\d\/\d\d\/\d{4}/);
   for(let i=0;i<100&&!await page.eval(`document.querySelector('#routine-policy').textContent`);i++)await new Promise(r=>setTimeout(r,100));
@@ -43,9 +43,9 @@ await session(async page=>{
   assert.match(await page.eval(`document.querySelector('#personal-equity-table').textContent`),/Operações/);
   for(let i=0;i<100&&!await page.eval(`document.querySelector('#personal-compare').textContent`);i++)await new Promise(r=>setTimeout(r,100));
   assert.match(await page.eval(`document.querySelector('#personal-compare').textContent`),/Desde o início \(\d\d\/\d\d → \d\d\/\d\d\): .+ · .+ · diferença [+-−]?[\d,]+ p\.p\.|Comparação com .+ indisponível/);
-  // Later sessions without a B3 mark stay null; the curve grows with the calendar.
+  // Sessions without a B3 mark stay null; the curve grows with the calendar.
   const nav=await page.eval(`Chart.getChart('personal-equity-chart').data.datasets[0].data`);
-  assert.deepEqual(nav.slice(0,2),[100000,99835.33]);assert.ok(nav.length>2&&nav.slice(2).every(v=>v==null));
+  assert.deepEqual(nav.slice(0,2),[100000,99835.33]);assert.ok(nav.length>2&&nav.slice(2).every(v=>v==null||v>0)); // later closes come from the market base
   if(!await page.eval(`Boolean(Chart.getChart('personal-stock-chart'))`)){console.log(size,await page.eval(`({note:document.querySelector('#personal-stock-note').textContent,error:document.querySelector('#personal-stock-error').textContent})`),page.console,blocked);await page.shot(out+'/failure.png',true);throw Error('stock chart missing');}
   assert.equal(await page.eval(`Chart.getChart('personal-stock-chart').data.datasets[0].label`),'PETR4');
   await page.click('[data-stock-period="max"]');

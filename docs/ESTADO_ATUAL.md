@@ -10,6 +10,56 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Base de mercado local — DP-27, APP-03/DATA-01, 16/10/2026
+
+Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. Lucas autorizou
+(DP-27, 16/10) o download automático da B3 para uso local, sem redistribuição. A
+implementação ([módulo](../dashboard/market_base_api.py)) guarda um JSON selado por
+arquivo COTAHIST em `data/platform/market-base-v1/b3/`, com URL, `raw_sha256`, bytes,
+`acquired_at` e parser; só as linhas dos cinco ativos são mantidas (o ZIP é descartado).
+Parser de uma passagem com os mesmos filtros de `b3_official.read_cotahist`; teste confere
+igualdade. Por sessão: OHLC, preço médio, quantidade, número de negócios e volume financeiro
+RAW. `series()` acrescenta fator de ajuste Yahoo e fechamento ajustado do snapshot Yahoo
+mais recente. Consultas "as-of" veem só sessões até a data da decisão.
+
+Atualização incremental: anuais de 2000 ao último ano uma vez; anual do ano corrente quando
+faltam mais de 10 sessões; caso contrário, diários. 404 = "B3 ainda não publicou" (retentado
+na próxima vez). Roda em segundo plano ao iniciar o servidor (`main()`; desativável com
+`HFL_MARKET_BASE_AUTOUPDATE=0`, que os testes definem) e pelo botão "Atualizar dados da
+bolsa" (`GET /api/platform/market-base`, `POST /api/platform/market-base/update`, com as
+verificações de CSRF/origem existentes). A mesma rotina atualiza o snapshot diário Yahoo só
+quando falta o último pregão fechado, sob o lock do explorador.
+
+Cabeçalho: mostra cobertura por ativo, último pregão fechado, progresso e resumo; a
+preparação das análises do Radar sai do diálogo e fica em Agentes. Home: `quote_book` também
+usa a base; divergência com referências do Radar vira lacuna explícita.
+
+Carga real em 16/10, 22h: 27 arquivos anuais (2000–2026), 4,1 MB. PETR4, VALE3 e BBAS3 desde
+03/01/2000; ITUB4 desde 20/05/2009 (antes, ITAU4); WEGE3 desde 08/09/2004, com 616 sessões
+sem negócio, provavelmente quando a classe mais negociada era a WEGE4 (a confirmar). Fechamentos de 13 e 14/10 iguais às referências do
+Radar, sem conflito; financeiro/(média×quantidade) entre 1,0000 e 1,0003, confirmando os
+deslocamentos de layout. 15 e 16/10 agora disponíveis nas duas carteiras; período "Dia"
+preenchido.
+
+Achados: a B3 responde HTTP 403 ao user-agent padrão do Python; a base envia
+"HedgeFundLab/1.0 (uso local; TCC)". O módulo selado `src/pipeline/b3_official.py`, usado
+pela preparação de análise do Radar, baixa com o agente padrão, então novas sessões do Radar
+provavelmente falharão com 403. Não alterado (selado). Anuais descompactados chegam a centenas
+de MB; limites de 2 GB por membro e 512 MB de download, com leitura em streaming.
+
+Verificação:
+- `poetry run pytest tests/test_market_base.py tests/test_portfolio_history.py tests/test_legacy_web.py tests/test_wallet_manager.py tests/test_manual_portfolio.py tests/test_market_update.py tests/test_radar_network_isolation.py tests/test_stock_history.py -q` → 90 aprovados e 1 ignorado.
+- `node tests/market_update_ui_check.js dashboard/shell.js` → PASS.
+- `node tests/personal_charts_browser_check.mjs <base> <out>` e `node tests/market_update_browser_check.mjs <base> <out>` → PASS em desktop e celular. O segundo ignora o POST de coleta intradiária da home (DP-26); o primeiro deixou de afirmar valores de dia específico.
+
+Limites:
+- Sem aliases de ticker: histórico de ITAU4 e WEGE4 pendente, a acrescentar com verificação de preços na data da troca.
+- Fator Yahoo vem do snapshot mais recente, não as-of.
+- 404 não é memorizado.
+- `coverage()` é recalculado a cada GET de status (leituras de arquivo com cache).
+
+Próximo passo: commit após revisão de Lucas; aliases ITAU4→ITUB4 e WEGE4/WEGE3; decidir com Lucas a leitura do Radar a partir da base. Futuro (DP-27, não agora): janelas de eventos, indicadores e padrões consultáveis pelos agentes, com corte pela data da decisão e tamanho de amostra explícito.
+
 ## Home: indicadores, rotina e rastreabilidade — DP-01/03/04/05/13/17/21, APP-03/05, UX-M5, 16/10/2026
 
 Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. A home

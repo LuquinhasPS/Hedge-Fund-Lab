@@ -57,7 +57,8 @@
   function routineMark(d){
     const ok=d.daily_history.filter(p=>p.state==='AVAILABLE').at(-1);
     const pend=d.daily_history.filter(p=>p.state!=='AVAILABLE').map(p=>p.state==='PENDING_CLOSE'?'Fechamento de '+short(p.session)+' ainda pendente':short(p.session)+': faltam cotações de '+p.missing.join(', '));
-    el('routine-mark').innerHTML=(ok?'Último fechamento marcado: '+day(ok.session):'Nenhum fechamento marcado ainda')+'<br>'+(pend.length?esc(pend.slice(0,3).join('; ')+(pend.length>3?' e mais '+(pend.length-3):'')):'Nenhuma pendência de marcação.');
+    el('routine-mark').innerHTML=(ok?'Último fechamento marcado: '+day(ok.session):'Nenhum fechamento marcado ainda')+'<br>'+(pend.length?esc(pend.slice(0,3).join('; ')+(pend.length>3?' e mais '+(pend.length-3):'')):'Nenhuma pendência de marcação.')+(pend.length?' <button type="button" id="routine-update">Atualizar dados</button>':'');
+    el('routine-update')?.addEventListener('click',()=>document.getElementById('hfl-market-open').click());
     const last=d.daily_history.at(-1), t=last?.trades||[];
     el('routine-today').hidden=!t.length;
     el('routine-today').innerHTML=t.length?'Operações de '+day(last.session)+': '+t.map(x=>esc(({BUY:'compra',SELL:'venda'}[x.side]||x.side)+' '+x.quantity+' '+x.ticker)+' <span class="product-chip">'+(x.origin==='MANAGER'?'gestor':'manual')+'</span>').join(', '):'';

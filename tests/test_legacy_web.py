@@ -200,3 +200,27 @@ def test_historical_gets_are_still_available(web):
         with patch.object(obj, name, return_value=value):
             status, body, _ = request(web, endpoint)
             assert status == 200 and json.loads(body) == value
+
+
+def test_market_base_endpoints_need_csrf_and_an_empty_body(web, monkeypatch, tmp_path):
+    import market_base_api
+
+    monkeypatch.setattr(market_base_api, "ROOT", tmp_path)
+    started = []
+    monkeypatch.setattr(
+        market_base_api, "start", lambda: started.append(1) or market_base_api.status()
+    )
+    status, body, _ = request(web, "/api/platform/market-base", Host=f"127.0.0.1:{web}")
+    token = json.loads(body)["csrf_token"]
+    assert status == 200 and json.loads(body)["running"] is False
+
+    def post(payload, csrf):
+        headers = {"Host": f"127.0.0.1:{web}", "Origin": f"http://127.0.0.1:{web}"}
+        headers |= {"Content-Type": "application/json", "X-CSRF-Token": csrf}
+        connection = http.client.HTTPConnection("127.0.0.1", web, timeout=20)
+        connection.request("POST", "/api/platform/market-base/update", payload, headers)
+        return connection.getresponse().status
+
+    assert post(b"{}", "wrong") == 403
+    assert post(b'{"x":1}', token) == 400
+    assert post(b"{}", token) == 202 and started == [1]

@@ -2,55 +2,50 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 function app(){
   const fields={},pending=[],timers=[];
-  const el=id=>fields[id]??={disabled:false,hidden:true,textContent:'',href:'',open:false,listeners:{},
-    addEventListener(k,f){this.listeners[k]=f},setAttribute(){},showModal(){this.open=true},close(){this.open=false}};
-  const context=vm.createContext({document:{querySelector:()=>null,getElementById:el},window:{addEventListener(){}},
-    URLSearchParams,location:{reload(){}},setTimeout:f=>(timers.push(f),timers.length),clearTimeout(){},
+  const el=id=>fields[id]??={disabled:false,hidden:true,textContent:'',href:'',open:false,listeners:{},children:[],
+    addEventListener(k,f){this.listeners[k]=f},setAttribute(){},showModal(){this.open=true},close(){this.open=false},
+    replaceChildren(...c){this.children=c}};
+  const context=vm.createContext({document:{querySelector:()=>null,getElementById:el,createElement:()=>({textContent:''})},window:{addEventListener(){}},
+    location:{reload(){}},setTimeout:f=>(timers.push(f),timers.length),clearTimeout(){},
     fetch:(url,options={})=>new Promise(resolve=>pending.push({url,options,reply:(d,ok=true)=>resolve({ok,json:async()=>d})}))});
   vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context);
   const take=()=>{assert.ok(pending.length);return pending.shift()};
   return {el,pending,timers,take};
 }
 const tick=()=>new Promise(r=>setImmediate(r));
-const view={run:{id:'radar-active',session:'2026-10-13',universe:['PETR4','VALE3'],mode:'CONSULTATIVE_SANDBOX'},
-  csrf_token:'token',mutation_available:true,last_closed_session:'2026-10-13',job:null};
-async function open(a,d=view){
+const cov=(last)=>({PETR4:{first:'2000-01-03',last,rows:1,conflicts:0,gaps:0},VALE3:null});
+const base={running:false,started_at:null,finished_at:null,closed:'2026-10-16',last:null,error:null,csrf_token:'token'};
+async function open(a,d){
   a.el('hfl-market-open').listeners.click();
-  const registry=a.take();assert.equal(registry.url,'/api/platform/radar-runs');registry.reply({runner:'radar-active'});await tick();
-  const state=a.take();assert.ok(state.url.includes('run=radar-active'));state.reply(d);await tick();
+  const get=a.take();assert.equal(get.url,'/api/platform/market-base');get.reply(d);await tick();
 }
 (async()=>{
-  const a=app();assert.equal(a.pending.length,0,'page load must never fetch or prepare');
-  await open(a);assert.equal(a.el('hfl-market-start').disabled,false);
-  assert.match(a.el('hfl-market-scope').textContent,/13\/10\/2026.*PETR4, VALE3/);
-  assert.equal(a.pending.length,0,'opening panel is read-only');
-  a.el('hfl-market-start').listeners.click();a.el('hfl-market-start').listeners.click();
-  assert.equal(a.pending.length,1,'double click must start only one job');
-  const post=a.take();assert.equal(post.url,'/api/radar/prepare');assert.equal(post.options.method,'POST');
-  assert.deepEqual(JSON.parse(post.options.body),{tickers:['PETR4','VALE3'],session:'2026-10-13',mode:'live'});
-  assert.equal(post.options.headers['X-HFL-Radar-Run'],'radar-active');
+  const a=app();assert.equal(a.pending.length,0,'page load must never fetch');
+  await open(a,{...base,coverage:{PETR4:null,VALE3:null}});
+  assert.match(a.el('hfl-market-scope').textContent,/sem dados ainda.*16\/10\/2026/);
+  assert.equal(a.el('hfl-market-start').disabled,false);
+  const b=app();await open(b,{...base,coverage:{PETR4:{first:'2000-01-03',last:'2026-10-14'},VALE3:{first:'2001-02-01',last:'2026-10-15'}}});
+  assert.match(b.el('hfl-market-scope').textContent,/até 14\/10\/2026.*fechado: 16\/10\/2026/);
+  assert.equal(b.el('hfl-market-start').disabled,false);
+  assert.equal(b.pending.length,0,'opening panel is read-only');
+  b.el('hfl-market-start').listeners.click();b.el('hfl-market-start').listeners.click();
+  assert.equal(b.pending.length,1,'double click must start only one job');
+  const post=b.take();assert.equal(post.url,'/api/platform/market-base/update');assert.equal(post.options.method,'POST');
   assert.equal(post.options.headers['X-CSRF-Token'],'token');
-  post.reply({id:'job-1',status:'RUNNING'});await tick();
-  a.timers.shift()();a.take().reply({...view,job:{id:'job-1',status:'RUNNING'}});await tick();
-  assert.equal(a.el('hfl-market-start').disabled,true);
-  a.timers.shift()();a.take().reply({...view,job:{id:'job-1',status:'COMPLETED',items:[{ticker:'PETR4',status:'PREPARED'},{ticker:'VALE3',status:'BLOCKED'}]}});await tick();
-  assert.match(a.el('hfl-market-status').textContent,/bloqueios: VALE3/);
-  assert.equal(a.el('hfl-market-reload').hidden,false);
-  const resumed=app();await open(resumed,{...view,job:{id:'previous-prepare',command:'prepare',status:'RUNNING'}});
-  assert.equal(resumed.pending.length,0);assert.equal(resumed.el('hfl-market-start').disabled,true);
-  resumed.timers.shift()();resumed.take().reply({...view,job:{id:'previous-prepare',status:'COMPLETED',items:view.run.universe.map(ticker=>({ticker,status:'PREPARED'}))}});await tick();
-  assert.match(resumed.el('hfl-market-status').textContent,/2 ativos/);
-  const changed=app();await open(changed,{...view,job:{id:'prepare-1',command:'prepare',status:'RUNNING'}});
-  changed.timers.shift()();changed.take().reply({...view,job:{id:'paid-2',command:'run',status:'COMPLETED'}});await tick();
-  assert.match(changed.el('hfl-market-status').textContent,/registro da atualização mudou/);
-  const refused=app();await open(refused,{...view,mutation_available:false});
-  refused.el('hfl-market-start').listeners.click();assert.equal(refused.pending.length,0);
-  assert.match(refused.el('hfl-market-status').textContent,/somente para consulta/);
-  const missing=app();missing.el('hfl-market-open').listeners.click();missing.take().reply({runner:null});await tick();
-  assert.equal(missing.el('hfl-market-start').disabled,true);
-  assert.match(missing.el('hfl-market-status').textContent,/Nenhuma execução operacional/);
-  const failure=app();await open(failure);failure.el('hfl-market-start').listeners.click();
-  failure.take().reply({error:'radar_busy_or_stale_lock'},false);await tick();
-  assert.match(failure.el('hfl-market-status').textContent,/operação ativa/);assert.equal(failure.timers.length,0);
-  console.log('PASS: explicit shared preparation, scope/CSRF, double click, resume, partial failure, changed job and read-only gates');
+  post.reply({...base,running:true,coverage:{PETR4:{first:'a',last:'2026-10-14'}}});await tick();
+  assert.equal(b.el('hfl-market-start').disabled,true);
+  b.timers.shift()();
+  const cv={PETR4:{first:'2000-01-03',last:'2026-10-15'},VALE3:{first:'2001-02-01',last:'2026-10-15'}};
+  b.take().reply({...base,running:false,coverage:cv,last:{closed:'2026-10-16',results:[{file:'COTAHIST_D15102026.ZIP',status:'ACQUIRED'},{file:'COTAHIST_D16102026.ZIP',status:'NOT_PUBLISHED'},{file:'COTAHIST_A2026.ZIP',status:'FAILED',error:'timeout'}],yahoo:{PETR4:'OK',VALE3:'HTTP 429'}}});await tick();
+  const t=b.el('hfl-market-status').textContent;
+  assert.match(t,/1 arquivo novo da B3/);assert.match(t,/ainda não publicou: 16\/10/);assert.match(t,/arquivo anual 2026 \(timeout\)/);assert.match(t,/VALE3 \(HTTP 429\)/);
+  assert.equal(b.el('hfl-market-reload').hidden,false);
+  const c=app();await open(c,{...base,coverage:{PETR4:{first:'a',last:'2026-10-16'}}});
+  assert.match(c.el('hfl-market-status').textContent,/Base em dia/);assert.equal(c.el('hfl-market-start').disabled,true);
+  const r=app();await open(r,{...base,running:true,coverage:{PETR4:null}});
+  assert.equal(r.pending.length,0);assert.equal(r.el('hfl-market-start').disabled,true);assert.equal(r.timers.length,1);
+  const f=app();await open(f,{...base,coverage:{PETR4:null}});f.el('hfl-market-start').listeners.click();
+  f.take().reply({error:'invalid_csrf'},false);await tick();
+  assert.match(f.el('hfl-market-status').textContent,/invalid_csrf/);assert.equal(f.timers.length,0);
+  console.log('PASS: market-base dialog: coverage, behind/em dia, POST+CSRF, double click, polling, summary, resume, failure');
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -42,6 +42,7 @@ import global_pm_api
 import h2_api
 import manual_portfolio_api
 import market_api
+import market_base_api
 import monitoring_api
 import network_scope
 import paper_ledger_api
@@ -543,6 +544,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._send_json(
                         radar_analysis_api.get({k: v[0] for k, v in query.items()})
                     )
+                if command == "market-base":
+                    if query:
+                        raise ValueError("invalid_query")
+                    return self._send_json(
+                        {**market_base_api.status(), "csrf_token": forward_jobs.JOBS.csrf}
+                    )
                 if command == "wallet-manager":
                     return self._send_json(
                         wallet_manager_api.get({k: v[0] for k, v in query.items()})
@@ -560,6 +567,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 "global-replay",
                 "radar-budget-authorization",
                 "radar-analysis",
+                "market-base/update",
             }:
                 return self._send_json(None, 404)
             if (
@@ -569,6 +577,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 or self.headers.get("Content-Type") != "application/json"
             ):
                 raise ValueError("invalid_payload")
+            if command == "market-base/update":
+                if strict_json(body) != {}:
+                    raise ValueError("invalid_payload")
+                return self._send_json(market_base_api.start(), 202)
             if command == "radar-analysis":
                 return self._send_json(radar_analysis_api.create(strict_json(body)), 201)
             if command.startswith("wallet-manager/"):
@@ -899,6 +911,10 @@ def main():
         logger.info("  Legado    : http://localhost:%d/legacy", port)
         logger.info("  Logs      : http://localhost:%d/logs", port)
         logger.info("  Ctrl+C para parar")
+        # DP-27: refresh the local market base in the background (plain thread, so
+        # network_scope's context-scoped offline guard does not apply to it).
+        if os.environ.get("HFL_MARKET_BASE_AUTOUPDATE") != "0":
+            market_base_api.start()
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

@@ -21,10 +21,11 @@
 <div class="product-topbar"><label for="product-wallet">Carteira selecionada<select id="product-wallet"><option value="">Carregando carteiras…</option></select></label><span id="product-nature" class="product-chip"></span><div class="product-top-actions"><button class="hfl-market-open" id="hfl-market-open" type="button" aria-haspopup="dialog" aria-controls="hfl-market-dialog">Atualizar dados</button><button class="hfl-help-open" id="hfl-help-open" type="button" aria-haspopup="dialog">Ajuda</button></div></div>
 <dialog id="hfl-market-dialog" class="hfl-market-dialog" aria-labelledby="hfl-market-title">
   <h2 id="hfl-market-title">Atualizar dados da bolsa</h2>
-  <p id="hfl-market-scope">Consultando a execução operacional…</p>
-  <p>Prepara preços e histórico dos ativos para a sessão indicada. Pareceres dos agentes e patrimônio das carteiras têm atualização própria.</p>
+  <p id="hfl-market-scope">Consultando a base local…</p>
+  <ul id="hfl-market-coverage"></ul>
+  <p>Atualiza a base local de preços (B3 oficial e ajuste Yahoo). Nenhum agente é executado.</p>
   <p id="hfl-market-status" role="status" aria-live="polite"></p>
-  <div class="hfl-row"><button type="button" id="hfl-market-start" data-action="prepare" disabled>Atualizar agora</button><button type="button" id="hfl-market-reload" hidden>Atualizar esta visualização</button><a id="hfl-market-radar" href="/radar">Consultar Radar</a><button type="button" id="hfl-market-close">Fechar</button></div>
+  <div class="hfl-row"><button type="button" id="hfl-market-start" data-action="prepare" disabled>Atualizar agora</button><button type="button" id="hfl-market-reload" hidden>Atualizar esta visualização</button><a id="hfl-market-radar" href="/radar#new-analysis">Preparar dados de uma análise → Agentes</a><button type="button" id="hfl-market-close">Fechar</button></div>
 </dialog>
 <script src="/glossary.js?v=762" defer></script>
 <script src="/ui.js?v=762" defer></script>

@@ -6,6 +6,7 @@ No downloads, adjusted-price substitution, inference or financial event writes.
 from functools import lru_cache
 
 import manual_portfolio_api as manual
+import market_base_api as base
 import pilot_observed_data as observed
 import radar_runs as runs
 
@@ -25,7 +26,7 @@ def verified_input(root, ticker, day, input_sha, bars_sha, manifest_sha):
     return data
 
 
-def quote_book(symbols):
+def quote_book(symbols, since=None):
     """Only registered live runs; conflicts remain gaps, never latest-wins prices."""
     values, issues = {}, []
     manifest_sha = radar.digest(radar.manifest("live"))
@@ -75,6 +76,30 @@ def quote_book(symbols):
                         "reason": "REFERENCE_INVALID_OR_UNAVAILABLE",
                     }
                 )
+    # DP-27: the local B3 market base is one more candidate; a disagreement between
+    # its files (conflict) or with a Radar close is a gap, never a chosen price.
+    for ticker in sorted(symbols) if since else ():
+        for row in base.merged(ticker, closed):
+            if row["date"] < since:
+                continue
+            if row["conflict"]:
+                issues.append(
+                    {
+                        "ticker": ticker,
+                        "session": row["date"],
+                        "reason": "MARKET_BASE_CONFLICT",
+                    }
+                )
+                continue
+            values.setdefault((ticker, row["date"]), []).append(
+                {
+                    "price": manual.number(str(row["close"]), "price", positive=True),
+                    "run": None,
+                    "source": "B3_MARKET_BASE",
+                    "acquired_at": row["acquired_at"],
+                    "prepared_at": row["acquired_at"],
+                }
+            )
     result = {}
     for (ticker, day), candidates in values.items():
         prices = {b.dec(c["price"]) for c in candidates}
@@ -86,7 +111,9 @@ def quote_book(symbols):
         else:
             result.setdefault(day, {})[ticker] = {
                 "price": str(next(iter(prices))),
-                "sources": sorted(candidates, key=lambda c: (c["prepared_at"], c["run"])),
+                "sources": sorted(
+                    candidates, key=lambda c: (c["prepared_at"], c["run"] or "")
+                ),
             }
     return result, issues
 
@@ -340,7 +367,7 @@ def get(query):
         {t["ticker"] for t in wallet["trades"]}
         | {p["ticker"] for p in wallet["positions"]}
     )
-    book, issues = quote_book(symbols)
+    book, issues = quote_book(symbols, wallet["start_date"])
     at = radar.now()
     return build(
         wallet,
