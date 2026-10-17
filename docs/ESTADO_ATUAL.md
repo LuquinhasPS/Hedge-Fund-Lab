@@ -10,6 +10,49 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Home: indicadores, rotina e rastreabilidade — DP-01/03/04/05/13/17/21, APP-03/05, UX-M5, 16/10/2026
+
+Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. A home
+passa a ser o acompanhamento diário da carteira selecionada.
+
+A API `GET /api/portfolio/history` ([leitor](../dashboard/portfolio_history_api.py))
+devolve `periods` (Dia, 5 dias, Mês, Ano, 12 meses, Desde o início) calculados só
+entre fechamentos **disponíveis**. Âncora anterior ao início da carteira ou sem
+fechamento retorna `INSUFFICIENT_HISTORY`, nunca zero nem extrapolação. Cada ponto
+diário lista as operações da sessão com origem MANUAL ou MANAGER (gestor).
+Nova `GET /api/platform/wallet-manager/latest?wallet=` ([API](../dashboard/wallet_manager_api.py)):
+proposta mais recente da carteira entre execuções, com estado, dia-alvo, operações
+propostas e link para resultados; somente leitura, sem inferência nem escrita.
+Simplificação: varredura linear sobre as execuções; contexto adulterado é ignorado,
+não exibido como erro de integridade.
+
+Cards da home: **Patrimônio estimado** (seletor de período; a linha do período diz que
+a variação é entre fechamentos, enquanto o destaque é a estimativa atual),
+**Caixa econômico** (% do patrimônio) e **Investido em ações** (% do patrimônio, com
+custos e resultado realizado; substitui o card "Custos registrados").
+"Rotina do dia" substitui "Movimentos e proventos": último fechamento marcado,
+pregões pendentes ou sem cotação, policy Buy & Hold (manter, sem rebalanceamento,
+proventos em caixa — DP-11), estado da última proposta do gestor nas carteiras
+simuladas com link "Revisar proposta" e operações da última sessão com selo gestor/manual.
+Só links: nada dispara inferência, pagamento ou escrita.
+O gráfico de patrimônio marca dias com operações (tooltip lista) e a tabela acessível
+ganhou coluna "Operações". "Suas posições" tem barras de alocação por ativo e caixa;
+a marca-alvo inicial de 20% aparece só para carteiras do grupo-piloto (DP-07/18).
+Linha neutra de comparação com as outras carteiras do mesmo grupo, "desde o início",
+só quando ambas têm mesma âncora e fechamentos finais; nunca soma carteiras.
+Backtesting foi discutido e deixado fora da home; continua no laboratório, a tratar com Lucas.
+
+Verificação:
+- `poetry run pytest tests/test_portfolio_history.py tests/test_manual_portfolio.py tests/test_legacy_web.py tests/test_wallet_manager.py -q` → 60 aprovados e 1 ignorado.
+- `node tests/personal_charts_browser_check.mjs <base> <out>` → PASS em desktop e celular (390 px, sem rolagem horizontal), somente GET.
+- Capturas manuais de Buy & Hold e Multiagentes revisadas.
+
+Limites:
+- Não verificados no navegador: estados de proposta além de APPLIED, "sem análise", falhas de busca, comparação com datas diferentes e linhas "Indisponível" de alocação.
+- Os chips de período mostram "histórico insuficiente", exceto "Desde o início", porque as carteiras começaram em 14/10.
+
+Próximo passo: commit após revisão de Lucas; depois APP-04 (proventos) e qualificar mais fechamentos diários para os períodos preencherem.
+
 ## Acervo intradiário Yahoo — DP-26 / APP-03, 16/10/2026
 
 O mesmo **Histórico das ações** passou a mostrar o preço ao longo do dia. Até 60

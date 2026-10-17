@@ -562,3 +562,15 @@ def test_browser_end_to_end_when_requested(lab, monkeypatch, tmp_path):
     wallet = m.manual.get({"wallet": c["wallet"]["id"]})["selected"]
     assert wallet["cash"] == "239.36" and len(wallet["trades"]) == 3
     assert len(calls) == 1
+
+
+def test_latest_proposal_for_wallet(lab):
+    c, raw = lab
+    wallet = c["wallet"]["id"]
+    assert m.latest({"wallet": "f" * 32})["latest"] is None
+    assert m.latest({"wallet": wallet})["latest"]["status"] == "PREPARED"
+    result(c, raw)
+    got = m.latest({"wallet": wallet})["latest"]
+    assert got["status"] == "VALID_PROPOSAL" and got["applied_at"] is None
+    assert got["proposal"] == c["proposal"] and got["trades"][0]["ticker"] == "VALE3"
+    assert got["results_url"].startswith(f"/radar?run={c['run']}&")

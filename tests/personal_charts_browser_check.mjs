@@ -30,6 +30,19 @@ await session(async page=>{
   assert.equal(await page.eval(`document.querySelector('#personal-chart-error').hidden`),true);
   assert.equal(await page.eval(`document.querySelector('#personal-stock-error').hidden`),true);
   assert.match(await page.eval(`document.querySelector('#personal-metrics').textContent`),/99.831,60/);
+  assert.equal(await page.eval(`document.querySelector('#routine-title').textContent`),'Rotina do dia');
+  assert.match(await page.eval(`document.querySelector('#routine-mark').textContent`),/Último fechamento marcado: \d\d\/\d\d\/\d{4}/);
+  for(let i=0;i<100&&!await page.eval(`document.querySelector('#routine-policy').textContent`);i++)await new Promise(r=>setTimeout(r,100));
+  assert.match(await page.eval(`document.querySelector('#routine-policy').textContent`),/Política: manter|Nenhuma análise dos agentes|Proposta|Análise|Recuperação|Registro da proposta/);
+  assert.equal(await page.eval(`document.querySelectorAll('#personal-metrics [role=group][aria-label="Período da variação"] button[aria-pressed]').length`),6);
+  await page.click('#personal-metrics [data-period="5d"]');const before=await page.eval(`document.querySelector('#personal-period-detail').textContent`);await page.click('#personal-metrics [data-period="inception"]');
+  assert.notEqual(await page.eval(`document.querySelector('#personal-period-detail').textContent`),before);assert.match(await page.eval(`document.querySelector('#personal-period-detail').textContent`),/Desde o início/);
+  const alloc=await page.eval(`[...document.querySelectorAll('#personal-allocation li')].map(l=>l.textContent)`);
+  assert.equal(alloc.length,await page.eval(`document.querySelectorAll('#personal-positions tbody tr').length`)+1);assert.ok(alloc.at(-1).startsWith('Caixa'));assert.ok(!alloc.some(t=>/0,00%/.test(t)));
+  assert.match(await page.eval(`document.querySelector('#personal-allocation').textContent`),/alvo inicial 20%/);
+  assert.match(await page.eval(`document.querySelector('#personal-equity-table').textContent`),/Operações/);
+  for(let i=0;i<100&&!await page.eval(`document.querySelector('#personal-compare').textContent`);i++)await new Promise(r=>setTimeout(r,100));
+  assert.match(await page.eval(`document.querySelector('#personal-compare').textContent`),/Desde o início \(\d\d\/\d\d → \d\d\/\d\d\): .+ · .+ · diferença [+-−]?[\d,]+ p\.p\.|Comparação com .+ indisponível/);
   // Later sessions without a B3 mark stay null; the curve grows with the calendar.
   const nav=await page.eval(`Chart.getChart('personal-equity-chart').data.datasets[0].data`);
   assert.deepEqual(nav.slice(0,2),[100000,99835.33]);assert.ok(nav.length>2&&nav.slice(2).every(v=>v==null));

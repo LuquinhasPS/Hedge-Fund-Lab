@@ -174,6 +174,80 @@ def valuation(wallet, prices, session):
     }
 
 
+MANAGER_KIND = "WALLET_MANAGER_REFERENCE_PRICE_SIMULATION"
+PERIODS = (
+    ("1d", "Dia"),
+    ("5d", "5 dias"),
+    ("mtd", "Mês"),
+    ("ytd", "Ano"),
+    ("12m", "12 meses"),
+)
+
+
+def periods(daily, wallet, sessions, anchor_ok):
+    """DP-04: variations over AVAILABLE closes only; a missing anchor is never zero."""
+    ok = [p for p in daily if p["state"] == "AVAILABLE"]
+    end = ok[-1] if ok else None
+    by_day = {p["session"]: p for p in ok}
+
+    def before(cutoff, inclusive=False):
+        # last calendar session before (or on) cutoff; None when not covered
+        return max(
+            (d for d in sessions if d < cutoff or inclusive and d == cutoff), default=None
+        )
+
+    def item(key, label, anchor_day, anchor_equity=None):
+        anchor = by_day.get(anchor_day) if anchor_equity is None else None
+        if anchor is not None:
+            anchor_equity = anchor["equity"]
+        ready = end is not None and anchor_equity is not None and anchor_day is not None
+        if ready and anchor is not None and anchor["session"] >= end["session"]:
+            ready = False
+        change = b.dec(end["equity"]) - b.dec(anchor_equity) if ready else None
+        base = b.dec(anchor_equity) if ready else None
+        return {
+            "key": key,
+            "label": label,
+            "state": "AVAILABLE"
+            if ready
+            else "UNAVAILABLE"
+            if end is None
+            else "INSUFFICIENT_HISTORY",
+            "anchor_session": anchor_day if ready else None,
+            "end_session": end["session"] if end else None,
+            "anchor_equity": anchor_equity if ready else None,
+            "end_equity": end["equity"] if ready else None,
+            "change": str(change) if ready else None,
+            "return_fraction": str(change / base) if ready and base else None,
+        }
+
+    days = [p["session"] for p in daily]
+    i = days.index(end["session"]) if end else 0
+    cutoffs = {}
+    if end:
+        d = end["session"]
+        cutoffs = {
+            "1d": days[i - 1] if i >= 1 else None,
+            "5d": days[i - 5] if i >= 5 else None,
+            "mtd": before(d[:7] + "-01"),
+            "ytd": before(d[:4] + "-01-01"),
+            # ponytail: Feb 29 maps to Feb 28 a year earlier
+            "12m": before(
+                str(int(d[:4]) - 1) + "-" + d[5:].replace("02-29", "02-28"), True
+            ),
+        }
+    out = [item(k, label, cutoffs.get(k)) for k, label in PERIODS]
+    out.append(
+        item(
+            "inception",
+            "Desde o início",
+            wallet["start_date"] if anchor_ok else None,
+            wallet["capital"],
+        )
+    )
+    return out
+
+
 def build(wallet, book, issues, *, today, last_closed, calendar):
     symbols = sorted(
         {t["ticker"] for t in wallet["trades"]}
@@ -204,6 +278,17 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
             if point["missing"]
             else "AVAILABLE",
         )
+        # ponytail: trades dated on a non-session day appear in no point.
+        point["trades"] = [
+            {
+                **{k: t[k] for k in ("id", "ticker", "side", "quantity", "price")},
+                "origin": "MANAGER"
+                if (t.get("source") or {}).get("kind") == MANAGER_KIND
+                else "MANUAL",
+            }
+            for t in wallet["trades"]
+            if t["economic_date"] == day
+        ]
         daily.append(point)
     stock_days = sorted(
         set(book)
@@ -220,6 +305,9 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         }
         for day in stock_days
     ]
+    initial_anchor = (
+        calendar["coverage"][0] <= wallet["start_date"] <= calendar["coverage"][1]
+    )
     return {
         "identity": "HFL-PERSONAL-HISTORY-REFERENCE-V1",
         "wallet": wallet["id"],
@@ -230,11 +318,10 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         "last_closed": last_closed,
         "initial_capital": wallet["capital"],
         "start_date": wallet["start_date"],
-        "initial_anchor_available": calendar["coverage"][0]
-        <= wallet["start_date"]
-        <= calendar["coverage"][1],
+        "initial_anchor_available": initial_anchor,
         "valuation": current,
         "daily_history": daily,
+        "periods": periods(daily, wallet, calendar["trading_sessions"], initial_anchor),
         "price_history": price_history,
         "tickers": symbols,
         "references": book,

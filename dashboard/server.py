@@ -547,6 +547,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._send_json(
                         wallet_manager_api.get({k: v[0] for k, v in query.items()})
                     )
+                if command == "wallet-manager/latest":
+                    return self._send_json(
+                        wallet_manager_api.latest({k: v[0] for k, v in query.items()})
+                    )
                 return self._send_json(
                     platform_api.get(command, {k: v[0] for k, v in query.items()})
                 )

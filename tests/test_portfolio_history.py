@@ -100,6 +100,29 @@ def test_historical_quantities_cash_costs_and_current_estimate_are_separate(port
     assert h.manual.path().read_bytes() == before
 
 
+def test_periods_and_session_trades(portfolio):
+    d = projection(portfolio)
+    p = {x["key"]: x for x in d["periods"]}
+    assert [x["key"] for x in d["periods"]][-1] == "inception"
+    assert (p["1d"]["state"], p["1d"]["anchor_session"], p["1d"]["change"]) == (
+        "AVAILABLE",
+        "2026-10-13",
+        "22.00",
+    )
+    assert (
+        p["inception"]["change"] == "21.00"
+        and p["inception"]["end_session"] == "2026-10-14"
+    )
+    assert p["inception"]["anchor_equity"] == "1000.00"
+    for k in ("5d", "ytd", "12m"):
+        assert p[k]["state"] == "INSUFFICIENT_HISTORY" and p[k]["change"] is None
+    day = d["daily_history"][1]["trades"]
+    assert [(t["ticker"], t["side"], t["origin"]) for t in day] == [
+        ("PETR4", "SELL", "MANUAL"),
+        ("VALE3", "BUY", "MANUAL"),
+    ]
+
+
 def test_correction_changes_the_economic_day_and_keeps_original_history(portfolio):
     trade = portfolio["trades"][2]
     request = {

@@ -14,6 +14,7 @@ from contextlib import closing
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Literal
+from urllib.parse import urlencode
 
 import manual_portfolio_api as manual
 import network_scope
@@ -543,6 +544,48 @@ def get(query):
             key=lambda s: s["context"]["created_at"],
         ),
         "csrf_token": analysis.platform.forward_jobs.JOBS.csrf,
+    }
+
+
+def latest(query):
+    """Newest manager proposal of one wallet across all runs (read-only)."""
+    manual.fields(query, ("wallet",))
+    wallet, found = query["wallet"], []
+    # ponytail: linear scan, O(runs x proposals) disk reads per request; index by wallet if it grows.
+    for entry in runs.load()["runs"].values():
+        for p in (runs.root_of(entry) / "wallet-manager").glob("*/context.json"):
+            try:
+                c = checked(p.parent)
+            except ValueError:  # tampered/foreign context: cannot even name its wallet
+                continue
+            if c["wallet"]["id"] == wallet:
+                found.append(c)
+    if not found:
+        return {"wallet": wallet, "latest": None, "read_only": True}
+    c = max(found, key=lambda c: c["created_at"])
+    try:
+        s = status(c["run"], c["proposal"])
+    except ValueError:  # status() raises ValueError on changed seals/results: show, don't crash
+        s = {"status": "INTEGRITY_ERROR", "result": None, "applied": None}
+    return {
+        "wallet": wallet,
+        "latest": {
+            "run": c["run"],
+            "proposal": c["proposal"],
+            "status": s["status"],
+            "created_at": c["created_at"],
+            "target_date": c["target_date"],
+            "reference_session": c["reference_session"],
+            "trades": [
+                {k: t[k] for k in ("ticker", "side", "quantity", "price")}
+                for t in (s["result"] or {}).get("trades", [])
+            ],
+            "applied_at": (s["applied"] or {}).get("recorded_at"),
+            "results_url": "/radar?"
+            + urlencode({"run": c["run"], "wallet": wallet, "proposal": c["proposal"]})
+            + "#analysis-results",
+        },
+        "read_only": True,
     }
 
 

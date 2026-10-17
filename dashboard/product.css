@@ -135,6 +135,11 @@ body.hfl-platform .product-top-actions button{min-height:36px;padding:7px 11px;b
 .product-health.neutral{background:var(--surface-2);color:var(--muted)}
 #product-data-error{margin:15px 0}
 .product-compact-context{padding:15px;border-left:3px solid var(--accent);background:#edf1ff;font-size:12px;margin:20px 0;color:var(--text-2)}
+.alloc-list{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:8px}
+.alloc-list li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;font-size:13px}
+.alloc-bar{grid-column:1/-1;position:relative;display:block;height:8px;border-radius:4px;background:#e2e7f0}
+.alloc-bar>i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.alloc-bar u{position:absolute;left:20%;top:-2px;bottom:-2px;width:2px;background:#43516a;text-decoration:none}
 .personal-chart-wrap{position:relative;height:290px;min-width:0;margin:20px 0 12px}
 .personal-stock-chart{height:340px}
 .personal-stock-panel{margin-top:22px}
@@ -153,6 +158,8 @@ body.hfl-platform .product-top-actions button{min-height:36px;padding:7px 11px;b
 .stock-periods{display:flex;gap:3px;flex-wrap:wrap;align-self:center;flex:1}
 .stock-periods button{padding:9px 12px;border:0;background:transparent;min-height:42px}
 .stock-periods button[aria-pressed=true]{color:var(--accent);background:#eef1ff;border-radius:8px;font-weight:700}
+#personal-metrics .stock-periods{flex:none;gap:2px}
+#personal-metrics .stock-periods button{padding:4px 8px;min-height:32px;font-size:12px}
 .personal-stock-panel .stock-toolbar select{min-width:175px;max-width:100%;font-size:13px}
 .stock-range input{display:block;margin-top:5px;padding:9px 10px;max-width:100%;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font:inherit}
 .stock-range button{min-height:42px}

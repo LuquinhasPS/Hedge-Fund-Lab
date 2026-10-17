@@ -260,7 +260,7 @@ Não ativa o escritor prospectivo PAPER-04 nem reaproveita decisões antigas.
 |---|---|---|
 | 1 / APP-01 | **Entregue: criar carteira e escolhê-la na home** | Nome, natureza, capital/data próprios e persistência entre processos. DP-20: Buy & Hold/Multiagentes com base inicial manual comum registrada; entrada prospectiva continua separada |
 | 2 / APP-02 | **Entregue: registrar e consultar operações pela tela** | Compra/venda, custos declarados, data econômica/registro distintos; prévia, confirmação idempotente, replay histórico e correção/anulação preservando original. Caixa econômico, sem modelar liquidação da corretora; não cria ordem |
-| 3 / APP-03 | **Parcial: patrimônio B3 e explorador histórico Yahoo entregues** | Home: evolução pelo mesmo ledger/RAW B3; abaixo das posições, histórico Yahoo máximo, ativos/períodos editáveis e variação por arraste (DP-25), barras intradiárias do dia e dos pregões anteriores em acervo local (DP-26), sem alimentar marcas/ordens. Estimativa atual separada do fechamento histórico; lacunas explícitas. Pendentes cobertura contínua de marcas, comparação e integração prospectiva DATA-01; sem preço ao vivo/proventos |
+| 3 / APP-03 | **Parcial: patrimônio B3 e explorador histórico Yahoo entregues** | Home: evolução pelo mesmo ledger/RAW B3; abaixo das posições, histórico Yahoo máximo, ativos/períodos editáveis e variação por arraste (DP-25), barras intradiárias do dia e dos pregões anteriores em acervo local (DP-26), sem alimentar marcas/ordens. Estimativa atual separada do fechamento histórico; lacunas explícitas. Pendentes cobertura contínua de marcas, comparação e integração prospectiva DATA-01; sem preço ao vivo/proventos; home com variações por período, alocação e marcadores de operações (16/10) |
 | 4 / APP-04 | Acompanhar dividendos/JCP e eventos | Elegibilidade/quantidade, ex-date, pagamento, origem e estado previsto/reconhecido/recebido; direitos e caixa sem dupla contagem; histórico recalculado de forma rastreável. Depende das regras e do tratamento de eventos de PAPER-01 |
 | 5 / APP-05 | Gestor e aplicação manual aos preços de referência entregues; concluir recuperação/auditoria e execução prospectiva | DP-21/24: quantidades sobre a carteira escolhida → prévia → aprovação → cesta atômica/idempotente no ledger simulado; sem redigitação. Consentimentos pagos/financeiros separados. Pendentes preços recentes, risco global, eventos, D+2 e auditoria integral; não ativa o piloto prospectivo |
 
@@ -282,6 +282,18 @@ snapshots preservados e ajustes identificados; não altera a série patrimonial 
 aparece com ~15 min de atraso e atualiza a cada 2 min. Basta abrir a página ao
 menos a cada ~3 semanas para não perder o 1 min. Próximo passo possível,
 se Lucas pedir: usar a cotação recente na prévia de APP-05 (exige revisar DP-24).
+
+**Home, 16/10 — DP-01/03/04/05/13/21, APP-03/05:** a home mostra patrimônio estimado
+com seletor de período (Dia, 5 dias, Mês, Ano, 12 meses, Desde o início), caixa
+econômico e investido em ações, em % do patrimônio. Períodos usam só fechamentos
+disponíveis; âncora anterior ao início ou sem fechamento vira histórico insuficiente,
+nunca zero. "Rotina do dia" traz último fechamento, pregões pendentes, policy
+Buy & Hold (sem rebalanceamento, proventos em caixa — DP-11), última proposta do
+gestor com link "Revisar proposta" e operações da sessão marcadas como gestor ou
+manual. Gráfico marca dias com operações; "Suas posições" tem alocação e a marca de
+20% só no grupo-piloto (DP-07/18). Comparação neutra com carteiras do mesmo grupo
+só com mesma âncora e fechamentos finais; nunca soma carteiras. Somente leitura.
+Verificação e limites no estado atual.
 
 **Definições confirmadas por Lucas:** DP-18 exige mesma base inicial de posições
 nas carteiras simuladas comparadas, aproximadamente 20% por ativo, e DP-19 inclui
