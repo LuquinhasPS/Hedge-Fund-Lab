@@ -550,6 +550,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return self._send_json(
                         {**market_base_api.status(), "csrf_token": forward_jobs.JOBS.csrf}
                     )
+                if command == "market-base/benchmark":
+                    if set(query) != {"since"}:
+                        raise ValueError("invalid_query")
+                    return self._send_json(market_base_api.benchmark(query["since"][0]))
                 if command == "wallet-manager":
                     return self._send_json(
                         wallet_manager_api.get({k: v[0] for k, v in query.items()})

@@ -1,6 +1,6 @@
 # Direção do projeto e decisões de produto
 
-Versão 11 — **16/10/2026**. Decisões registradas a partir da conversa com Lucas.
+Versão 12 — **16/10/2026**. Decisões registradas a partir da conversa com Lucas.
 Este documento fixa o destino do produto; o [roadmap](ROADMAP.md) organiza o
 caminho e o [estado atual](ESTADO_ATUAL.md) registra o que já existe.
 
@@ -55,6 +55,7 @@ autorização financeira ou afirmação de que a funcionalidade já foi entregue
 | DP-25 | Explorar o máximo de histórico diário disponível das ações via yfinance, selecionar uma ou várias e medir a variação em períodos editáveis ou por arraste | Pedido explícito de Lucas em 15/10. Coleta local Yahoo para esse gráfico, com fonte, ajustes e cobertura identificados; cópias e versões preservadas. Não substitui marcas RAW B3 do patrimônio, dados congelados dos agentes nem preços de execução. Sem contratação, inferência paga, scheduler ou cotação intradiária presumida |
 | DP-26 | Gráfico de preço ao longo do dia, dos dias anteriores e assim por diante, com barras intradiárias yfinance | Pedido explícito de Lucas em 16/10, que aceitou a mudança de foco e a coleta automatizada local no Yahoo. O Yahoo apaga 1 min após ~30 dias (5 min: 60; 1 h: 730), então cada pregão fechado vira arquivo imutável com a melhor resolução ainda disponível; o pregão aberto fica em memória com atraso de ~15 min. Coleta ao abrir a página, pelo botão e a cada 2 min com o pregão no período; sem scheduler. Amplia DP-25 só no gráfico: não vira marca, preço de operação ou input dos agentes; DP-24 continua com preços de referência |
 | DP-27 | Base de mercado local e permanente dos cinco ativos, com o máximo de histórico, atualizada de forma incremental ao iniciar a aplicação ou pelo botão "Atualizar"; a marcação diária do patrimônio deixa de depender de análises dos agentes | Pedido e autorização explícitos de Lucas em 16/10. Download automático da B3 autorizado para uso local, sem redistribuição: COTAHIST anuais desde 2000 uma vez e diários dos pregões faltantes. Guardar só as linhas dos cinco ativos com URL, hash, tamanho e instante de aquisição; os ZIPs podem ser descartados. Cada linha preserva OHLCV RAW B3 (marcação), fator/ajuste Yahoo identificado (análise) e o instante de aquisição para auditoria; consultas "as-of" enxergam só sessões até a data da decisão, sem antecipação. Pregão não publicado fica como lacuna explícita; sem scheduler (DP-13). Encerra, para esse uso, a pendência de automatizar a B3 do DATA-01; ativação oficial PAPER-04 continua com seus gates. Direção futura registrada, sem implementação agora: recortes temporais/eventos (ex.: eleições 2022), indicadores e padrões recorrentes por ativo consultáveis pelos agentes, sempre com corte pela data da decisão e tamanho de amostra explícito |
+| DP-28 | Página Comparação com gráfico de retorno acumulado em % desde o início comum das carteiras do mesmo grupo, mais o Ibovespa como referência externa coletado na mesma atualização de dados | Decisão de Lucas em 16/10: opção A (retorno acumulado em %, não índice base 100) e Ibovespa incluído. Fecha, para essa página, as pendências "Gráfico conjunto" e "Outras referências". Ibovespa via Yahoo (^BVSP), identificado como referência externa, sem marcar patrimônio nem alimentar agentes; ancorado no último fechamento anterior ao início das carteiras. Carteiras pessoais ficam fora do gráfico do grupo (DP-19). Linguagem neutra: diferença observada não demonstra superioridade (DP-09); o Ibovespa inclui proventos reinvestidos e as carteiras ainda não (APP-04), o que deve ser dito na tela. CDI fica para decisão futura |
 
 DP-01–DP-06 e DP-08 registram a direção apresentada por Lucas e discutida na
 conversa. DP-07 registra sua concordância explícita com os 20% por ativo.
@@ -173,8 +174,8 @@ Alvo de alocação, proposta e operação executada têm estados distintos.
 |---|---|
 | Capital por carteira | DP-10: R$ 100 mil independentes; entrada manual DP-20 registrada, entrada prospectiva continua pendente |
 | Buy & Hold 20% | DP-07/11 fecham alvos, ausência de rebalanceamento e proventos em caixa; eventos obrigatórios e saídas excepcionais ainda precisam de regra |
-| Outras referências | Definir quais entram no grupo multiativos; não transferir automaticamente os benchmarks single-asset do H2 |
-| Gráfico conjunto | Preferência técnica por retorno acumulado ou índice base 100; mostrar patrimônio absoluto na carteira selecionada; definir apresentação por grupos comparáveis |
+| Outras referências | DP-28 (16/10): Ibovespa entra na Comparação como referência externa; CDI e demais ainda a definir. Definir quais entram no grupo multiativos; não transferir automaticamente os benchmarks single-asset do H2 |
+| Gráfico conjunto | DP-28 (16/10): retorno acumulado em % escolhido para a Comparação. Preferência técnica por retorno acumulado ou índice base 100; mostrar patrimônio absoluto na carteira selecionada; definir apresentação por grupos comparáveis |
 | Primeiro fill | Definir sessão, preço observado, disponibilidade dos dados e autorização; D0 não autoriza preencher uma abertura passada |
 | Execução e custos | Lotes/frações, resíduo de caixa, custos, slippage, liquidação e eventos corporativos precisam de regras comuns e versionadas |
 | Rotina diária | DP-13 fecha operação manual e autorização explícita; definir dados, prazos, identidade do operador e recuperação |
@@ -229,6 +230,7 @@ sem necessidade do fluxo principal. Nenhum desses itens é requisito atual.
 | 15/10/2026 | Versão 8: DP-24, gestor com quantidades e movimentações parciais; simulação aos preços de referência apresentados | Lucas pediu alocação coordenada e escolheu a opção de preços de referência, ressaltando o desejo futuro de cotação do momento |
 | 16/10/2026 | Versão 10: DP-26, acervo intradiário Yahoo para o gráfico de ações; intraday deixa de estar fora do foco apenas nesse uso | Lucas pediu as barras do dia e dos dias anteriores, aprovou a nova DP e a coleta automatizada local sob os termos do Yahoo (“aceito, pode fazer”) |
 | 16/10/2026 | Versão 11: DP-27, base de mercado local incremental desde 2000, download automático da B3 para uso local, marcação desacoplada das análises e visão futura de munição histórica para os agentes | Lucas respondeu “sim” às três perguntas: download automático da B3, descarte dos ZIPs com hash preservado e registro da visão sem implementação imediata |
+| 16/10/2026 | Versão 12: DP-28, Comparação por retorno acumulado em % com Ibovespa como referência externa | Lucas: “vai de A”, “pode fazer, já extrai o ibovespa também da nossa atualização de dados” |
 
 Essa aprovação não inclui custo de 0,1%, buffer de 2%, limite de exposição de
 85%, política de veto, prazo de processamento, rendimento de caixa, fonte ou

@@ -215,6 +215,45 @@ def test_job_runs_update_and_yahoo_once_and_never_raises(base, monkeypatch):
             break
         time.sleep(0.05)
     out = m.status()
-    assert out["last"]["yahoo"]["PETR4"] == "OK"
+    assert out["last"]["yahoo"]["PETR4"] == "OK" and out["last"]["yahoo"]["IBOV"] == "OK"
     assert out["last"]["yahoo"]["VALE3"].startswith("ZeroDivisionError")
-    assert out["error"] is None and len(done) == 4 and out["coverage"]["PETR4"] is None
+    assert out["error"] is None and len(done) == 5 and out["coverage"]["PETR4"] is None
+
+
+def test_ibov_benchmark_anchor_bounds_and_skip(base, monkeypatch):
+    rows = [
+        {"date": d, "close": c}
+        for d, c in [
+            ("2026-10-08", 100.0),
+            ("2026-10-09", None),
+            ("2026-10-13", 110.0),
+            ("2026-10-14", 120.0),
+            ("2026-10-15", 130.0),
+            ("2026-10-16", 140.0),
+        ]
+    ]
+    monkeypatch.setattr(m.radar, "last_closed", lambda now: "2026-10-15")
+    assert (
+        m.benchmark("2026-10-13")["rows"] == []
+        and m.benchmark("2026-10-13")["anchor"] is None
+    )
+    monkeypatch.setattr(
+        m.stock, "load", lambda t: {"sha256": "s", "fetched_at": "f", "rows": rows}
+    )
+    out = m.benchmark("2026-10-13")
+    assert out["anchor"] == "2026-10-08" and out["provider_symbol"] == "^BVSP"
+    assert [r["date"] for r in out["rows"]] == [
+        "2026-10-08",
+        "2026-10-13",
+        "2026-10-14",
+        "2026-10-15",
+    ]
+    assert m.benchmark("2026-10-01")["anchor"] is None
+    # current snapshot -> _run does not download IBOV again
+    done = []
+    monkeypatch.setattr(
+        m, "update", lambda fetch: {"closed": "2026-10-15", "results": []}
+    )
+    monkeypatch.setattr(m.stock, "download", lambda t, c: done.append(t))
+    m._run(None)
+    assert "IBOV" not in done and m.JOB["last"]["yahoo"]["IBOV"] == "OK"

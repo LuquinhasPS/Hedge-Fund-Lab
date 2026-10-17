@@ -30,6 +30,12 @@ ROOT = Path(
 )
 IDENTITY = "HFL-STOCK-EXPLORER-YAHOO-V1"
 REFRESH_LOCK = Lock()
+# DP-28: the Ibovespa is collected under the internal ticker IBOV (daily only).
+SYMBOLS = {"IBOV": "^BVSP"}
+
+
+def symbol(ticker):
+    return SYMBOLS.get(ticker, ticker + ".SA")
 
 
 def tickers(wallet_id):
@@ -44,7 +50,7 @@ def tickers(wallet_id):
 
 
 def load(ticker):
-    folder = ROOT / b.ticker(ticker)
+    folder = ROOT / (ticker if ticker in SYMBOLS else b.ticker(ticker))
     if not (folder / "latest.json").exists():
         return None
     pointer = b.check_seal(radar.read(folder / "latest.json"))
@@ -119,7 +125,7 @@ def prepare(ticker, frame, closed, fetched_at):
         {
             "identity": IDENTITY,
             "ticker": ticker,
-            "symbol": ticker + ".SA",
+            "symbol": symbol(ticker),
             "provider": "Yahoo Finance via yfinance",
             "yfinance_version": yf.__version__,
             "fetched_at": fetched_at,
@@ -139,7 +145,7 @@ def prepare(ticker, frame, closed, fetched_at):
 
 def download(ticker, closed):
     end = (date.fromisoformat(closed) + timedelta(days=1)).isoformat()
-    frame = yf.Ticker(ticker + ".SA").history(
+    frame = yf.Ticker(symbol(ticker)).history(
         period="max",
         interval="1d",
         end=end,

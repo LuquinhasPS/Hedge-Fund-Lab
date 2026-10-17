@@ -279,3 +279,19 @@ def test_intraday_failed_fine_tier_is_not_filled_coarser_and_corruption_is_refus
     q = {"wallet": "w", "from": "2026-10-15", "to": "2026-10-15", "interval": "1m"}
     result = h.get_intraday(q)
     assert not result["series"] and "PETR4" in result["errors"]
+
+
+def test_ibov_uses_index_symbol_and_accepts_zero_volume(history, monkeypatch):
+    frame, _ = history
+    symbols = []
+
+    class Ticker:
+        def history(self, **kwargs):
+            return frame.assign(Volume=0.0)
+
+    monkeypatch.setattr(h.yf, "Ticker", lambda s: symbols.append(s) or Ticker())
+    h.download("IBOV", "2026-10-15")
+    h.download("PETR4", "2026-10-15")
+    assert symbols == ["^BVSP", "PETR4.SA"]
+    snap = h.load("IBOV")
+    assert snap["symbol"] == "^BVSP" and snap["rows"][0]["close"] == 11.0

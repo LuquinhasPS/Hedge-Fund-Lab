@@ -284,7 +284,10 @@ def _run(fetch):
         last = update(fetch)
         yahoo = {}
         with stock.REFRESH_LOCK:  # never alongside the explorer's own refresh
-            for ticker in TICKERS:  # Yahoo gives the adjustment factor used by series()
+            for ticker in (
+                *TICKERS,
+                "IBOV",
+            ):  # Yahoo: adjustment factor (series) + DP-28 index
                 try:
                     # Each download is a new ~1 MB snapshot: skip when already current.
                     rows = (stock.load(ticker) or {}).get("rows", [])
@@ -319,4 +322,35 @@ def status():
         **JOB,
         "closed": radar.last_closed(radar.now()),
         "coverage": coverage(),
+    }
+
+
+def benchmark(since):
+    """DP-28 Ibovespa closes for the Comparison page: read-only, local snapshot only.
+
+    The wallets entered on the previous session's closes (DP-20), so the anchor is
+    the last close strictly before `since`.
+    """
+    manual.day(since, "since")
+    snap = stock.load("IBOV")
+    closed = radar.last_closed(radar.now())
+    rows = [
+        {"date": r["date"], "close": r["close"]}
+        for r in (snap or {}).get("rows", [])
+        if r["close"] and r["date"] <= closed
+    ]
+    before = [r for r in rows if r["date"] < since]
+    anchor = before[-1] if before else None
+    return {
+        "symbol": "IBOV",
+        "provider_symbol": "^BVSP",
+        "provider": "Yahoo Finance via yfinance",
+        "fetched_at": snap and snap["fetched_at"],
+        "snapshot": snap and snap["sha256"],
+        "classification": "EXTERNAL_REFERENCE_INDEX_NOT_PORTFOLIO_MARKS",
+        "anchor": anchor and anchor["date"],
+        "anchor_note": None
+        if anchor
+        else "Sem fechamento anterior a since; a série começa em since.",
+        "rows": ([anchor] if anchor else []) + [r for r in rows if r["date"] >= since],
     }

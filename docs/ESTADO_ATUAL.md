@@ -10,6 +10,42 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Comparação com retorno acumulado e Ibovespa — DP-28, APP-03/UX-M5, 16/10/2026
+
+Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. Lucas decidiu (DP-28, 16/10) a opção A
+(retorno acumulado em %, não índice base 100) e a inclusão do Ibovespa. A página Comparação
+(`/comparison`) usa `GET /api/portfolio/history` de cada carteira. O gráfico mostra o retorno
+acumulado em % das carteiras do mesmo grupo desde o início comum (ponto "Início" = 0%); lacunas ficam sem valor,
+nunca viram zero. O Ibovespa aparece como linha tracejada de referência externa. A tabela, acessível por sessão,
+traz patrimônio marcado e data, retorno desde o início, dia, diferença vs Buy & Hold em p.p. (mesmo grupo e mesmas
+datas), caixa, operações e custos, e a linha "Ibovespa (referência)". O subtítulo da página é próprio. Carteiras
+pessoais ficam fora do grupo (DP-19); carteira do grupo com início diferente fica fora do gráfico, com aviso.
+
+Ibovespa: `^BVSP` do Yahoo, coletado pela mesma atualização da base de mercado (job DP-27; baixa só quando falta o
+último pregão), guardado como snapshot "IBOV" no acervo Yahoo, fora do intradiário e do explorador. O endpoint
+`GET /api/platform/market-base/benchmark?since=YYYY-MM-DD` é somente leitura e estrito (400 em data inválida ou
+parâmetro extra); devolve o fechamento-âncora, o último antes de `since` (as carteiras entraram com fechamentos de
+13/10, DP-20), e os pregões seguintes. Classificação: referência externa; não marca patrimônio nem alimenta agentes.
+Carga real: 8.292 pregões desde 27/04/1993; 178 dias sem fechamento válido viram lacuna.
+
+Nota da tela: retorno sobre o capital inicial, por fechamentos B3 marcados. O Ibovespa inclui proventos reinvestidos
+e as carteiras ainda não (APP-04). A diferença é descritiva e não indica superioridade (DP-09).
+Valores em 16/10: Buy & Hold −1,55% e Multiagentes −1,52% (14/10 → 16/10; diferença +0,03 p.p.); Ibovespa −0,70%
+(13/10 → 16/10).
+
+Verificação:
+- `poetry run pytest tests/test_market_base.py tests/test_portfolio_history.py tests/test_legacy_web.py tests/test_wallet_manager.py tests/test_manual_portfolio.py tests/test_market_update.py tests/test_radar_network_isolation.py tests/test_stock_history.py -q` → 92 aprovados, 1 ignorado.
+- `node tests/comparison_browser_check.mjs <base> <out>` → PASS em desktop e celular com Ibovespa real (somente GET); capturas revisadas.
+- Checks de navegador da home e do diálogo de atualização continuam PASS.
+
+Limites:
+- Amostra de 3 pregões.
+- CDI ainda não incluído (decisão futura, DP-28).
+- Fator Yahoo vem do snapshot mais recente, não as-of.
+- Ibovespa é fonte Yahoo, não oficial B3.
+
+Próximo passo: commit após revisão de Lucas; depois APP-04 (proventos), aliases ITAU4/WEGE4 e decisão com Lucas sobre o Radar ler a base.
+
 ## Base de mercado local — DP-27, APP-03/DATA-01, 16/10/2026
 
 Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. Lucas autorizou
