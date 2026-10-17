@@ -6,11 +6,11 @@
   const money=v=>v==null?'Indisponível':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const day=v=>v?v.split('-').reverse().join('/'):'Sem referência';
   const pct=v=>v==null?'Indisponível':(Number(v)*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
-  const colors=['#3358d4','#16846e','#8757b4','#b07215','#ca5279'];
-  let revision=0, controller, equityChart, period, periodWallet; // period survives reloads of the same wallet (no storage)
+  const colors=['#3358d4','#0f8a68','#8757b4','#b07215','#ca5279']; // dataviz validator: adjacent CVD ΔE ≥ 10, chroma ≥ 0.1
+  let revision=0, controller, equityChart, allocChart, period, periodWallet; // period survives reloads of the same wallet (no storage)
   function table(headers,rows){return '<div class="ds-table-wrap" tabindex="0" role="region" aria-label="'+esc(headers.join(', '))+'"><table class="ds-table"><thead><tr>'+headers.map(h=>'<th scope="col">'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(c=>'<td>'+c+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}
   function options(currency=true){return {responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#43516a',boxWidth:12}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+(c.raw==null?'Indisponível':currency?money(c.raw):Number(c.raw).toLocaleString('pt-BR',{maximumFractionDigits:2})+'%')}}},scales:{x:{grid:{display:false},ticks:{color:'#657188',maxTicksLimit:7,maxRotation:0}},y:{grid:{color:'#e2e7f0'},ticks:{color:'#657188',callback:v=>currency?money(v):v+'%'}}}};}
-  function clear(){equityChart?.destroy();equityChart=null;el('personal-equity-wrap').hidden=true;el('personal-equity-table').textContent='Conferindo histórico…';el('personal-allocation').textContent='';}
+  function clear(){equityChart?.destroy();equityChart=null;allocChart?.destroy();allocChart=null;el('personal-equity-wrap').hidden=true;el('personal-equity-table').textContent='Conferindo histórico…';el('personal-allocation').textContent='';}
   function render(d){
     const v=d.valuation, cards=el('personal-metrics').querySelectorAll('.ds-kpi');
     if(cards.length===3&&v.equity!=null){
@@ -35,7 +35,14 @@
     // Allocation: weight = market_value / equity; null input stays "Indisponível", never 0%. Target marker only for pilot (grouped) wallets.
     const grouped=Boolean((window.HFLPersonalCatalog?.wallets.find(x=>x.id===d.wallet)||{}).comparison_group);
     const weight=x=>v.equity==null||x==null||!Number(v.equity)?null:Number(x)/Number(v.equity);
-    el('personal-allocation').innerHTML=v.positions.length||v.cash!=null?'<ul class="alloc-list" aria-label="Peso de cada item no patrimônio">'+[...v.positions.map(p=>[p.ticker,weight(p.market_value),grouped]),['Caixa',weight(v.cash),false]].map(([n,w,t])=>'<li><span>'+esc(n)+'</span><b>'+(w==null?'Indisponível':pct(w))+'</b>'+(w==null?'':'<i class="alloc-bar" aria-hidden="true"><i style="width:'+Math.min(w*100,100)+'%"></i>'+(t?'<u></u>':'')+'</i>')+'</li>').join('')+'</ul>'+(grouped?'<p class="product-note">Marca vertical: alvo inicial 20% por ativo. Pesos mudam com os preços.</p>':''):'';
+    allocChart?.destroy();allocChart=null;
+    const items=[...v.positions.map((p,k)=>({n:p.ticker,w:weight(p.market_value),c:colors[k],t:grouped})),{n:'Caixa',w:weight(v.cash),c:'#d3d9e3',t:false}];
+    // Pie order keeps the CVD-confusable pairs (pink/green, purple/blue) apart; cash is a light neutral, not a hue.
+    // ponytail: more than 5 assets would cycle hues, so the pie is skipped (list only) until an "Outros" fold exists.
+    const pie=v.positions.length<=colors.length&&items.every(x=>x.w!=null)&&items.some(x=>x.w>0);
+    const pp=w=>{const x=(w-0.2)*100;return (x>0?'+':'')+x.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+' p.p. vs 20%';};
+    el('personal-allocation').innerHTML=v.positions.length||v.cash!=null?'<div class="alloc">'+(pie?'<div class="alloc-pie"><canvas id="personal-allocation-chart" role="img" aria-label="Distribuição do patrimônio por ativo e caixa; valores na lista ao lado"></canvas></div>':'')+'<ul class="alloc-list" aria-label="Peso de cada item no patrimônio">'+items.map(x=>'<li><i class="alloc-swatch" aria-hidden="true"'+(pie?' style="background:'+x.c+'"':'')+'></i><span>'+esc(x.n)+'</span><b>'+(x.w==null?'Indisponível':pct(x.w))+'</b><small>'+(x.t&&x.w!=null?pp(x.w):'')+'</small></li>').join('')+'</ul></div>'+(grouped?'<p class="product-note">Diferença em relação ao alvo inicial 20% por ativo. Pesos mudam com os preços.</p>':''):'';
+    if(pie)allocChart=new Chart(el('personal-allocation-chart'),{type:'pie',data:{labels:items.map(x=>x.n),datasets:[{data:items.map(x=>x.w*100),backgroundColor:items.map(x=>x.c),borderColor:'#fff',borderWidth:2,hoverOffset:6}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.label+': '+pct(items[c.dataIndex].w)}}}}});
     el('personal-positions').innerHTML=table(['Ativo','Quantidade','Custo médio','Custo total','Fechamento RAW / data','Valor estimado'],v.positions.map(p=>[esc(p.ticker),esc(p.quantity),money(p.average_cost),money(p.basis),p.reference_price==null?'Indisponível':money(p.reference_price)+'<small>'+day(p.price_session)+'</small>',money(p.market_value)]));
     const known=d.daily_history.filter(p=>p.equity!=null).length;
     el('personal-prices').textContent=`${known} fechamento(s) calculado(s). Posições e caixa de cada data, com as correções atuais.`+(d.initial_anchor_available?' O ponto inicial representa o capital cadastrado em '+day(d.start_date)+'.':' O início da carteira está fora da cobertura do calendário; o histórico exibido é parcial.')+(d.daily_history.some(p=>p.equity==null)?' Há datas sem fechamento: a linha permanece interrompida.':'')+' Proventos e eventos não registrados ainda não entram no patrimônio.';
