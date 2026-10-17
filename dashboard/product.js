@@ -8,7 +8,7 @@
   const esc=v=>String(v??'Indisponível').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money=v=>v==null?'Indisponível':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
   const view={'/operations':'operations','/comparison':'comparison','/dividends':'dividends','/wallets/new':'create','/laboratory':'laboratory'}[route]||'wallet';
-  const titles={wallet:'Visão da carteira',operations:'Operações',comparison:'Comparar carteiras',dividends:'Proventos',create:'Criar carteira'},subtitles={comparison:'Compare a trajetória das carteiras do mesmo grupo com o Ibovespa e o CDI desde o início comum.'};
+  const titles={wallet:'Visão da carteira',operations:'Operações',comparison:'Comparar carteiras',dividends:'Proventos',create:'Criar carteira'},subtitles={comparison:'Compare a trajetória das carteiras do mesmo grupo com o Ibovespa e o CDI desde o início comum.',dividends:'Acompanhe dividendos e JCP dos ativos da carteira, da data-com ao pagamento.'};
   let selected=params.get('wallet')||'';
   function carry(id){
     document.querySelectorAll('.hfl-primary a,.hfl-archive a,.product-wallet-link').forEach(a=>{
@@ -48,7 +48,9 @@
       const ib=a0?[...(anchored?[0]:[]),...sessions.map(s=>bm[s]==null?null:(bm[s]/a0-1)*100)]:null;
       const cm=cd&&Object.fromEntries(cd.rows.map(r=>[r.date,Number(r.index)])),cdl=cd?[...(anchored?[0]:[]),...sessions.map(s=>cm[s]==null?null:(cm[s]-1)*100)]:null;
       let t=(!group?'Não há grupo comparativo cadastrado. ':!me?.comparison_group?'A carteira selecionada é pessoal e fica fora do grupo comparado (DP-19). ':'')+'Retorno acumulado sobre o capital inicial, por fechamentos B3 marcados ('+sessions.length+' pregões). ';
-      t+=ib?'Ibovespa (Yahoo ^BVSP) é referência externa ancorada no fechamento de '+dm(bench.anchor).slice(0,5)+' e inclui proventos reinvestidos; as carteiras ainda não contabilizam proventos (APP-04). ':'Ibovespa indisponível no momento. As carteiras ainda não contabilizam proventos (APP-04). ';
+      const dv=ok.length>0&&ok.every(w=>hist[w.id].dividends); // DP-30: only claim dividends when every compared history carries them
+      t+=ib?'Ibovespa (Yahoo ^BVSP) é referência externa ancorada no fechamento de '+dm(bench.anchor).slice(0,5)+'. ':'Ibovespa indisponível no momento. ';
+      t+=dv?'As carteiras incluem proventos (recebidos e a receber, JCP líquido) desde a data-com; o Ibovespa inclui proventos reinvestidos. ':(ib?'O Ibovespa inclui proventos reinvestidos; ':'')+'as carteiras ainda não contabilizam proventos (APP-04). ';
       t+=cd?'CDI (Banco Central, série 12) acumulado desde '+dm(cd.anchor).slice(0,5)+'. ':'CDI indisponível no momento. ';
       t+='Diferença observada é descritiva, não indica superioridade.';
       if(skipped.length)t+=' Fora do gráfico por início diferente de '+dm(ref)+': '+skipped.map(w=>w.name).join(', ')+'.';
@@ -74,6 +76,29 @@
       box.innerHTML='<div class="ds-table-wrap product-compare-table" tabindex="0" role="region" aria-label="Carteiras comparadas"><table class="ds-table"><thead><tr>'+['Carteira','Natureza / grupo','Patrimônio marcado','Retorno desde o início','Dia','Diferença vs Buy & Hold','Caixa','Operações','Custos'].map(h=>'<th scope="col">'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table></div>';
     }catch(e){if(e.name!=='AbortError'&&v===cmpRev){note.textContent='Comparação indisponível. Nenhum valor foi estimado.';box.textContent='';}}
   }
+  // DP-30: read-only proventos page; same revision + AbortController guard as compare(). Missing `dividends` is "indisponível", never zero.
+  let divRev=0,divCtl;
+  const KIND={DIVIDENDO:'Dividendo',JCP:'JCP líquido (15% IR)',OUTRO:'Outro provento'},SITU={RECEBIDO:'Recebido',A_RECEBER:'A receber',PREVISTO:'Anunciado'};
+  const unit=v=>v==null?'Indisponível':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:6});
+  async function dividends(id){
+    const v=++divRev;divCtl?.abort();divCtl=new AbortController();
+    const status=el('div-status'),tiles=el('div-tiles');el('div-table').textContent='';el('div-note').textContent='';tiles.textContent='';
+    if(!id){status.textContent='Crie ou selecione uma carteira para ver proventos.';return;}
+    status.textContent='Conferindo proventos…';
+    try{
+      const h=await getJson('/api/portfolio/history?'+new URLSearchParams({wallet:id}),divCtl.signal);
+      if(v!==divRev)return;
+      if(h.wallet!==id||h.read_only!==true)throw Error();
+      const d=h.dividends,ev=[...(d?.events||[])].sort((a,b)=>b.data_com<a.data_com?-1:b.data_com>a.data_com?1:0);
+      const n=s=>ev.filter(e=>e.state===s).length;
+      tiles.innerHTML=[['Recebidos (líquido)',d?.received,'RECEBIDO'],['A receber',d?.receivable,'A_RECEBER'],['Anunciados (previstos)',d?.announced,'PREVISTO']].map(([l,x,s])=>'<div class="ds-kpi"><span class="ds-kpi-label">'+l+'</span><span class="ds-kpi-value">'+money(d?x:null)+'</span><span class="ds-kpi-detail">'+(d?n(s)+' evento(s)':'integração de proventos indisponível')+'</span></div>').join('');
+      if(!d){status.textContent='Integração de proventos indisponível para esta carteira. Nenhum valor foi estimado.';return;}
+      status.textContent=ev.length?ev.length+' evento(s) desde o início da carteira.':'Nenhum provento desde o início da carteira.';
+      if(ev.length)el('div-table').innerHTML='<div class="ds-table-wrap" tabindex="0" role="region" aria-label="Proventos da carteira"><table class="ds-table"><thead><tr>'+['Ativo','Tipo','Data-com','Pagamento','Valor por ação','Quantidade','Valor líquido','Situação'].map(x=>'<th scope="col">'+x+'</th>').join('')+'</tr></thead><tbody>'+ev.map(e=>'<tr><td>'+esc(e.ticker)+'</td><td>'+esc(KIND[e.kind]||e.kind)+'</td><td>'+dm(e.data_com)+'</td><td>'+(e.payment_date?dm(e.payment_date):'a definir')+'</td><td>'+unit(e.value_per_share)+'</td><td>'+esc(e.quantity)+(e.estimate?'<small>estimada</small>':'')+'</td><td>'+money(e.net)+'</td><td>'+esc(SITU[e.state]||e.state)+'</td></tr>').join('')+'</tbody></table></div>';
+      const at=d.fetched_at?new Date(d.fetched_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',',''):null;
+      el('div-note').textContent='Fonte: B3 (proventos em dinheiro), '+(at?'consultada em '+at:'consulta ainda não registrada')+'. Elegibilidade pela posição na data-com; JCP líquido de 15% de IR; o valor entra no caixa só na data de pagamento (DP-30).';
+    }catch(e){if(e.name!=='AbortError'&&v===divRev){status.textContent='Proventos indisponíveis. Nenhum valor foi estimado.';}}
+  }
   function walletsLoaded(wallets,id){
     selected=id||selected||wallets[0]?.id||'';
     if(!wallets.some(w=>w.id===selected))selected=wallets[0]?.id||'';
@@ -84,6 +109,7 @@
     if(el('product-comparison')){
       compare(wallets,selected);
     }
+    if(el('div-tiles')&&view==='dividends')dividends(selected);
   }
   picker.addEventListener('change',()=>{
     const u=new URL(location.href);u.searchParams.set('wallet',picker.value);

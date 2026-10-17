@@ -298,3 +298,44 @@ def test_market_base_supplies_sessions_and_disagreement_is_a_gap(sources):
     quotes, issues = h.quote_book(["PETR4"], "2026-10-13")
     assert quotes["2026-10-14"]["PETR4"] is None
     assert issues[-1]["reason"] == "CONFLICTING_RAW_REFERENCES"
+
+
+def test_dividends_are_equity_when_receivable_and_cash_only_when_paid(portfolio):
+    from test_dividends import PN, raw, rec
+
+    sample = raw(
+        rec(
+            PN, "JRS CAP PROPRIO", "1,00", "13/10/2026", "14/10/2026"
+        ),  # 20 sh: net 17.00
+        rec(
+            PN, "DIVIDENDO", "0,50", "14/10/2026", "20/10/2026"
+        ),  # 15 sh: 7.50 receivable
+        rec(PN, "DIVIDENDO", "9,00", "30/10/2026", ""),  # announced: 25 sh x 9
+    )
+    assert h.dividends.refresh("PETR4", lambda u: sample) == "WRITTEN"
+    d = projection(portfolio)
+    assert {k: d["dividends"][k] for k in ("received", "receivable", "announced")} == {
+        "received": "17.00",
+        "receivable": "7.50",
+        "announced": "225.00",
+    }
+    assert [e["state"] for e in d["dividends"]["events"]] == [
+        "RECEBIDO",
+        "A_RECEBER",
+        "PREVISTO",
+    ]
+    v = d["valuation"]
+    assert (v["dividends_received"], v["dividends_receivable"]) == ("17.00", "7.50")
+    assert v["equity"] == "1042.50"  # 1018.00 + 17.00 + 7.50; announced is not equity
+    assert v["cash_available"] == str(h.b.dec(v["cash"]) + 17)
+    day13, day14 = d["daily_history"][:2]
+    assert (day13["dividends_received"], day13["dividends_receivable"]) == (
+        "0.00",
+        "17.00",
+    )
+    assert day13["equity"] == "1016.00"
+    assert (day14["dividends_received"], day14["dividends_receivable"]) == (
+        "17.00",
+        "7.50",
+    )
+    assert day14["equity"] == "1045.50"

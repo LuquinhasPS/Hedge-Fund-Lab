@@ -255,8 +255,10 @@ def test_ibov_benchmark_anchor_bounds_and_skip(base, monkeypatch):
         m, "update", lambda fetch: {"closed": "2026-10-15", "results": []}
     )
     monkeypatch.setattr(m.stock, "download", lambda t, c: done.append(t))
+    monkeypatch.setattr(m, "fetch_http", lambda url: None)  # dividends: never the network
     m._run(None)
     assert "IBOV" not in done and m.JOB["last"]["yahoo"]["IBOV"] == "OK"
+    assert set(m.JOB["last"]["dividends"].values()) == {"NOT_PUBLISHED"}
 
 
 def test_alias_rows_are_normalized_supplemented_once_and_overlap_conflicts(base):

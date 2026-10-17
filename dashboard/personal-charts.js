@@ -27,7 +27,12 @@
       group.innerHTML=d.periods.map(p=>'<button type="button" data-period="'+esc(p.key)+'" aria-pressed="'+(p.key===period)+'">'+esc(p.label)+'</button>').join('');
       group.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;period=b.dataset.period;group.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));detail.textContent=line();});
       cards[0].querySelector('.stock-periods')?.remove();detail.before(group);
-      cards[1].querySelector('.ds-kpi-detail').textContent=[share(v.cash),'sem controle de liquidação'].filter(Boolean).join(' · ');
+      // DP-30: cash shown includes dividends received (cash_available); without it the ledger cash is shown as before.
+      const cash=v.cash_available??v.cash, got=Number(v.dividends_received)>0;
+      cards[1].querySelector('.ds-kpi-value').textContent=money(cash);
+      cards[1].querySelector('.ds-kpi-detail').textContent=[share(cash),got?'inclui '+money(v.dividends_received)+' de proventos recebidos':'','sem controle de liquidação'].filter(Boolean).join(' · ');
+      cards[0].querySelector('#personal-receivable')?.remove();
+      if(Number(v.dividends_receivable)>0)detail.insertAdjacentHTML('afterend','<div class="ds-kpi-detail" id="personal-receivable">A receber: '+money(v.dividends_receivable)+' (proventos)</div>');
       const inv=cards[2].querySelector('.ds-kpi-value'), idetail=cards[2].querySelector('.ds-kpi-detail');
       inv.textContent=v.invested_value==null?'Aguardando cotações':money(v.invested_value);
       idetail.textContent=(v.invested_value==null?'':share(v.invested_value)+' · fechamento de '+day(v.price_session)+' · ')+'Custos '+money(w.costs)+' · realizado '+money(w.realized_pnl);
@@ -45,7 +50,7 @@
     if(pie)allocChart=new Chart(el('personal-allocation-chart'),{type:'pie',data:{labels:items.map(x=>x.n),datasets:[{data:items.map(x=>x.w*100),backgroundColor:items.map(x=>x.c),borderColor:'#fff',borderWidth:2,hoverOffset:6}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.label+': '+pct(items[c.dataIndex].w)}}}}});
     el('personal-positions').innerHTML=table(['Ativo','Quantidade','Custo médio','Custo total','Fechamento RAW / data','Valor estimado'],v.positions.map(p=>[esc(p.ticker),esc(p.quantity),money(p.average_cost),money(p.basis),p.reference_price==null?'Indisponível':money(p.reference_price)+'<small>'+day(p.price_session)+'</small>',money(p.market_value)]));
     const known=d.daily_history.filter(p=>p.equity!=null).length;
-    el('personal-prices').textContent=`${known} fechamento(s) calculado(s). Posições e caixa de cada data, com as correções atuais.`+(d.initial_anchor_available?' O ponto inicial representa o capital cadastrado em '+day(d.start_date)+'.':' O início da carteira está fora da cobertura do calendário; o histórico exibido é parcial.')+(d.daily_history.some(p=>p.equity==null)?' Há datas sem fechamento: a linha permanece interrompida.':'')+' Proventos e eventos não registrados ainda não entram no patrimônio.';
+    el('personal-prices').textContent=`${known} fechamento(s) calculado(s). Posições e caixa de cada data, com as correções atuais.`+(d.initial_anchor_available?' O ponto inicial representa o capital cadastrado em '+day(d.start_date)+'.':' O início da carteira está fora da cobertura do calendário; o histórico exibido é parcial.')+(d.daily_history.some(p=>p.equity==null)?' Há datas sem fechamento: a linha permanece interrompida.':'')+(d.dividends?' Proventos recebidos e a receber (B3) entram no patrimônio; eventos não registrados não.':' Integração de proventos indisponível: proventos e eventos não registrados não entram no patrimônio.');
     const labels=[],values=[];
     if(d.initial_anchor_available){labels.push('Início · '+day(d.start_date));values.push(Number(d.initial_capital));}
     for(const p of d.daily_history){labels.push(day(p.session));values.push(p.equity==null?null:Number(p.equity));}
@@ -55,7 +60,8 @@
     const marked=i=>ops[i-off]?.length>0, opts=options();
     opts.plugins.tooltip.callbacks.footer=items=>ops[items[0].dataIndex-off]||[]; // ponytail: ops are text-only; chart marks days, table lists them
     if(values.some(v=>v!=null))equityChart=new Chart(el('personal-equity-chart'),{type:'line',data:{labels,datasets:[{label:d.wallet_name,data:values,borderColor:colors[0],backgroundColor:'#3358d412',borderWidth:2.5,pointRadius:labels.map((_,i)=>marked(i)?8:4),pointStyle:labels.map((_,i)=>marked(i)?'rectRot':'circle'),spanGaps:false,fill:true,tension:0}]},options:opts});
-    el('personal-equity-table').innerHTML=table(['Data / marco','Patrimônio','Caixa registrado','Estado','Operações'],[...(d.initial_anchor_available?[['Início · '+day(d.start_date),money(d.initial_capital),money(d.initial_capital),'Capital inicial, antes das operações','—']]:[]),...d.daily_history.map((p,i)=>[day(p.session),money(p.equity),money(p.cash),esc({AVAILABLE:'Fechamento disponível',PENDING_CLOSE:'Fechamento pendente',MISSING_QUOTES:'Faltam cotações: '+p.missing.join(', ')}[p.state]),ops[i].length?esc(ops[i].join('; ')):'—'])]);
+    const hasDiv=d.daily_history.some(p=>p.dividends_received!=null);
+    el('personal-equity-table').innerHTML=table(['Data / marco','Patrimônio',...(hasDiv?['Proventos (recebidos + a receber)']:[]),'Caixa registrado','Estado','Operações'],[...(d.initial_anchor_available?[['Início · '+day(d.start_date),money(d.initial_capital),...(hasDiv?['—']:[]),money(d.initial_capital),'Capital inicial, antes das operações','—']]:[]),...d.daily_history.map((p,i)=>[day(p.session),money(p.equity),...(hasDiv?[p.dividends_received==null||p.dividends_receivable==null?'Indisponível':money(Number(p.dividends_received)+Number(p.dividends_receivable))]:[]),money(p.cash),esc({AVAILABLE:'Fechamento disponível',PENDING_CLOSE:'Fechamento pendente',MISSING_QUOTES:'Faltam cotações: '+p.missing.join(', ')}[p.state]),ops[i].length?esc(ops[i].join('; ')):'—'])]);
 
   }
   // Rotina do dia: read-only links and text; nothing here infers, pays or writes.
@@ -65,6 +71,10 @@
     const ok=d.daily_history.filter(p=>p.state==='AVAILABLE').at(-1);
     const pend=d.daily_history.filter(p=>p.state!=='AVAILABLE').map(p=>p.state==='PENDING_CLOSE'?'Fechamento de '+short(p.session)+' ainda pendente':short(p.session)+': faltam cotações de '+p.missing.join(', '));
     el('routine-mark').innerHTML=(ok?'Último fechamento marcado: '+day(ok.session):'Nenhum fechamento marcado ainda')+'<br>'+(pend.length?esc(pend.slice(0,3).join('; ')+(pend.length>3?' e mais '+(pend.length-3):'')):'Nenhuma pendência de marcação.')+(pend.length?' <button type="button" id="routine-update">Atualizar dados</button>':'');
+    // DP-30: payments still to come; shown only when there is at least one A_RECEBER event.
+    const due=(d.dividends?.events||[]).filter(e=>e.state==='A_RECEBER'), pays=due.map(e=>e.payment_date).filter(Boolean).sort(), box=el('routine-dividends');
+    box.hidden=!due.length;
+    box.innerHTML=due.length?'Proventos: '+due.length+' a receber ('+money(d.dividends.receivable)+')'+(pays.length?', próximo pagamento '+short(pays[0]):', pagamento a definir')+' <a class="product-wallet-link" href="/dividends?wallet='+encodeURIComponent(d.wallet)+'">Ver proventos →</a>':'';
     el('routine-update')?.addEventListener('click',()=>document.getElementById('hfl-market-open').click());
     const last=d.daily_history.at(-1), t=last?.trades||[];
     el('routine-today').hidden=!t.length;
@@ -104,7 +114,7 @@
   }
   async function load(catalog){
     const selected=catalog.wallets.find(w=>w.id===catalog.selected), version=++revision;
-    controller?.abort();controller=new AbortController();clear();el('personal-chart-error').hidden=true;el('routine-mark').textContent='Conferindo fechamentos…';el('routine-policy').textContent='';el('routine-today').hidden=true;el('personal-compare').textContent='';
+    controller?.abort();controller=new AbortController();clear();el('personal-chart-error').hidden=true;el('routine-mark').textContent='Conferindo fechamentos…';el('routine-policy').textContent='';el('routine-today').hidden=true;el('routine-dividends').hidden=true;el('personal-compare').textContent='';
     if(!selected){el('personal-prices').textContent='Crie ou selecione uma carteira para acompanhar a evolução.';el('routine-mark').textContent='Sem carteira selecionada.';return;}
     el('personal-prices').textContent='Conferindo posições históricas e fechamentos RAW…';
     try{

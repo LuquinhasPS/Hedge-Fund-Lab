@@ -359,7 +359,13 @@ def _run(fetch):
             cdi = "OK"
         except Exception as e:
             cdi = f"{type(e).__name__}: {e}"
-        JOB["last"] = {**last, "yahoo": yahoo, "cdi": cdi}
+        import dividends_api  # circular, like reference_rates_api
+
+        try:  # DP-30 B3 cash dividends; per-ticker failures stay inside the result
+            divs = dividends_api.update(fetch)
+        except Exception as e:
+            divs = f"{type(e).__name__}: {e}"
+        JOB["last"] = {**last, "yahoo": yahoo, "cdi": cdi, "dividends": divs}
         JOB["error"] = None
     except Exception as e:
         JOB["error"] = f"{type(e).__name__}: {e}"

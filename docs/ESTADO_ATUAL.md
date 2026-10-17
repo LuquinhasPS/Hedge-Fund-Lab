@@ -10,6 +10,47 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Proventos — DP-30, APP-04, 17/10/2026
+
+Entrega na árvore de trabalho até o commit. Fonte: consulta pública da B3
+`listedCompaniesProxy/CompanyCall/GetListedSupplementCompany` (uma chamada por
+emissor, sem autenticação, user-agent do projeto), lista `cashDividends` com
+data-com, pagamento, valor por ação, tipo e ISIN. Classe pelo ISIN (ACNOR = ON,
+ACNPR = PN); outros instrumentos descartados; parcelas ficam como linhas próprias.
+`dashboard/dividends_api.py` valida os campos, normaliza (DIVIDENDO, JCP, OUTRO com
+o rótulo original) e grava snapshots selados imutáveis por ativo em
+`market-base-v1/dividends/`, com ponteiro `latest.json`; snapshot igual ao anterior
+não é regravado. A atualização da base (DP-27) chama a coleta; falha de um ativo
+não interrompe os demais.
+
+Direito pela posição ao fim da data-com (replay existente); JCP líquido de 15%,
+dividendo integral; Anunciado quando a data-com é futura (quantidade atual,
+marcada como estimada), A receber entre data-com e pagamento (ou pagamento a
+definir), Recebido a partir do pagamento. O histórico de patrimônio ganha
+`dividends`, `dividends_received`, `dividends_receivable` e `cash_available`; o
+patrimônio inclui recebidos e a receber; o caixa do livro não muda e o a receber
+nunca entra como caixa. Telas: página Proventos (totais, eventos, fonte e horário
+da consulta), caixa da home com recebidos, "A receber" no card de patrimônio,
+linha de proventos na Rotina do dia, coluna na tabela de patrimônio e nota da
+Comparação que deixa de dizer que as carteiras ignoram proventos.
+
+Carga real em 17/10: PETR4 12 eventos, VALE3 5, ITUB4 16, WEGE3 8, BBAS3 10
+(data-com de 31/10/2025 a 30/09/2026). Nenhuma data-com desde 13/10: as duas
+carteiras mostram R$ 0,00 recebido, a receber e anunciado, valor real.
+
+Verificação:
+- `poetry run pytest tests/test_market_base.py tests/test_reference_rates.py tests/test_dividends.py tests/test_portfolio_history.py tests/test_legacy_web.py tests/test_wallet_manager.py tests/test_manual_portfolio.py tests/test_market_update.py tests/test_radar_network_isolation.py tests/test_stock_history.py -q` → 101 aprovados, 1 ignorado.
+- `node tests/dividends_browser_check.mjs <base> <out>` PASS com dados reais (desktop/celular, somente GET); com `MOCK_DIVIDENDS=1` exercita eventos sintéticos rotulados como teste. Checks da home, Comparação e diálogo de atualização continuam PASS.
+
+Limites:
+- Histórico da fonte de cerca de 12 meses; o endpoint com histórico longo não traz data de pagamento.
+- JCP sempre a 15%; sem bonificação, desdobramento ou units.
+- Data de pagamento não interpretável faz o ativo falhar de forma explícita.
+- O gestor (APP-05) ainda lê o caixa do livro, sem os proventos recebidos.
+
+Próximo passo: acompanhar o primeiro provento real das carteiras; levar
+`cash_available` à prévia do gestor.
+
 ## CDI, códigos antigos e user-agent da B3 — DP-28/29, 17/10/2026
 
 Entrega na árvore de trabalho, sem commit, aguardando revisão de Lucas. Lucas incluiu o CDI na DP-28 (Banco Central, SGS série 12) e decidiu normalizar códigos antigos da B3 (DP-29). `dashboard/reference_rates_api.py` busca a série em janelas de 9 anos desde 03/01/2000 e, depois, em incrementos; cada janela vira um JSON selado e imutável em `market-base-v1/rates/`, e datas sobrepostas divergentes são registradas como conflito. Acúmulo: a taxa da data d rende de d até o próximo dia útil; índice 1,0 na âncora. A mesma atualização da base (job DP-27) atualiza o CDI; `benchmark` inclui `cdi`; a Comparação mostra o CDI em linha pontilhada e a linha "CDI (referência)" na tabela. Carga real: 6.728 dias de 03/01/2000 a 15/10/2026; 16/10 ainda não publicado pelo BC.

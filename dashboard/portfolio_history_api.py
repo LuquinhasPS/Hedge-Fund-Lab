@@ -5,6 +5,7 @@ No downloads, adjusted-price substitution, inference or financial event writes.
 
 from functools import lru_cache
 
+import dividends_api as dividends
 import manual_portfolio_api as manual
 import market_base_api as base
 import pilot_observed_data as observed
@@ -160,7 +161,7 @@ def historical_wallet(wallet, day):
     return manual.replay(history)
 
 
-def valuation(wallet, prices, session):
+def valuation(wallet, prices, session, paid=b.ZERO, receivable=b.ZERO):
     positions, missing = [], []
     for position in wallet["positions"]:
         reference = prices.get(position["ticker"])
@@ -182,7 +183,12 @@ def valuation(wallet, prices, session):
     invested = (
         None if missing else sum((b.dec(p["market_value"]) for p in positions), b.ZERO)
     )
-    equity = b.dec(wallet["cash"]) + invested if invested is not None else None
+    # DP-30: after the ex date the price drops, so the receivable is equity (not cash).
+    equity = (
+        b.dec(wallet["cash"]) + invested + paid + receivable
+        if invested is not None
+        else None
+    )
     change = equity - b.dec(wallet["capital"]) if equity is not None else None
     fraction = (
         change / b.dec(wallet["capital"])
@@ -192,6 +198,9 @@ def valuation(wallet, prices, session):
     return {
         "price_session": session,
         "cash": wallet["cash"],
+        "dividends_received": str(paid),
+        "dividends_receivable": str(receivable),
+        "cash_available": str(b.dec(wallet["cash"]) + paid),
         "positions": positions,
         "invested_value": str(invested) if invested is not None else None,
         "equity": str(equity) if equity is not None else None,
@@ -281,7 +290,13 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         | {p["ticker"] for p in wallet["positions"]}
     )
     reference_day = max(book, default=None)
-    current = valuation(wallet, book.get(reference_day, {}), reference_day)
+    items = dividends.entitlements(wallet, today)
+    current = valuation(
+        wallet,
+        book.get(reference_day, {}),
+        reference_day,
+        *dividends.on(items, today),
+    )
     # Current positions can include today's trades while the reference is yesterday.
     # This estimate is kept separate from the daily close series.
     current["positions_through"] = max(
@@ -292,7 +307,7 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         if not wallet["start_date"] <= day <= today:
             continue
         snapshot = historical_wallet(wallet, day)
-        point = valuation(snapshot, book.get(day, {}), day)
+        point = valuation(snapshot, book.get(day, {}), day, *dividends.on(items, day))
         if day > last_closed:
             point.update(
                 equity=None, invested_value=None, change=None, return_fraction=None
@@ -346,6 +361,14 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         "initial_capital": wallet["capital"],
         "start_date": wallet["start_date"],
         "initial_anchor_available": initial_anchor,
+        "dividends": {
+            "source": dividends.SOURCE,
+            "fetched_at": dividends.fetched_at(symbols),
+            "events": items,
+            "received": dividends.total(items, "RECEBIDO"),
+            "receivable": dividends.total(items, "A_RECEBER"),
+            "announced": dividends.total(items, "PREVISTO"),
+        },
         "valuation": current,
         "daily_history": daily,
         "periods": periods(daily, wallet, calendar["trading_sessions"], initial_anchor),
@@ -356,7 +379,7 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         "classification": "LOCAL_FROZEN_RADAR_RAW_REFERENCE_NOT_LIVE",
         "read_only": True,
         "history_basis": "ECONOMIC_DATE_REPLAY_WITH_CURRENT_CORRECTIONS",
-        "corporate_events_included": False,
+        "corporate_events_included": False,  # cash dividends only; no splits/bonus
     }
 
 
