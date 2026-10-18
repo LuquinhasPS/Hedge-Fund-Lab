@@ -132,13 +132,13 @@ def historical_wallet(wallet, day):
             "sha256": wallet["revision"],
         }
     ]
-    for i, trade in enumerate(wallet["trades"]):
+    for trade in wallet["trades"]:
         if trade["economic_date"] <= day:
             history.append(
                 {
                     "wallet": wallet["id"],
                     "id": trade["id"],
-                    "sequence": i + 1,
+                    "sequence": trade["order"],
                     "recorded_at": trade["recorded_at"],
                     "sha256": wallet["revision"],
                     "request": {
@@ -158,10 +158,39 @@ def historical_wallet(wallet, day):
                     },
                 }
             )
+    # DP-30 A: booked dividends enter the replay on their payment date.
+    for d in wallet["dividends"]:
+        if d["payment_date"] <= day:
+            history.append(
+                {
+                    "wallet": wallet["id"],
+                    "id": d["id"],
+                    "sequence": d["order"],
+                    "recorded_at": d["recorded_at"],
+                    "sha256": wallet["revision"],
+                    "request": {
+                        "kind": "DIVIDEND",
+                        "wallet": wallet["id"],
+                        "dividend": {
+                            k: d[k]
+                            for k in (
+                                "ticker",
+                                "kind",
+                                "data_com",
+                                "payment_date",
+                                "quantity",
+                                "gross",
+                                "net",
+                            )
+                        },
+                        "trade": None,
+                    },
+                }
+            )
     return manual.replay(history)
 
 
-def valuation(wallet, prices, session, paid=b.ZERO, receivable=b.ZERO):
+def valuation(wallet, prices, session, receivable=b.ZERO, unbooked=b.ZERO):
     positions, missing = [], []
     for position in wallet["positions"]:
         reference = prices.get(position["ticker"])
@@ -183,9 +212,10 @@ def valuation(wallet, prices, session, paid=b.ZERO, receivable=b.ZERO):
     invested = (
         None if missing else sum((b.dec(p["market_value"]) for p in positions), b.ZERO)
     )
-    # DP-30: after the ex date the price drops, so the receivable is equity (not cash).
+    # DP-30: after the ex date the price drops, so the receivable is equity (not cash);
+    # received dividends are already in the ledger cash.
     equity = (
-        b.dec(wallet["cash"]) + invested + paid + receivable
+        b.dec(wallet["cash"]) + invested + receivable + unbooked
         if invested is not None
         else None
     )
@@ -198,9 +228,9 @@ def valuation(wallet, prices, session, paid=b.ZERO, receivable=b.ZERO):
     return {
         "price_session": session,
         "cash": wallet["cash"],
-        "dividends_received": str(paid),
+        "dividends_received": wallet["dividends_received"],
         "dividends_receivable": str(receivable),
-        "cash_available": str(b.dec(wallet["cash"]) + paid),
+        "cash_available": wallet["cash"],  # kept for the UI: ledger cash incl. dividends
         "positions": positions,
         "invested_value": str(invested) if invested is not None else None,
         "equity": str(equity) if equity is not None else None,
@@ -218,6 +248,16 @@ PERIODS = (
     ("ytd", "Ano"),
     ("12m", "12 meses"),
 )
+
+
+def pending(items, wallet, session):
+    """(receivable, received-not-booked-yet): both equity-only, never cash.
+
+    ponytail: compared by totals; a stale booking larger than the computed value is
+    clamped to zero instead of reopening the old on-read cash.
+    """
+    got, receivable = dividends.on(items, session)
+    return receivable, max(got - b.dec(wallet["dividends_received"]), b.ZERO)
 
 
 def periods(daily, wallet, sessions, anchor_ok):
@@ -295,7 +335,7 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         wallet,
         book.get(reference_day, {}),
         reference_day,
-        *dividends.on(items, today),
+        *pending(items, wallet, today),
     )
     # Current positions can include today's trades while the reference is yesterday.
     # This estimate is kept separate from the daily close series.
@@ -307,7 +347,9 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
         if not wallet["start_date"] <= day <= today:
             continue
         snapshot = historical_wallet(wallet, day)
-        point = valuation(snapshot, book.get(day, {}), day, *dividends.on(items, day))
+        point = valuation(
+            snapshot, book.get(day, {}), day, *pending(items, snapshot, day)
+        )
         if day > last_closed:
             point.update(
                 equity=None, invested_value=None, change=None, return_fraction=None

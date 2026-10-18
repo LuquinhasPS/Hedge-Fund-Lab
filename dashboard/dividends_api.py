@@ -199,6 +199,14 @@ def entitlements(wallet, today):
     return out
 
 
+def booked(wallet):
+    """Keys of the DIVIDEND ledger entries already in the wallet."""
+    return {
+        (d["ticker"], d["data_com"], d["payment_date"], d["kind"])
+        for d in wallet["dividends"]
+    }
+
+
 def total(items, state):
     return str(
         b.money(sum((b.dec(e["net"]) for e in items if e["state"] == state), b.ZERO))
@@ -213,3 +221,43 @@ def on(items, session):
         b.money(sum((b.dec(e["net"]) for e in got if paid(e)), b.ZERO)),
         b.money(sum((b.dec(e["net"]) for e in got if not paid(e)), b.ZERO)),
     )
+
+
+def book_received(today):
+    """DP-30 A: book every RECEBIDO event not yet in each wallet's ledger (idempotent)."""
+    import manual_portfolio_api as manual  # circular like entitlements
+
+    entries, wallets = [], (manual.get({})["wallets"] if manual.path().exists() else [])
+    for wallet in wallets:
+        done = booked(wallet)
+        for e in entitlements(wallet, today):
+            if (
+                e["state"] != "RECEBIDO"
+                or (e["ticker"], e["data_com"], e["payment_date"], e["kind"]) in done
+            ):
+                continue
+            snap = snapshot(e["ticker"])
+            entries.append(
+                (
+                    manual.request(
+                        {
+                            "kind": "DIVIDEND",
+                            "wallet": wallet["id"],
+                            "dividend": {
+                                k: e[k]
+                                for k in (
+                                    "ticker",
+                                    "kind",
+                                    "data_com",
+                                    "payment_date",
+                                    "quantity",
+                                    "gross",
+                                    "net",
+                                )
+                            },
+                        }
+                    ),
+                    {"snapshot_sha256": snap["sha256"], "url": snap["url"]},
+                )
+            )
+    return manual.book_dividends(entries)

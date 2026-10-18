@@ -372,7 +372,17 @@ def _run(fetch):
             divs = dividends_api.update(fetch)
         except Exception as e:
             divs = f"{type(e).__name__}: {e}"
-        JOB["last"] = {**last, "yahoo": yahoo, "cdi": cdi, "dividends": divs}
+        try:  # DP-30 A: received dividends go to the ledger; errors never abort the job
+            booked = dividends_api.book_received(radar.now().date().isoformat())
+        except Exception as e:
+            booked = f"{type(e).__name__}: {e}"
+        JOB["last"] = {
+            **last,
+            "yahoo": yahoo,
+            "cdi": cdi,
+            "dividends": divs,
+            "dividends_booked": booked,
+        }
         JOB["error"] = None
     except Exception as e:
         JOB["error"] = f"{type(e).__name__}: {e}"

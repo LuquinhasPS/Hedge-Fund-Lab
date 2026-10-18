@@ -45,6 +45,9 @@ def base(tmp_path, monkeypatch):
     clock = iter(pd.date_range("2026-10-16T10:00:00-03:00", periods=99, freq="min"))
     monkeypatch.setattr(m.radar, "now", lambda: next(clock))
     monkeypatch.setattr(m.stock, "load", lambda ticker: None)
+    # The job also fetches/books dividends: never the network, never the real ledger.
+    monkeypatch.setattr(m, "fetch_http", lambda url: None)
+    monkeypatch.setattr(m.manual, "ROOT", tmp_path / "personal")
     return m
 
 
@@ -331,8 +334,26 @@ def test_wege_cutoff_maps_old_code_and_drops_thin_current_class_before_switch(ba
     assert m.coverage()["WEGE3"]["conflicts"] == 0
     # annual sealed before WEGE4 existed (aliases: ITAU4 only) gets one supplement; 2008+ none
     old = [{"kind": "annual", "year": y, "aliases": ["ITAU4"]} for y in (2007, 2008)]
-    todo = lambda have: [
-        i["file"] for i in m.plan("2009-01-02", have) if "+" in i["file"]
-    ]  # noqa: E731
+
+    def todo(have):
+        return [i["file"] for i in m.plan("2009-01-02", have) if "+" in i["file"]]
+
     assert todo(old) == ["COTAHIST_A2007.ZIP+WEGE4"]
     assert todo(m.acquired()) == []
+
+
+def test_run_captures_dividend_booking_error_and_result(base, monkeypatch):
+    import dividends_api
+
+    monkeypatch.setattr(
+        m, "update", lambda fetch: {"closed": "2026-10-15", "results": []}
+    )
+    monkeypatch.setattr(m.stock, "download", lambda t, c: None)
+    monkeypatch.setattr(m, "fetch_http", lambda url: None)
+    monkeypatch.setattr(dividends_api, "book_received", lambda today: 1 / 0)
+    m._run(None)
+    assert m.JOB["last"]["dividends_booked"].startswith("ZeroDivisionError")
+    assert m.JOB["error"] is None  # never aborts the job
+    monkeypatch.setattr(dividends_api, "book_received", lambda today: {"booked": 0})
+    m._run(None)
+    assert m.JOB["last"]["dividends_booked"] == {"booked": 0}

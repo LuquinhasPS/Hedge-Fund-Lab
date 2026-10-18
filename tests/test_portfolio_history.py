@@ -325,9 +325,10 @@ def test_dividends_are_equity_when_receivable_and_cash_only_when_paid(portfolio)
         "PREVISTO",
     ]
     v = d["valuation"]
-    assert (v["dividends_received"], v["dividends_receivable"]) == ("17.00", "7.50")
+    # DP-30 A: not booked yet -> still equity (never cash), and not "received" in the ledger
+    assert (v["dividends_received"], v["dividends_receivable"]) == ("0.00", "7.50")
     assert v["equity"] == "1042.50"  # 1018.00 + 17.00 + 7.50; announced is not equity
-    assert v["cash_available"] == str(h.b.dec(v["cash"]) + 17)
+    assert v["cash_available"] == v["cash"]
     day13, day14 = d["daily_history"][:2]
     assert (day13["dividends_received"], day13["dividends_receivable"]) == (
         "0.00",
@@ -335,7 +336,41 @@ def test_dividends_are_equity_when_receivable_and_cash_only_when_paid(portfolio)
     )
     assert day13["equity"] == "1016.00"
     assert (day14["dividends_received"], day14["dividends_receivable"]) == (
-        "17.00",
+        "0.00",
         "7.50",
     )
     assert day14["equity"] == "1045.50"
+
+
+def test_booking_moves_received_into_ledger_cash_without_double_counting(portfolio):
+    from test_dividends import PN, raw, rec
+
+    sample = raw(
+        rec(PN, "JRS CAP PROPRIO", "1,00", "13/10/2026", "14/10/2026"),  # 17.00 net
+        rec(PN, "DIVIDENDO", "0,50", "14/10/2026", "20/10/2026"),  # receivable
+    )
+    h.dividends.refresh("PETR4", lambda u: sample)
+    before = projection(portfolio)
+    cash0 = h.b.dec(portfolio["cash"])
+    out = h.dividends.book_received("2026-10-15")
+    assert (out["booked"], out["already"], out["refused"]) == (1, 0, [])  # RECEBIDO only
+    assert h.dividends.book_received("2026-10-15")["booked"] == 0  # idempotent
+    wallet = h.manual.get({"wallet": portfolio["id"]})["selected"]
+    assert wallet["revision"] != portfolio["revision"]  # open proposals become stale
+    assert [d["net"] for d in wallet["dividends"]] == ["17.00"]
+    assert h.b.dec(wallet["cash"]) == cash0 + 17
+    assert wallet["dividends_received"] == "17.00"
+    after = projection(wallet)
+    v = after["valuation"]
+    assert (v["dividends_received"], v["dividends_receivable"]) == ("17.00", "7.50")
+    assert v["cash_available"] == v["cash"] == wallet["cash"]
+    assert v["equity"] == before["valuation"]["equity"] == "1042.50"
+    assert [p["equity"] for p in after["daily_history"]] == [
+        p["equity"] for p in before["daily_history"]
+    ]
+    assert [p["dividends_received"] for p in after["daily_history"]] == [
+        "0.00",
+        "17.00",
+        "17.00",
+    ]  # from the payment date, via the ledger replay
+    assert after["daily_history"][0]["cash"] == before["daily_history"][0]["cash"]

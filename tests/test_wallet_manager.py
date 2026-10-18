@@ -574,3 +574,40 @@ def test_latest_proposal_for_wallet(lab):
     assert got["status"] == "VALID_PROPOSAL" and got["applied_at"] is None
     assert got["proposal"] == c["proposal"] and got["trades"][0]["ticker"] == "VALE3"
     assert got["results_url"].startswith(f"/radar?run={c['run']}&")
+
+
+def test_booked_dividend_feeds_manager_cash_and_invalidates_open_proposal(lab):
+    c, raw = lab
+    result(c, raw)
+    r = m.manual.request(
+        {
+            "kind": "DIVIDEND",
+            "wallet": c["wallet"]["id"],
+            "dividend": {
+                "ticker": "VALE3",
+                "kind": "DIVIDENDO",
+                "data_com": "2026-10-14",
+                "payment_date": "2026-10-15",
+                "quantity": "10",
+                "gross": "100.00",
+                "net": "100.00",
+            },
+        }
+    )
+    out = m.manual.book_dividends([(r, {"snapshot_sha256": "a" * 64, "url": "u"})])
+    assert out["booked"] == 1
+    # the old proposal is stale (wallet revision changed) with the clear refusal
+    with pytest.raises(ValueError, match="wallet_changed"):
+        m.wallet_current(c)
+    with pytest.raises(ValueError, match="carteira mudou"):
+        m.post(
+            "preview",
+            {"run": c["run"], "proposal": c["proposal"], "economic_date": "2026-10-15"},
+        )
+    # a new analysis sees the ledger cash that already includes the dividend
+    fresh = m.manual.get({"wallet": c["wallet"]["id"]})["selected"]
+    assert m.b.dec(fresh["cash"]) == m.b.dec(c["wallet"]["cash"]) + 100
+    big = {**raw, "actions": [raw["actions"][0], {**raw["actions"][1], "quantity": "17"}]}
+    with pytest.raises(ValueError, match="insufficient_cash"):
+        m.compile_proposal(c, big)  # 680 > 400 + 240 of the sale
+    assert m.compile_proposal({**c, "wallet": fresh}, big)["cash_after"]

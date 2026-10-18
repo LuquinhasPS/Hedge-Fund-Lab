@@ -17,6 +17,7 @@ IDENTITY = "HFL-MANUAL-PORTFOLIO-V1"
 PROJECT = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = PROJECT / "data/platform/manual-v1"
 ROOT = Path(os.environ.get("HFL_MANUAL_ROOT", DEFAULT_ROOT))
+DIVIDEND_KINDS = ("DIVIDENDO", "JCP", "OUTRO")
 NATURES = {"SIMULATION": "Simulação manual", "EXTERNAL": "Operações reais externas"}
 SCHEMA = (
     "CREATE TABLE identity (name TEXT NOT NULL)",
@@ -113,9 +114,48 @@ def trade(value):
     }
 
 
+def dividend(value):
+    """DP-30 A: one received cash dividend, as computed from the B3 snapshot."""
+    fields(
+        value,
+        ("ticker", "kind", "data_com", "payment_date", "quantity", "gross", "net"),
+    )
+    try:
+        symbol = b.ticker(value["ticker"])
+    except (ValueError, TypeError) as exc:
+        raise Invalid("ticker", "Código de ação inválido.") from exc
+    require(value["kind"] in DIVIDEND_KINDS, "kind", "Tipo de provento inválido.")
+    gross = number(value["gross"], "gross", positive=True)
+    net = number(value["net"], "net", positive=True)
+    require(b.dec(net) <= b.dec(gross), "net", "Líquido acima do bruto.")
+    result = {
+        "ticker": symbol,
+        "kind": value["kind"],
+        "data_com": day(value["data_com"], "data_com"),
+        "payment_date": day(value["payment_date"], "payment_date"),
+        "quantity": number(value["quantity"], "quantity", units=True),
+        "gross": gross,
+        "net": net,
+    }
+    require(
+        result["data_com"] <= result["payment_date"],
+        "payment_date",
+        "Pagamento anterior à data-com.",
+    )
+    return result
+
+
 def request(value):
     require(isinstance(value, dict), "form", "Informe os dados do cadastro.")
     kind = value.get("kind")
+    if kind == "DIVIDEND":
+        fields(value, ("kind", "wallet", "dividend"))
+        return {
+            "kind": kind,
+            "wallet": text(value["wallet"], "wallet", 100),
+            "dividend": dividend(value["dividend"]),
+            "trade": None,
+        }
     if kind == "CREATE":
         metadata = {"strategy", "comparison_group", "initialization_note"}
         fields(
@@ -272,7 +312,9 @@ def invariant(state):
         cash
         + receivable
         + sum((b.dec(p["basis"]) for p in state["positions"].values()), b.ZERO)
-        == b.dec(state["initial_capital"]) + b.dec(state["realized_pnl"]),
+        == b.dec(state["initial_capital"])
+        + b.dec(state["realized_pnl"])
+        + b.dec(state["dividends_received"]),
         "form",
         "A reconciliação contábil falhou.",
     )
@@ -280,7 +322,7 @@ def invariant(state):
 
 def replay(history):
     meta = history[0]["request"]
-    active, audit, archived = {}, [], False
+    active, audit, archived, paid = {}, [], False, {}
     for e in history[1:]:
         r = e["request"]
         require(
@@ -296,6 +338,16 @@ def replay(history):
             )
             archived = True
         order = e["sequence"]
+        if r["kind"] == "DIVIDEND":
+            # ponytail: a DIVIDEND has no correction/void path (not a CORRECTION
+            # target); its idempotent key makes a wrong entry impossible to repeat.
+            paid[e["id"]] = {
+                **r["dividend"],
+                "id": e["id"],
+                "order": order,
+                "recorded_at": e["recorded_at"],
+                **({"source": e["source"]} if "source" in e else {}),
+            }
         if r["kind"] == "CORRECTION":
             require(
                 r["target"] in active,
@@ -328,9 +380,24 @@ def replay(history):
         "receivables": {},
         "costs": "0.00",
         "realized_pnl": "0.00",
+        "dividends_received": "0.00",
     }
     timeline = []
-    for op in sorted(active.values(), key=lambda t: (t["economic_date"], t["order"])):
+    ops = sorted(
+        [*active.values(), *paid.values()],
+        key=lambda t: (t.get("economic_date") or t["payment_date"], t["order"]),
+    )
+    for op in ops:
+        if "payment_date" in op:  # dividend: net credited on the payment date
+            require(
+                op["payment_date"] >= meta["start_date"],
+                "payment_date",
+                "Provento anterior à data de início da carteira.",
+            )
+            for k in ("settled_cash", "dividends_received"):
+                state[k] = str(b.dec(state[k]) + b.dec(op["net"]))
+            invariant(state)
+            continue
         require(
             op["economic_date"] >= meta["start_date"],
             "economic_date",
@@ -414,6 +481,8 @@ def replay(history):
         "realized_pnl": state["realized_pnl"],
         "positions": positions,
         "trades": timeline,
+        "dividends": list(paid.values()),
+        "dividends_received": state["dividends_received"],
         "audit": audit,
         "equity": None if positions else state["settled_cash"],
         "return_pct": None,
@@ -632,3 +701,38 @@ def post(command, payload):
         event = append(conn, r, cid, stored_request, wallet, previous)
         result = replay(events(conn, wallet))
     return {"wallet": result, "event_id": event["id"], "replayed": False}
+
+
+def book_dividends(entries):
+    """DP-30 A: append received dividends [(request, source)] idempotently, never raising.
+
+    Key = wallet+ticker+data_com+payment_date+kind; the same key with another payload
+    is refused (reported), never duplicated or overwritten.
+    """
+    out = {"booked": 0, "already": 0, "refused": []}
+    if not entries:
+        return out
+    with closing(connect(write=True)) as conn, conn:
+        for r, source in entries:
+            d = r["dividend"]
+            cid = "dividend-" + b.digest(
+                [r["wallet"], d["ticker"], d["data_com"], d["payment_date"], d["kind"]]
+            )
+            stored = canonical(r)
+            prior = conn.execute(
+                "SELECT request FROM events WHERE command=?", (cid,)
+            ).fetchone()
+            if prior:
+                if prior[0] == stored:
+                    out["already"] += 1
+                else:
+                    out["refused"].append({"key": cid, "reason": "payload_differs"})
+                continue
+            try:
+                history, _, _ = candidate(conn, r)
+            except Invalid as e:
+                out["refused"].append({"key": cid, "reason": str(e)})
+                continue
+            append(conn, r, cid, stored, r["wallet"], history[-1]["sha256"], source)
+            out["booked"] += 1
+    return out

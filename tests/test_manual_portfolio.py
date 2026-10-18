@@ -361,6 +361,63 @@ class ManualCheck(unittest.TestCase):
         self.assertEqual(loaded["wallets"][0]["cash"], "298.00")
         self.assertEqual(loaded["wallets"][0]["id"], wallet)
 
+    def test_dividend_entry_idempotency_validation_and_invariant(self):
+        wallet = self.create("Dividendos", "SIMULATION")["id"]
+        self.record(operation(wallet), "buy")  # 10 PETR4 at 20.00 + 2.00 -> cash 798.00
+        div = {
+            "ticker": "PETR4",
+            "kind": "JCP",
+            "data_com": "2020-02-03",
+            "payment_date": "2020-02-10",
+            "quantity": "10",
+            "gross": "10.00",
+            "net": "8.50",
+        }
+        r = m.request({"kind": "DIVIDEND", "wallet": wallet, "dividend": div})
+        source = {"snapshot_sha256": "a" * 64, "url": "https://b3.example"}
+        self.assertEqual(m.book_dividends([(r, source)])["booked"], 1)
+        again = m.book_dividends([(r, source)])  # repeat: no duplicate
+        self.assertEqual((again["booked"], again["already"]), (0, 1))
+        other = m.request(
+            {"kind": "DIVIDEND", "wallet": wallet, "dividend": {**div, "net": "9.00"}}
+        )
+        refused = m.book_dividends([(other, source)])  # same key, other payload
+        self.assertEqual(refused["refused"][0]["reason"], "payload_differs")
+        w = m.get({"wallet": wallet})["selected"]
+        self.assertEqual((w["cash"], w["dividends_received"]), ("806.50", "8.50"))
+        self.assertEqual(len(w["dividends"]), 1)
+        self.assertEqual(w["dividends"][0]["source"], source)
+        # a dividend is not a trade: no correction target, no trade-form edit
+        bad = {
+            "kind": "CORRECTION",
+            "wallet": wallet,
+            "target": w["dividends"][0]["id"],
+            "reason": "x",
+            "trade": operation(wallet)["trade"],
+        }
+        with self.assertRaises(m.Invalid):
+            m.post("preview", {"request": bad})
+        for broken in (
+            {**div, "net": "11.00"},  # net above gross
+            {**div, "kind": "BONUS"},
+            {**div, "payment_date": "2020-02-01"},  # before data-com
+            {**div, "extra": 1},
+        ):
+            with self.assertRaises(m.Invalid):
+                m.request({"kind": "DIVIDEND", "wallet": wallet, "dividend": broken})
+        early = m.request(  # before the wallet start: refused, never written
+            {
+                "kind": "DIVIDEND",
+                "wallet": wallet,
+                "dividend": {
+                    **div,
+                    "data_com": "2019-01-01",
+                    "payment_date": "2019-01-02",
+                },
+            }
+        )
+        self.assertEqual(len(m.book_dividends([(early, source)])["refused"]), 1)
+
 
 def browser_check():
     base = PROJECT / "data/cache"
