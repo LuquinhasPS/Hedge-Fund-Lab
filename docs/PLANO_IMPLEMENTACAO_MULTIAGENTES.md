@@ -18,6 +18,39 @@ decisões em [DIRECAO_DO_PROJETO](DIRECAO_DO_PROJETO.md).
 Último commit enviado ao PR #1: `947f7db` (proventos). DIRECAO v14 (DP-29 B e
 DP-31) e T1 commitadas em 17/10.
 
+## T6 — Pesquisa "relógio de dados e preço de execução" (18/10, em andamento)
+
+Pergunta de Lucas: os agentes (analistas e gestor) deveriam ver o preço do
+momento (Yahoo, ~15 min de atraso) além dos dados do pregão anterior, e a que
+preço/regra registrar a operação aprovada minutos ou horas depois (a tolerância
+fixa de 1% preocupa)?
+
+Estado: as quatro notas de pesquisa estão prontas em
+`research_notes/Relógio de dados e preço de execução/` (agentes LLM de
+trading, prática de execução quantitativa, microestrutura B3 com números
+calculados, riscos de preço intradiário em LLMs). **Falta só o relatório
+final** em `reports/Relógio de dados e preço de execução.md` (a redação foi
+interrompida pelo limite de uso e pelo desligamento do notebook).
+
+Para retomar: se o relatório não existir ou estiver incompleto, disparar
+apenas o redator (skill deep-research, passo 6) com as mesmas notas, a mesma
+pergunta e o contexto do projeto (DP-13, DP-24, DP-26, DP-27, DP-31, orçamento
+~US$ 0,16 por chamada do gestor e teto ~US$ 5); não refazer a pesquisa.
+
+Achados que já aparecem nas notas (a confirmar no relatório):
+- Sistemas recentes (TradingAgents v0.7, ai-hedge-fund, FINSABER) recusam
+  decidir e executar no mesmo fechamento; registrar ao fechamento do pregão
+  anterior é a convenção que eles rejeitam.
+- Preço do momento entra melhor no código determinístico de dimensionamento
+  do que no prompt dos LLMs (variância, numeracia, reprodutibilidade).
+- Referência de execução mais defensável na B3: próximo leilão oficial após a
+  aprovação (fechamento do dia se aprovado antes do leilão), já presente na
+  base DP-27; cotação atrasada como prévia.
+- Tolerância por volatilidade e tempo decorrido (k·σ·√t), em vez de 1% fixo;
+  números calculados: movimento de 30 min p95 de 0,79–0,97%; gap noturno
+  médio 0,63–0,83%.
+- Mudanças nas DP-24 e DP-26 dependem de decisão de Lucas (futura DP-33).
+
 ## Regras para todos os agentes
 
 - Ler `AGENTS.md` e as DPs citadas antes de editar; menor diff que resolve.
