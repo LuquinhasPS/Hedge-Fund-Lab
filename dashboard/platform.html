@@ -76,6 +76,33 @@
     </div>
   </section>
   <details id="home-laboratory" class="home-laboratory"><summary>Explorar o laboratório multiativos e a auditoria</summary>
+  <section class="ds-card lab-bt" id="lab-bt" aria-labelledby="lab-bt-title">
+    <p class="ds-eyebrow">Laboratório · somente leitura</p>
+    <h2 class="ds-section-title" id="lab-bt-title">Backtest de regras</h2>
+    <p class="ds-lead">Cesta de ativos com ou sem rebalanceamento, simulada sobre a base local de preços ajustados por proventos. Histórico, não previsão; não altera carteiras nem o piloto.</p>
+    <form id="lab-bt-form" class="personal-form" novalidate>
+      <fieldset class="personal-wide lab-bt-assets"><legend>Ativos</legend>
+        <label><input type="checkbox" name="t" value="PETR4" checked> PETR4<input class="lab-bt-w" type="number" min="0" max="100" step="0.01" value="20" aria-label="Peso de PETR4 em %" hidden></label>
+        <label><input type="checkbox" name="t" value="VALE3" checked> VALE3<input class="lab-bt-w" type="number" min="0" max="100" step="0.01" value="20" aria-label="Peso de VALE3 em %" hidden></label>
+        <label><input type="checkbox" name="t" value="ITUB4" checked> ITUB4<input class="lab-bt-w" type="number" min="0" max="100" step="0.01" value="20" aria-label="Peso de ITUB4 em %" hidden></label>
+        <label><input type="checkbox" name="t" value="WEGE3" checked> WEGE3<input class="lab-bt-w" type="number" min="0" max="100" step="0.01" value="20" aria-label="Peso de WEGE3 em %" hidden></label>
+        <label><input type="checkbox" name="t" value="BBAS3" checked> BBAS3<input class="lab-bt-w" type="number" min="0" max="100" step="0.01" value="20" aria-label="Peso de BBAS3 em %" hidden></label>
+      </fieldset>
+      <label>Pesos<select name="mode"><option value="equal">Iguais</option><option value="custom">Personalizados (% somando 100)</option></select></label>
+      <label>Rebalanceamento<select name="rebalance"><option value="none">Sem rebalanceamento</option><option value="monthly">Mensal</option><option value="quarterly">Trimestral</option><option value="annual">Anual</option></select></label>
+      <label>De<input name="start" type="date" required></label>
+      <label>Até<input name="end" type="date" required></label>
+      <label>Custo por operação (bps)<input name="cost_bps" type="number" min="0" max="200" step="0.01" value="0"></label>
+      <div class="personal-wide"><button type="submit">Simular</button> <span id="lab-bt-status" role="status"></span></div>
+    </form>
+    <p id="lab-bt-error" role="alert" hidden></p>
+    <div id="lab-bt-result" hidden>
+      <div class="home-chart-canvas"><canvas id="lab-bt-chart" role="img" aria-label="Retorno acumulado da estratégia, do Ibovespa e do CDI; valores na tabela abaixo"></canvas></div>
+      <div id="lab-bt-metrics"></div>
+      <ul id="lab-bt-notes" class="home-caption"></ul>
+      <details><summary>Consultar os valores do gráfico em tabela</summary><div id="lab-bt-table"></div></details>
+    </div>
+  </section>
   <section class="home-hero" aria-labelledby="home-title">
     <p class="ds-eyebrow">Laboratório de pesquisa · sistemas multiagentes</p>
     <h2 id="home-title" class="ds-title">Hedge-Fund-Lab</h2>

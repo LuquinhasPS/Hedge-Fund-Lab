@@ -36,6 +36,7 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import backtest_api
 import forward_api
 import forward_jobs
 import global_pm_api
@@ -213,6 +214,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._handle_global_pm()
         if self.path.startswith("/api/platform/"):
             return self._handle_platform()
+        if self.path.startswith("/api/lab/backtest"):
+            return self._handle_backtest()
         if self.path == "/api/logs":
             return self._handle_logs_sse()
         if self.path.startswith("/api/h2/"):
@@ -627,6 +630,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 else "platform_record_or_request_invalid"
             )
             return self._send_json({"error": code}, 400)
+
+    def _handle_backtest(self):
+        url = urlsplit(self.path)
+        query = parse_qs(url.query, keep_blank_values=True)
+        try:
+            if url.path != "/api/lab/backtest" or any(
+                len(v) != 1 for v in query.values()
+            ):
+                raise backtest_api.Invalid("consulta inválida")
+            return self._send_json(backtest_api.get({k: v[0] for k, v in query.items()}))
+        except backtest_api.Invalid as exc:
+            return self._send_json({"error": str(exc)}, 400)
 
     def _handle_global_pm(self):
         url = urlsplit(self.path)

@@ -152,6 +152,64 @@
     }
     window.addEventListener('hashchange',stage);stage();
   }
+  // DP-31: rule backtest, read-only GET. Server computes everything; this only renders it.
+  (()=>{
+    const form=el('lab-bt-form');if(!form)return;
+    const pct=(v,d=1)=>v==null?'—':(v*100).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d})+'%';
+    const num=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const dmy=d=>d.split('-').reverse().join('/');
+    const boxes=[...form.querySelectorAll('input[name=t]')],ws=[...form.querySelectorAll('.lab-bt-w')];
+    let chart,seq=0;
+    const sync=()=>ws.forEach((w,i)=>{w.hidden=form.mode.value!=='custom'||!boxes[i].checked;});
+    form.mode.addEventListener('change',sync);boxes.forEach(b=>b.addEventListener('change',sync));
+    fetch('/api/platform/market-base',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+      if(!d.closed||form.end.value)return;
+      form.end.value=d.closed;form.end.max=d.closed;
+      const s=new Date(d.closed+'T00:00:00Z');s.setUTCFullYear(s.getUTCFullYear()-10);form.start.value=s.toISOString().slice(0,10);
+    }).catch(()=>{});
+    const fail=m=>{const e=el('lab-bt-error');e.textContent=m;e.hidden=false;el('lab-bt-result').hidden=true;};
+    form.addEventListener('submit',async ev=>{
+      ev.preventDefault();el('lab-bt-error').hidden=true;
+      const q=new URLSearchParams(),on=boxes.filter(b=>b.checked);
+      if(!on.length)return fail('Escolha ao menos um ativo.');
+      q.set('tickers',on.map(b=>b.value).join(','));
+      if(form.mode.value==='custom'){
+        const w=on.map(b=>Number(ws[boxes.indexOf(b)].value));
+        if(Math.abs(w.reduce((a,b)=>a+b,0)-100)>0.01)return fail('Os pesos devem somar 100%.');
+        q.set('weights',w.map(x=>x/100).join(','));
+      }
+      for(const k of ['start','end','rebalance','cost_bps'])q.set(k,form[k].value);
+      const mine=++seq;el('lab-bt-status').textContent='Simulando…';
+      try{
+        const r=await fetch('/api/lab/backtest?'+q,{cache:'no-store'}),d=await r.json();
+        if(mine!==seq)return;
+        if(!r.ok)return fail(d.error||'Simulação indisponível.');
+        render(d);
+      }catch{if(mine===seq)fail('Simulação indisponível. Nada foi alterado.');}
+      finally{if(mine===seq)el('lab-bt-status').textContent='';}
+    });
+    function render(d){
+      const cap=d.params.capital,cum=a=>a&&a.map(v=>(v-1)*100),st=d.strategy.map(v=>(v/cap-1)*100),ib=cum(d.ibov),cd=cum(d.cdi);
+      const sets=[{label:'Estratégia',data:st,borderColor:'#3358d4',backgroundColor:'transparent',borderWidth:2,pointRadius:0,tension:0}];
+      if(ib)sets.push({label:'Ibovespa (referência)',data:ib,borderColor:'#58647b',backgroundColor:'transparent',borderWidth:2,borderDash:[6,4],pointRadius:0,tension:0});
+      if(cd)sets.push({label:'CDI (referência)',data:cd,borderColor:'#85570c',backgroundColor:'transparent',borderWidth:2,borderDash:[2,3],pointRadius:0,tension:0});
+      el('lab-bt-result').hidden=false;
+      chart?.destroy();
+      chart=new Chart(el('lab-bt-chart'),{type:'line',data:{labels:d.sessions.map(dmy),datasets:sets},options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{color:'#43516a',boxWidth:12,generateLabels:c=>Chart.defaults.plugins.legend.labels.generateLabels(c).map(l=>({...l,fillStyle:'transparent'}))}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+num(c.raw)+'%'}}},scales:{x:{grid:{display:false},ticks:{color:'#657188',maxTicksLimit:7,maxRotation:0}},y:{grid:{color:'#e2e7f0'},ticks:{color:'#657188',callback:v=>v+'%'}}}}});
+      const M=d.metrics,s=M.strategy,i=M.ibov,c=M.cdi;
+      const row=(n,f)=>'<tr><th scope="row">'+n+'</th><td class="num">'+f(s)+'</td><td class="num">'+(i?f(i):'—')+'</td><td class="num">'+(c?f(c):'—')+'</td></tr>';
+      const only=(n,v)=>'<tr><th scope="row">'+n+'</th><td class="num">'+v+'</td><td class="num">—</td><td class="num">—</td></tr>';
+      const dd=x=>pct(x.max_drawdown)+' ('+dmy(x.max_drawdown_peak)+' → '+dmy(x.max_drawdown_trough)+')';
+      el('lab-bt-metrics').innerHTML='<div class="ds-table-wrap"><table class="ds-table"><caption class="ds-visually-hidden">Métricas da simulação</caption><thead><tr><th scope="col">Métrica</th><th scope="col" class="num">Estratégia</th><th scope="col" class="num">Ibovespa</th><th scope="col" class="num">CDI</th></tr></thead><tbody>'
+        +row('Retorno total',x=>pct(x.total_return))+row('Retorno anualizado',x=>pct(x.annualized_return))+row('Volatilidade anualizada',x=>pct(x.annualized_volatility))+row('Queda máxima',dd)+row('Sharpe (CDI)',x=>x.sharpe==null?'—':num(x.sharpe))
+        +only('Rebalanceamentos',s.rebalances)+only('Custos totais',money(s.total_costs))+only('Giro (negociado ÷ patrimônio médio)',num(s.turnover)+'×')+'</tbody></table></div>';
+      const stale=Object.entries(d.stale_days).filter(([,n])=>n).map(([t,n])=>t+': '+n+' dia(s) sem negócio, último preço mantido');
+      const miss=Object.values(M.unavailable).map(x=>'Referência indisponível: '+x);
+      el('lab-bt-notes').innerHTML=[...d.data_notes,...stale,...miss].map(n=>'<li>'+esc(n)+'</li>').join('');
+      el('lab-bt-table').innerHTML='<div class="ds-table-wrap"><table class="ds-table"><caption class="ds-visually-hidden">Retorno acumulado por pregão</caption><thead><tr><th scope="col">Data</th><th scope="col" class="num">Estratégia</th><th scope="col" class="num">Ibovespa</th><th scope="col" class="num">CDI</th></tr></thead><tbody>'
+        +d.sessions.map((x,k)=>'<tr><td>'+dmy(x)+'</td><td class="num">'+num(st[k])+'%</td><td class="num">'+(ib?num(ib[k])+'%':'—')+'</td><td class="num">'+(cd?num(cd[k])+'%':'—')+'</td></tr>').join('')+'</tbody></table></div>';
+    }
+  })();
   if(!el('product-data-body'))return;
   async function loadData(){
     el('product-data-status').textContent='Conferindo a execução e os dados registrados…';
