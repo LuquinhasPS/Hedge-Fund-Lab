@@ -10,6 +10,46 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Proventos no livro, backtest de regras e pesquisa — DP-30 A, DP-31, 18/10/2026
+
+Proventos (DP-30 opção A): recebidos viram lançamento `DIVIDEND` no livro
+(`manual_portfolio_api`), validado como operação, com chave idempotente
+carteira+ativo+data-com+pagamento+tipo; o replay credita o líquido no
+pagamento e o invariante fecha com proventos recebidos. A atualização de
+dados lança os RECEBIDO ainda não lançados (Buy & Hold incluído); a receber e
+anunciados seguem calculados na leitura. O histórico deixou de somá-los na
+leitura (patrimônio idêntico antes e depois do lançamento). O gestor usa o
+caixa do livro, agora com proventos; lançar provento invalida proposta aberta
+("A carteira mudou (provento lançado ou nova operação). Abra uma nova
+análise."). Alterar o módulo contábil torna não aplicáveis propostas criadas
+antes (apenas consulta), como já previsto pelo contrato do gestor. Nenhum
+provento real a lançar hoje.
+
+Backtest de regras (DP-31): `GET /api/lab/backtest` e painel no Laboratório,
+sobre preços ajustados da base local, com Ibovespa e CDI nas mesmas sessões e
+métricas de `src/backtesting/metrics`. Rodada real 2016-01-04 → 2026-10-16,
+cinco ativos com pesos iguais: 25,6% a.a. sem rebalanceamento e 25,4% a.a.
+trimestral, contra 16,1% do Ibovespa e 9,8% do CDI; drawdown máximo −45,3% e
+−42,6% (covid). Viés de seleção: ativos escolhidos hoje; resultado histórico,
+não previsão.
+
+Pesquisa ([documento](PESQUISA_MUNICAO_AGENTES.md)): recomenda começar por
+resumos determinísticos selados por sessão, só com dados locais, entregues ao
+gestor (analistas seguem cegos); estatística de padrões com taxa base, n e
+intervalo de Wilson ("5 de 6" tem IC 95% de 43,6% a 97,0%); avaliação por
+braço sombra pareado; aponta que o fator Yahoo mais recente em `series()` não é
+as-of e que o orçamento acumulado de US$ 5 limita a ~12–15 sessões pareadas.
+Decisões listadas no documento, a registrar como DP-32.
+
+Verificação: `poetry run pytest tests/test_manual_portfolio.py tests/test_dividends.py tests/test_portfolio_history.py tests/test_wallet_manager.py tests/test_market_base.py tests/test_legacy_web.py tests/test_radar_network_isolation.py -q` → 91 aprovados, 1 ignorado; `tests/test_backtest.py` + legacy + histórico → 53 aprovados; checks de navegador backtest, home, Comparação, Proventos e atualização PASS (desktop/celular). Testes da base de mercado deixaram de acessar a rede e o livro real pelo job.
+
+Limites: lançamento de provento sem correção/anulação; correção de operação
+após lançamento é reportada como divergência, não ajustada; backtest com
+frações, sem lotes, e Sharpe com CDI médio do período.
+
+Próximo passo: decisões da pesquisa (DP-32); fator Yahoo as-of se padrões
+forem usados.
+
 ## Proventos — DP-30, APP-04, 17/10/2026
 
 Entrega na árvore de trabalho até o commit. Fonte: consulta pública da B3

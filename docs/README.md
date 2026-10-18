@@ -14,6 +14,8 @@ Registros diários: [14/10 — dados e diagnóstico](daily/2026-10-14.md) ·
 | [Roadmap](ROADMAP.md) | O que fazemos a seguir e quais são os critérios de saída? |
 | [Estado atual](ESTADO_ATUAL.md) | O que existe, foi qualificado ou ainda falta? |
 | [Ciclo de uso da plataforma](CICLO_USO_PLATAFORMA.md) | Como criar, alocar, comprar/vender e abrir análises; quais etapas ainda faltam para fechar o uso diário? |
+| [Plano de implementação com multiagentes](PLANO_IMPLEMENTACAO_MULTIAGENTES.md) | Como as entregas de 17–18/10 foram divididas entre agentes, com regras e roteiro de revisão? |
+| [Pesquisa: munição para os agentes](PESQUISA_MUNICAO_AGENTES.md) | Que dados, recortes e estatísticas poderiam ampliar o contexto dos agentes sem antecipação, e quais decisões isso exige (DP-27/DP-31)? |
 | [Arquitetura](ARQUITETURA.md) | Onde cada responsabilidade está implementada? |
 | [Contrato do piloto multiativos — DRAFT](PILOTO_MULTIATIVOS_SPEC.md) | Bases DP-09–DP-15 aprovadas; regras técnicas pendentes; DATA-01, PAPER-02, tela inicial e durabilidade PAPER-03 documentados; ativação oficial pendente |
 | [README técnico](../README.md) | Como abrir o projeto e usar os comandos básicos? |

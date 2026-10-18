@@ -304,6 +304,8 @@ Verificação e limites no estado atual.
 
 **APP-04 (proventos), 17/10:** passa a seguir DP-30 (fonte B3 oficial; JCP líquido de 15% de IR; provento vira caixa só no pagamento, ficando "a receber" entre a data-com e o pagamento). Em andamento, não entregue.
 
+**Proventos no livro, backtest e pesquisa, 18/10 — DP-30 A, DP-31:** proventos recebidos passam a ser lançamentos idempotentes no livro (livro, home e gestor com o mesmo caixa); backtest de regras no Laboratório com Ibovespa e CDI; [pesquisa da munição para os agentes](PESQUISA_MUNICAO_AGENTES.md) com recomendação em fases e decisões pendentes (DP-32). Verificação e limites no estado atual.
+
 **Proventos, 17/10 — DP-30, APP-04:** `dashboard/dividends_api.py` lê a consulta pública da B3 (`GetListedSupplementCompany`, uma por emissor, cerca de 12 meses de histórico), filtra a classe pelo ISIN (ON/PN) e guarda snapshots selados imutáveis em `market-base-v1/dividends/<ativo>/`, sem duplicar quando nada muda; a atualização da base (DP-27) a executa. Direito pela posição ao fim da data-com; JCP líquido de 15%; estados Anunciado (data-com futura, quantidade estimada), A receber e Recebido. O histórico de patrimônio soma recebidos e a receber ao patrimônio, `cash_available` = caixa do livro + recebidos; a receber nunca é caixa. Página Proventos com totais e eventos, caixa da home e Rotina do dia com a receber, coluna de proventos na tabela de patrimônio e nota da Comparação ajustada. Hoje nenhuma data-com desde 13/10: as duas carteiras mostram R$ 0,00 real. Verificação e limites no estado atual.
 
 **Definições confirmadas por Lucas:** DP-18 exige mesma base inicial de posições

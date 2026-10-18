@@ -10,10 +10,10 @@ decisões em [DIRECAO_DO_PROJETO](DIRECAO_DO_PROJETO.md).
 | ID | Entrega | DP / item | Estado |
 |---|---|---|---|
 | T1 | Histórico da WEG: WEGE4 até 31/05/2007, WEGE3 desde 01/06/2007 | DP-29 B / APP-03 | **Concluído 17/10**: WEGE3 desde 02/08/2004 (702 linhas de WEGE4), 0 conflitos; troca 16,10 → 16,70 |
-| T2 | Gestor usa caixa com proventos recebidos | DP-30 / APP-05 | **Decidido 17/10: opção A** (lançar no livro); pronto para rodar, ver T2 |
-| T3 | Backtest de regras no Laboratório | DP-31 / Laboratório | Não iniciado (agente interrompido sem alterações) |
-| T4 | Pesquisa "munição para os agentes" | DP-27, DP-31 | Não iniciado (agente interrompido sem alterações) |
-| T5 | Docs, verificação integrada e commits | — | Após T1–T4 |
+| T2 | Gestor usa caixa com proventos recebidos | DP-30 / APP-05 | **Concluído 18/10** (`77014b6`) |
+| T3 | Backtest de regras no Laboratório | DP-31 / Laboratório | **Concluído 18/10** (`dac43eb`) |
+| T4 | Pesquisa "munição para os agentes" | DP-27, DP-31 | **Concluído 18/10**: documento entregue, decisões pendentes (DP-32) |
+| T5 | Docs, verificação integrada e commits | — | **Concluído 18/10** |
 
 Último commit enviado ao PR #1: `947f7db` (proventos). DIRECAO v14 (DP-29 B e
 DP-31) e T1 commitadas em 17/10.
