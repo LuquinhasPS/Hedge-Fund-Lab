@@ -18,7 +18,7 @@ decisões em [DIRECAO_DO_PROJETO](DIRECAO_DO_PROJETO.md).
 Último commit enviado ao PR #1: `947f7db` (proventos). DIRECAO v14 (DP-29 B e
 DP-31) e T1 commitadas em 17/10.
 
-## T6 — Pesquisa "relógio de dados e preço de execução" (18/10, em andamento)
+## T6 — Pesquisa "relógio de dados e preço de execução" (18/10, concluída)
 
 Pergunta de Lucas: os agentes (analistas e gestor) deveriam ver o preço do
 momento (Yahoo, ~15 min de atraso) além dos dados do pregão anterior, e a que
@@ -28,9 +28,9 @@ fixa de 1% preocupa)?
 Estado: as quatro notas de pesquisa estão prontas em
 `research_notes/Relógio de dados e preço de execução/` (agentes LLM de
 trading, prática de execução quantitativa, microestrutura B3 com números
-calculados, riscos de preço intradiário em LLMs). **Falta só o relatório
-final** em `reports/Relógio de dados e preço de execução.md` (a redação foi
-interrompida pelo limite de uso e pelo desligamento do notebook).
+calculados, riscos de preço intradiário em LLMs). **Relatório final entregue**
+em [`reports/Relógio de dados e preço de execução.md`](../reports/Relógio%20de%20dados%20e%20preço%20de%20execução.md),
+com cinco decisões para Lucas (futura DP-33).
 
 Para retomar: se o relatório não existir ou estiver incompleto, disparar
 apenas o redator (skill deep-research, passo 6) com as mesmas notas, a mesma
