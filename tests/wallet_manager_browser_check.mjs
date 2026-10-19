@@ -34,20 +34,19 @@ await session(async page=>{
  assert.equal(await page.eval(`document.querySelector('#manager-apply').disabled`),false);
  await page.click('#manager-apply');
  for(let i=0;i<100;i++){
-  if(await page.eval(`document.querySelector('#manager-receipt').textContent.includes('Cesta registrada')`))break;
+  if(await page.eval(`document.querySelector('#manager-receipt').textContent.includes('Ordem aprovada')`))break;
   await new Promise(r=>setTimeout(r,100));
  }
- assert.equal(await page.eval(`document.querySelector('#manager-receipt').textContent.includes('Cesta registrada')`),true);
+ assert.equal(await page.eval(`document.querySelector('#manager-receipt').textContent.includes('Ordem aprovada')`),true);
  await page.shot(out+'/manager-desktop.png',true);
  await page.viewport(VIEWPORTS.phone);
  await page.go(base+'/radar?'+new URLSearchParams({run,wallet})+'#analysis-results');
- assert.equal(await page.eval(`document.querySelector('#manager-receipt').textContent.includes('Cesta registrada')`),true);
+ assert.equal(await page.eval(`document.querySelector('#manager-receipt').textContent.includes('Ordem aprovada')`),true);
  assert.equal(await page.eval(`document.querySelector('#manager-approval').hidden`),true);
  assert.equal(await page.eval(`document.documentElement.scrollWidth <= innerWidth + 1`),true);
  await page.shot(out+'/manager-phone.png',true);
  await page.go(base+'/operations?'+new URLSearchParams({wallet}));
- assert.equal(await page.eval(`document.querySelectorAll('#personal-trades tbody tr').length`),3);
- assert.equal(await page.eval(`document.querySelector('#personal-trades').textContent.includes('Venda')`),true);
+ assert.equal(await page.eval(`document.querySelectorAll('#personal-trades tbody tr').length`),1); // pending order: no trade until the official auction price exists
  assert.deepEqual(page.console,[]);
- console.log('PASS: prepare, separate paid consent, fake durable inference, partial sizing, financial preview/keyboard consent, atomic record, reload/history; desktop/phone');
+ console.log('PASS: prepare, separate paid consent, fake durable inference, partial sizing, financial preview/keyboard consent, pending auction order (no trade yet), reload/history; desktop/phone');
 });

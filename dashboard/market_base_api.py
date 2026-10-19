@@ -376,12 +376,19 @@ def _run(fetch):
             booked = dividends_api.book_received(radar.now().date().isoformat())
         except Exception as e:
             booked = f"{type(e).__name__}: {e}"
+        import auction_orders  # circular: it reads this module's merged()
+
+        try:  # DP-33: approved orders whose auction price just arrived; never aborts the job
+            orders = auction_orders.settle_pending()
+        except Exception as e:
+            orders = f"{type(e).__name__}: {e}"
         JOB["last"] = {
             **last,
             "yahoo": yahoo,
             "cdi": cdi,
             "dividends": divs,
             "dividends_booked": booked,
+            "orders": orders,
         }
         JOB["error"] = None
     except Exception as e:

@@ -65,7 +65,7 @@
 
   }
   // Rotina do dia: read-only links and text; nothing here infers, pays or writes.
-  const STATUS={PREPARED:'Análise preparada, aguardando execução',RUNNING:'Análise em execução',VALID_PROPOSAL:'Proposta pronta, aguardando sua aprovação',RECOVERY_OR_REVIEW_REQUIRED:'Análise precisa de revisão',CLAIMED_RECOVERY_ONLY:'Recuperação pendente',INTEGRITY_ERROR:'Registro da proposta não confere — consulte a auditoria'};
+  const STATUS={PREPARED:'Análise preparada, aguardando execução',RUNNING:'Análise em execução',VALID_PROPOSAL:'Proposta pronta, aguardando sua aprovação',RECOVERY_OR_REVIEW_REQUIRED:'Análise precisa de revisão',CLAIMED_RECOVERY_ONLY:'Recuperação pendente',INTEGRITY_ERROR:'Registro da proposta não confere — consulte a auditoria',ORDER_REJECTED:'Ordem recusada na execução',EXPIRED:'Proposta expirada',NOT_EXECUTED:'Ordem sem preço oficial para executar'};
   const short=v=>day(v).slice(0,5);
   function routineMark(d){
     const ok=d.daily_history.filter(p=>p.state==='AVAILABLE').at(-1);
@@ -91,8 +91,8 @@
       const j=await r.json();if(!r.ok||j.wallet!==w.id)throw Error();
       const l=j.latest;
       if(!l)return set(external+'Nenhuma análise dos agentes para esta carteira.<br>'+analyze);
-      const done=l.status==='APPLIED', t=l.trades.slice(0,5).map(x=>esc(({BUY:'Comprar',SELL:'Vender'}[x.side]||x.side)+' '+x.quantity+' '+x.ticker+' a '+money(x.price)));
-      set(external+'<strong>'+esc(done?'Proposta aplicada'+(l.applied_at?' em '+new Date(l.applied_at).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):''):STATUS[l.status]||l.status)+'</strong><br>Dia-alvo '+short(l.target_date)+' · preços de referência de '+short(l.reference_session)+(t.length?'<ul>'+t.map(x=>'<li>'+x+'</li>').join('')+(l.trades.length>5?'<li>e mais '+(l.trades.length-5)+'</li>':'')+'</ul>':(l.status==='VALID_PROPOSAL'||done?'<br>Manter posições (sem operações)':''))+'<br><a class="product-wallet-link" href="'+esc(l.results_url)+'">Revisar proposta →</a>');
+      const a=l.auction?' de '+short(l.auction.session):'', done=l.status==='APPLIED', t=l.trades.slice(0,5).map(x=>esc(({BUY:'Comprar',SELL:'Vender'}[x.side]||x.side)+' '+x.quantity+' '+x.ticker+' a '+money(x.price)));
+      set(external+'<strong>'+esc(l.status==='PENDING_AUCTION'?'Aprovada, aguardando leilão'+a:l.status==='EXECUTED'?'Executada no leilão'+a:done?'Proposta aplicada'+(l.applied_at?' em '+new Date(l.applied_at).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):''):STATUS[l.status]||l.status)+'</strong><br>Dia-alvo '+short(l.target_date)+' · preços de referência de '+short(l.reference_session)+(t.length?'<ul>'+t.map(x=>'<li>'+x+'</li>').join('')+(l.trades.length>5?'<li>e mais '+(l.trades.length-5)+'</li>':'')+'</ul>':(l.status==='VALID_PROPOSAL'||done?'<br>Manter posições (sem operações)':''))+'<br><a class="product-wallet-link" href="'+esc(l.results_url)+'">Revisar proposta →</a>');
     }catch(e){if(e.name!=='AbortError')set(external+'Consulta da proposta indisponível.');}
   }
   // Side-by-side only for wallets of the same comparison group with identical inception dates; never summed.

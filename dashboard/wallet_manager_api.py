@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import Literal
 from urllib.parse import urlencode
 
+import auction_orders as orders
 import manual_portfolio_api as manual
 import network_scope
 import radar_analysis_api as analysis
@@ -505,6 +506,14 @@ def status(run, proposal):
                     "recorded_at": e["recorded_at"],
                 }
     running = (root / "inference.lock").exists()
+    # DP-33: pending order / execution / expiry of this proposal.
+    rec = orders.records(root)
+    stale = bool(
+        result
+        and result["trades"]
+        and orders.appliable(c)
+        and orders.expired(c["target_date"], radar.now())
+    )
     return {
         "context": c,
         "result": result,
@@ -514,9 +523,16 @@ def status(run, proposal):
             key=lambda f: f["recorded_at"],
         ),
         "applied": receipt,
+        **rec,
         "compatible": compatible,
-        "status": "APPLIED"
+        "status": rec["execution"]["status"]
+        if rec["execution"]
+        else "PENDING_AUCTION"
+        if rec["order"]
+        else "APPLIED"  # old rule: booked at the reference price on approval
         if receipt
+        else "EXPIRED"
+        if rec["expired"] or stale
         else "VALID_PROPOSAL"
         if result
         else "RUNNING"
@@ -539,6 +555,7 @@ def get(query):
     return {
         "context": c,
         "today": radar.now().date().isoformat(),
+        "schedule": orders.schedule(radar.now(), c["target_date"]),
         "history": sorted(
             [status(entry["id"], p.parent.name) for p in root.glob("*/context.json")],
             key=lambda s: s["context"]["created_at"],
@@ -565,7 +582,9 @@ def latest(query):
     c = max(found, key=lambda c: c["created_at"])
     try:
         s = status(c["run"], c["proposal"])
-    except ValueError:  # status() raises ValueError on changed seals/results: show, don't crash
+    except (
+        ValueError
+    ):  # status() raises ValueError on changed seals/results: show, don't crash
         s = {"status": "INTEGRITY_ERROR", "result": None, "applied": None}
     return {
         "wallet": wallet,
@@ -578,8 +597,11 @@ def latest(query):
             "reference_session": c["reference_session"],
             "trades": [
                 {k: t[k] for k in ("ticker", "side", "quantity", "price")}
-                for t in (s["result"] or {}).get("trades", [])
+                for t in (s.get("execution") or s["result"] or {}).get("trades", [])
             ],
+            "auction": {k: o[k] for k in ("session", "leg")}
+            if (o := s.get("execution") or s.get("order"))
+            else None,
             "applied_at": (s["applied"] or {}).get("recorded_at"),
             "results_url": "/radar?"
             + urlencode({"run": c["run"], "wallet": wallet, "proposal": c["proposal"]})
@@ -590,10 +612,9 @@ def latest(query):
 
 
 def application(c, result, payload, confirm=False):
+    """DP-33: the estimate at reference prices is only a preview; approval stores an order."""
     if c["contracts"] != contracts():
         raise ValueError("manager_contract_changed")
-    # Reference-price manual simulation, recorded today. Never an OPEN fill or
-    # a retroactive order. Financial consent is separate from paid inference.
     date = manual.day(payload["economic_date"], "economic_date")
     if date != radar.now().date().isoformat():
         raise ValueError("manager_record_today_required")
@@ -601,7 +622,7 @@ def application(c, result, payload, confirm=False):
         raise ValueError("manager_hold_no_trades_to_register")
     source_check(c)
     source = {
-        "kind": "WALLET_MANAGER_REFERENCE_PRICE_SIMULATION",
+        "kind": "WALLET_MANAGER_AUCTION_ORDER_ESTIMATE",
         "run": c["run"],
         "proposal": c["proposal"],
         "proposal_sha256": result["sha256"],
@@ -612,7 +633,8 @@ def application(c, result, payload, confirm=False):
         "cost_rate_pct": c["cost_rate_pct"],
         "economic_date": date,
     }
-    return manual.batch(
+    now = radar.now()
+    estimate = manual.batch(  # never written: only validates and shows the reference-price effect
         c["wallet"]["id"],
         c["wallet"]["revision"],
         [
@@ -624,9 +646,18 @@ def application(c, result, payload, confirm=False):
             for t in result["trades"]
         ],
         source,
-        confirm=confirm,
-        token=payload.get("preview_token"),
     )
+    schedule = orders.schedule(now, c["target_date"])
+    if not confirm:
+        return {**estimate, "schedule": schedule}
+    manual.require(
+        payload.get("preview_token") == estimate["preview_token"],
+        "form",
+        "A prévia mudou. Revise a cesta novamente.",
+    )
+    # ponytail: stage B stores the delayed-quote snapshots (preview/approval) in this call.
+    order, replayed = orders.place(folder(c["run"], c["proposal"]), c, result, now)
+    return {"order": order, "replayed": replayed, "schedule": schedule}
 
 
 def post(command, payload):
@@ -706,10 +737,14 @@ def post(command, payload):
     data = status(c["run"], c["proposal"])
     if data["result"] is None:
         raise ValueError("manager_valid_result_required")
-    if not data["applied"] and b.instant(radar.now().isoformat()) >= b.instant(
-        c["expires_at"]
-    ):
-        raise ValueError("manager_context_expired")
     if command == "apply" and payload["confirm"] is not True:
         raise ValueError("manager_financial_consent_required")
+    # Approved already: replay, whatever the wallet became since.
+    if data["order"] or data["applied"]:
+        if command == "preview":
+            raise ValueError("manager_order_already_placed")
+        return {"order": data["order"], "applied": data["applied"], "replayed": True}
+    if orders.appliable(c) and orders.expired(c["target_date"], radar.now()):
+        orders.expire(root, c, data["result"], radar.now())  # DP-33 (4)
+        raise ValueError("manager_proposal_expired")
     return application(c, data["result"], payload, confirm=command == "apply")

@@ -116,6 +116,27 @@ def lab(tmp_path, monkeypatch):
     return c, raw
 
 
+def seed(monkeypatch, rows):
+    """Fake DP-27 base: {(ticker, session): (open, close)}; unlisted = not in the base."""
+
+    def merged(ticker, as_of=None):
+        return [
+            {"date": d, "open": o, "close": cl, "conflict": False}
+            for (t, d), (o, cl) in sorted(rows.items())
+            if t == ticker and d <= as_of
+        ]
+
+    monkeypatch.setattr(m.orders.base, "merged", merged)
+
+
+def approve(c, date="2026-10-15"):
+    p = {"run": c["run"], "proposal": c["proposal"], "economic_date": date}
+    preview = m.post("preview", p)
+    return m.post(
+        "apply", {**p, "preview_token": preview["preview_token"], "confirm": True}
+    )
+
+
 def result(c, raw):
     root = m.folder(c["run"], c["proposal"])
     value = m.b.sealed(
@@ -193,7 +214,7 @@ def test_exit_and_all_hold_are_supported(lab):
     assert m.compile_proposal(c, raw)["trades"] == []
 
 
-def test_preview_atomic_confirmation_retry_history_and_correction(lab):
+def test_preview_atomic_confirmation_retry_history_and_correction(lab, monkeypatch):
     c, raw = lab
     r = result(c, raw)
     before = m.manual.path().read_bytes()
@@ -201,15 +222,26 @@ def test_preview_atomic_confirmation_retry_history_and_correction(lab):
     preview = m.post("preview", p)
     assert m.manual.path().read_bytes() == before
     assert preview["after"]["cash"] == "239.36"
+    assert preview["schedule"]["leg"] == "CLOSE" and preview["schedule"]["valid"]
     payload = {**p, "preview_token": preview["preview_token"], "confirm": True}
-    d = m.post("apply", payload)
+    order = m.post("apply", payload)["order"]
+    assert (order["session"], order["leg"]) == ("2026-10-15", "CLOSE")
+    # DP-33: approving only stores the order; cash and positions do not move yet.
+    assert m.manual.get({"wallet": c["wallet"]["id"]})["selected"]["cash"] == "400.00"
+    assert m.post("apply", payload)["replayed"]
+    assert m.get({"run": c["run"]})["history"][0]["status"] == "PENDING_AUCTION"
+    seed(
+        monkeypatch,
+        {("VALE3", "2026-10-15"): (59, 60.0), ("PETR4", "2026-10-15"): (41, 40.0)},
+    )
+    assert m.orders.settle_pending()["settled"] == [c["proposal"]]
+    d = {"wallet": m.manual.get({"wallet": c["wallet"]["id"]})["selected"]}
     assert d["wallet"]["cash"] == "239.36"
     assert len(d["wallet"]["trades"]) == 3
     assert all(
         t["source"]["proposal_sha256"] == r["sha256"] for t in d["wallet"]["trades"][-2:]
     )
-    assert m.post("apply", payload)["replayed"]
-    assert m.get({"run": c["run"]})["history"][0]["status"] == "APPLIED"
+    assert m.get({"run": c["run"]})["history"][0]["status"] == "EXECUTED"
     # Individual operations retain existing correction IDs and append-only originals.
     sale = d["wallet"]["trades"][1]
     correction = {
@@ -238,7 +270,12 @@ def test_preview_atomic_confirmation_retry_history_and_correction(lab):
 
 def test_atomic_batch_rollback_on_second_insert(lab, monkeypatch):
     c, raw = lab
-    r = result(c, raw)
+    result(c, raw)
+    approve(c)
+    seed(
+        monkeypatch,
+        {("VALE3", "2026-10-15"): (59, 60.0), ("PETR4", "2026-10-15"): (41, 40.0)},
+    )
     original = m.manual.append
     calls = []
 
@@ -249,14 +286,15 @@ def test_atomic_batch_rollback_on_second_insert(lab, monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(m.manual, "append", failing)
-    p = {"run": c["run"], "proposal": c["proposal"], "economic_date": "2026-10-15"}
-    preview = m.post("preview", p)
-    with pytest.raises(OSError, match="disk failure"):
-        m.post("apply", {**p, "confirm": True, "preview_token": preview["preview_token"]})
+    out = m.orders.settle_pending()  # never raises: the order just stays pending
+    assert out["settled"] == [] and "disk failure" in out["errors"][0]["error"]
     current = m.manual.get({"wallet": c["wallet"]["id"]})["selected"]
     assert current["revision"] == c["wallet"]["revision"]
     assert len(current["trades"]) == 1
-    assert r["status"] == "VALID_PROPOSAL"
+    assert m.status(c["run"], c["proposal"])["status"] == "PENDING_AUCTION"
+    monkeypatch.setattr(m.manual, "append", original)
+    assert m.orders.settle_pending()["settled"] == [c["proposal"]]
+    assert m.orders.settle_pending()["settled"] == []  # idempotent
 
 
 def test_stale_wallet_blocks_preflight_and_application(lab):
@@ -337,7 +375,7 @@ def test_concurrent_confirmation_registers_one_cesta(lab):
     with ThreadPoolExecutor(max_workers=2) as pool:
         responses = list(pool.map(lambda _: m.post("apply", request), range(2)))
     assert sorted(d["replayed"] for d in responses) == [False, True]
-    assert len(m.manual.get({"wallet": c["wallet"]["id"]})["selected"]["trades"]) == 3
+    assert len(m.manual.get({"wallet": c["wallet"]["id"]})["selected"]["trades"]) == 1
 
 
 @pytest.mark.parametrize(
@@ -497,13 +535,37 @@ def test_rejected_response_and_each_recovery_failure_are_preserved(lab):
 def test_expired_proposal_remains_readable_but_cannot_record(lab, monkeypatch):
     c, raw = lab
     result(c, raw)
-    monkeypatch.setattr(m.radar, "now", lambda: pd.Timestamp("2026-10-17T10:00:00-03:00"))
-    assert m.status(c["run"], c["proposal"])["result"]["status"] == "VALID_PROPOSAL"
-    with pytest.raises(ValueError, match="context_expired"):
+    # Friday 16:50 = past the last cutoff of the target session (2026-10-16).
+    monkeypatch.setattr(m.radar, "now", lambda: pd.Timestamp("2026-10-16T16:50:00-03:00"))
+    s = m.status(c["run"], c["proposal"])
+    assert s["result"]["status"] == "VALID_PROPOSAL" and s["status"] == "EXPIRED"
+    root = m.folder(c["run"], c["proposal"])
+    with pytest.raises(ValueError, match="proposal_expired"):
         m.post(
-            "preview",
-            {"run": c["run"], "proposal": c["proposal"], "economic_date": "2026-10-15"},
+            "apply",
+            {
+                "run": c["run"],
+                "proposal": c["proposal"],
+                "economic_date": "2026-10-16",
+                "preview_token": "x",
+                "confirm": True,
+            },
         )
+    assert not (root / "order.json").exists()
+    record = m.orders.read(root / "expired.json")
+    assert record["decision_prices"] == {"VALE3": "60.00", "PETR4": "40.00"}
+    # settle computes the opportunity-cost inputs once the target close is official
+    seed(
+        monkeypatch,
+        {("VALE3", "2026-10-16"): (59, 62.0), ("PETR4", "2026-10-16"): (41, 39.0)},
+    )
+    m.orders.settle_pending()
+    items = {i["ticker"]: i for i in m.orders.read(root / "opportunity.json")["items"]}
+    assert items["VALE3"]["official_close"] == "62.00"
+    assert items["VALE3"]["move_vs_decision"] == "-8.00"  # sold 4 below the later close
+    assert items["PETR4"]["move_vs_decision"] == "-10.00"
+    assert m.latest({"wallet": c["wallet"]["id"]})["latest"]["status"] == "EXPIRED"
+    assert m.wallet_current(c)["cash"] == "400.00"
 
 
 def test_actual_source_guard_refuses_incomplete_quorum(lab, monkeypatch):
@@ -560,7 +622,7 @@ def test_browser_end_to_end_when_requested(lab, monkeypatch, tmp_path):
             httpd.shutdown()
             worker.join()
     wallet = m.manual.get({"wallet": c["wallet"]["id"]})["selected"]
-    assert wallet["cash"] == "239.36" and len(wallet["trades"]) == 3
+    assert wallet["cash"] == "400.00" and len(wallet["trades"]) == 1  # order pending
     assert len(calls) == 1
 
 
@@ -611,3 +673,182 @@ def test_booked_dividend_feeds_manager_cash_and_invalidates_open_proposal(lab):
     with pytest.raises(ValueError, match="insufficient_cash"):
         m.compile_proposal(c, big)  # 680 > 400 + 240 of the sale
     assert m.compile_proposal({**c, "wallet": fresh}, big)["cash_after"]
+
+
+def at(text):
+    return pd.Timestamp(text + "-03:00")
+
+
+@pytest.mark.parametrize(
+    "when,expected",
+    [
+        ("2026-10-19T09:44:59", ("2026-10-19", "OPEN")),  # before the pre-auction
+        ("2026-10-19T09:45:00", ("2026-10-19", "CLOSE")),
+        ("2026-10-19T14:00:00", ("2026-10-19", "CLOSE")),
+        ("2026-10-19T16:49:59", ("2026-10-19", "CLOSE")),
+        ("2026-10-19T16:50:00", ("2026-10-20", "OPEN")),  # inside the closing margin
+        ("2026-10-16T18:30:00", ("2026-10-19", "OPEN")),  # Friday evening -> Monday
+        ("2026-10-17T12:00:00", ("2026-10-19", "OPEN")),  # weekend
+        ("2026-11-03T10:44:00", ("2026-11-03", "OPEN")),  # winter regime: +1h
+        ("2026-11-03T10:45:00", ("2026-11-03", "CLOSE")),
+        ("2026-11-03T17:49:00", ("2026-11-03", "CLOSE")),
+        ("2026-11-03T17:50:00", ("2026-11-04", "OPEN")),
+    ],
+)
+def test_auction_schedule_cutoffs(when, expected):
+    assert m.orders.first_auction(at(when)) == expected
+
+
+def test_validity_ends_with_the_target_sessions_last_cutoff():
+    assert not m.orders.expired("2026-10-16", at("2026-10-16T16:49:59"))
+    assert m.orders.expired("2026-10-16", at("2026-10-16T16:50:00"))
+    assert m.orders.expired("2026-10-16", at("2026-10-17T10:00:00"))
+    assert m.orders.schedule(at("2026-10-15T08:00:00"), "2026-10-16")["valid_until"] == (
+        "2026-10-16T16:50-03:00"
+    )
+
+
+def test_open_leg_books_at_official_open_with_session_economic_date(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    monkeypatch.setattr(m.radar, "now", lambda: at("2026-10-15T09:00:00"))
+    order = approve(c)["order"]
+    assert (order["session"], order["leg"]) == ("2026-10-15", "OPEN")
+    assert order["decision_prices"] == {"VALE3": "60.00", "PETR4": "40.00"}
+    assert order["quotes"] == {"preview": None, "approval": None}  # stage B fills these
+    wallet = c["wallet"]["id"]
+    seed(monkeypatch, {})  # auction price not in the base yet: waits, nothing changes
+    assert m.orders.settle_pending()["waiting"] == [c["proposal"]]
+    assert m.latest({"wallet": wallet})["latest"]["status"] == "PENDING_AUCTION"
+    assert m.manual.get({"wallet": wallet})["selected"]["cash"] == "400.00"
+    seed(
+        monkeypatch,
+        {("VALE3", "2026-10-15"): (62.5, 61.0), ("PETR4", "2026-10-15"): (41.0, 40.0)},
+    )
+    m.orders.settle_pending()
+    m.orders.settle_pending()  # repeating is harmless
+    trades = m.manual.get({"wallet": wallet})["selected"]["trades"][1:]
+    assert [(t["ticker"], t["side"], t["price"], t["economic_date"]) for t in trades] == [
+        ("VALE3", "SELL", "62.50", "2026-10-15"),
+        ("PETR4", "BUY", "41.00", "2026-10-15"),
+    ]
+    prices = trades[0]["source"]["prices"]["VALE3"]  # the four prices of the TCC
+    assert prices == {
+        "decision": "60.00",
+        "preview_quote": None,
+        "approval_quote": None,
+        "auction": "62.50",
+    }
+    import portfolio_history_api
+
+    assert (
+        trades[0]["source"]["kind"] in portfolio_history_api.MANAGER_KINDS
+    )  # origin: gestor
+    got = m.latest({"wallet": wallet})["latest"]
+    assert got["status"] == "EXECUTED" and got["auction"]["leg"] == "OPEN"
+    assert got["trades"][0]["price"] == "62.50"
+
+
+def test_one_pending_order_per_wallet(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    approve(c)
+    c2 = m.prepare({"run": c["run"], "proposal": "b" * 32, "cost_rate_pct": "0.10"})[
+        "context"
+    ]
+    result(c2, raw)
+    with pytest.raises(ValueError, match="pending_order_exists"):
+        approve(c2)
+    assert not (m.folder(c2["run"], c2["proposal"]) / "order.json").exists()
+
+
+def test_insufficient_cash_at_official_price_reduces_buys_deterministically(
+    lab, monkeypatch
+):
+    c, raw = lab
+    result(c, raw)
+    approve(c)
+    seed(
+        monkeypatch,
+        {("VALE3", "2026-10-15"): (59, 60.0), ("PETR4", "2026-10-15"): (41, 80.0)},
+    )
+    m.orders.settle_pending()
+    wallet = m.manual.get({"wallet": c["wallet"]["id"]})["selected"]
+    buy = wallet["trades"][-1]
+    # cash 400 + 239.76 (sale) = 639.76; 10 x 80 would not fit: floor(10 * 639.76/800.80) = 7
+    assert (buy["ticker"], buy["quantity"], buy["costs"]) == ("PETR4", "7", "0.56")
+    assert wallet["cash"] == "79.20"
+    done = m.orders.read(m.folder(c["run"], c["proposal"]) / "execution.json")
+    assert done["adjustments"] == [
+        {
+            "ticker": "PETR4",
+            "ordered": "10",
+            "executed": "7",
+            "reason": "INSUFFICIENT_CASH",
+        }
+    ]
+    assert [t["quantity_ordered"] for t in done["trades"]] == ["4", "10"]
+
+
+def test_leg_without_official_price_is_not_executed_nor_invented(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    approve(c)
+    seed(
+        monkeypatch, {("VALE3", "2026-10-15"): (59, 60.0)}
+    )  # session published, PETR4 absent
+    m.orders.settle_pending()
+    wallet = m.manual.get({"wallet": c["wallet"]["id"]})["selected"]
+    assert [t["ticker"] for t in wallet["trades"]] == ["VALE3", "VALE3"]
+    done = m.orders.read(m.folder(c["run"], c["proposal"]) / "execution.json")
+    assert done["not_executed"] == [{"ticker": "PETR4", "reason": "NO_OFFICIAL_PRICE"}]
+    assert done["prices"]["PETR4"]["auction"] is None
+    assert wallet["cash"] == "639.76"
+
+
+def test_dividend_while_pending_does_not_block_execution(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    approve(c)
+    r = m.manual.request(
+        {
+            "kind": "DIVIDEND",
+            "wallet": c["wallet"]["id"],
+            "dividend": {
+                "ticker": "VALE3",
+                "kind": "DIVIDENDO",
+                "data_com": "2026-10-14",
+                "payment_date": "2026-10-15",
+                "quantity": "10",
+                "gross": "5.00",
+                "net": "5.00",
+            },
+        }
+    )
+    m.manual.book_dividends([(r, {"snapshot_sha256": "a" * 64, "url": "u"})])
+    seed(
+        monkeypatch,
+        {("VALE3", "2026-10-15"): (59, 60.0), ("PETR4", "2026-10-15"): (41, 40.0)},
+    )
+    assert m.orders.settle_pending()["settled"] == [c["proposal"]]
+    assert m.manual.get({"wallet": c["wallet"]["id"]})["selected"]["cash"] == "244.36"
+
+
+def test_sweep_leaves_a_proposal_booked_under_the_old_rule_alone(lab, monkeypatch):
+    c, raw = lab
+    r = result(c, raw)
+    wid, source = c["wallet"]["id"], {"proposal_sha256": r["sha256"]}
+    requests = [
+        {"kind": "TRADE", "wallet": wid, "trade": {**t, "economic_date": "2026-10-15"}}
+        for t in r["trades"]
+    ]
+    token = m.manual.batch(wid, c["wallet"]["revision"], requests, source)[
+        "preview_token"
+    ]
+    m.manual.batch(
+        wid, c["wallet"]["revision"], requests, source, confirm=True, token=token
+    )
+    monkeypatch.setattr(m.radar, "now", lambda: at("2026-10-19T10:00:00"))
+    out = m.orders.settle_pending()
+    assert out["expired"] == [] and out["errors"] == []
+    assert m.status(c["run"], c["proposal"])["status"] == "APPLIED"

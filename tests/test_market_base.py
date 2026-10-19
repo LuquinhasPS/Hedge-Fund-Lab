@@ -48,6 +48,9 @@ def base(tmp_path, monkeypatch):
     # The job also fetches/books dividends: never the network, never the real ledger.
     monkeypatch.setattr(m, "fetch_http", lambda url: None)
     monkeypatch.setattr(m.manual, "ROOT", tmp_path / "personal")
+    # DP-33 settle_pending reads the run registry: never the real data/radar.
+    monkeypatch.setattr(m.runs, "RADAR_DIR", tmp_path / "radar")
+    monkeypatch.setattr(m.runs, "REGISTRY", tmp_path / "radar/registry.json")
     return m
 
 
@@ -357,3 +360,18 @@ def test_run_captures_dividend_booking_error_and_result(base, monkeypatch):
     monkeypatch.setattr(dividends_api, "book_received", lambda today: {"booked": 0})
     m._run(None)
     assert m.JOB["last"]["dividends_booked"] == {"booked": 0}
+
+
+def test_run_settles_orders_and_never_aborts(base, monkeypatch):
+    import auction_orders
+
+    monkeypatch.setattr(
+        m, "update", lambda fetch: {"closed": "2026-10-15", "results": []}
+    )
+    monkeypatch.setattr(m.stock, "download", lambda t, c: None)
+    m._run(None)  # no registry yet: reported inside the result, job still succeeds
+    assert m.JOB["last"]["orders"]["settled"] == [] and m.JOB["error"] is None
+    monkeypatch.setattr(auction_orders, "settle_pending", lambda: 1 / 0)
+    m._run(None)
+    assert m.JOB["last"]["orders"].startswith("ZeroDivisionError")
+    assert m.JOB["error"] is None
