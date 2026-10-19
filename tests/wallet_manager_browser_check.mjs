@@ -30,6 +30,8 @@ await session(async page=>{
   await new Promise(r=>setTimeout(r,100));
  }
  assert.equal(await page.eval(`document.querySelector('#manager-apply').disabled`),true);
+ assert.equal(await page.eval(`document.querySelector('#manager-quotes').textContent.includes('Preço de decisão')`),true); // DP-33 quote table
+ assert.equal(await page.eval(`document.querySelector('#manager-stale').hidden`),true); // no stale alert without a base
  await page.eval(`document.querySelector('#manager-financial').focus()`);await page.key(' ');
  assert.equal(await page.eval(`document.querySelector('#manager-apply').disabled`),false);
  await page.click('#manager-apply');

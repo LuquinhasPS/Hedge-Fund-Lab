@@ -10,15 +10,29 @@
   const auction=a=>'leilão de '+(a.leg==='OPEN'?'abertura':'fechamento')+' de '+day(a.session);
   const stateText=s=>s.status==='PENDING_AUCTION'?'Aprovada, aguardando o '+auction(s.order)+'. Executa ao preço oficial B3.':s.status==='EXECUTED'?'Executada no '+auction(s.execution):states[s.status];
   const errors={manager_wallet_changed_new_analysis_required:'A carteira mudou (provento lançado ou nova operação). Abra uma nova análise.',manager_complete_unique_universe_required:'O gestor devolveu uma cesta incompleta ou repetida. A resposta foi preservada para revisão.',manager_universe_must_cover_all_positions:'Inclua todas as posições da carteira nos ativos do quórum.',manager_budget_exceeded:'O teto informado ou o orçamento acumulado do Gestor Global não cobre esta chamada.',manager_key_or_network_isolation_missing:'Chave ou isolamento do servidor indisponível. Reinicie o servidor padrão.',manager_contract_changed:'O contrato mudou. Esta proposta continua no histórico; prepare outra para operar.',manager_insufficient_cash:'A proposta ultrapassou o caixa disponível, incluindo custos. Foi preservada para revisão.',manager_operation_incompatible_with_opinion:'A proposta contrariou um parecer ou veto. Não foi liberada para registro.',manager_insufficient_units:'A proposta tentou vender mais ações do que a carteira possui.',manager_financial_consent_required:'Revise a prévia e confirme a aprovação das movimentações.',manager_context_expired:'O contexto do gestor expirou. Prepare outra proposta.',manager_proposal_expired:'Proposta expirada: os leilões do pregão-alvo já passaram. Nada foi registrado; prepare outra análise.',manager_pending_order_exists:'Esta carteira já tem uma ordem aprovada aguardando leilão. Aguarde a execução.',manager_order_already_placed:'Esta proposta já foi aprovada.',manager_no_envelope_to_replay_or_busy:'Não há resposta recuperável ou a chamada ainda está em andamento.'};
-  let data, selected=new URLSearchParams(location.search).get('proposal')||'', report, preview, version=0, busy=false, poll, command=crypto.randomUUID().replaceAll('-','');
+  let needsAck=false, data, selected=new URLSearchParams(location.search).get('proposal')||'', report, preview, version=0, busy=false, poll, command=crypto.randomUUID().replaceAll('-','');
   const run=()=>el('radar-run').value||new URLSearchParams(location.search).get('run');
   const current=()=>data?.history.find(s=>s.context.proposal===selected);
   function message(e){const code=e.message||String(e);return code.startsWith('manager_incomplete_quorum_')?'O gestor aguarda pareceres completos: '+code.slice('manager_incomplete_quorum_'.length).split('_').join(', ').toUpperCase()+'. Consulte os resultados por ativo e a recuperação do quórum.':errors[code]||code;}
+  const spct=v=>(v>0?'+':'')+pct(v), clock=v=>new Date(v).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const flags={SESSION_CLOSED:'pregão fechado: último fechamento oficial',SESSION_PRE:'pregão ainda não abriu: último fechamento oficial',INTRADAY_UNAVAILABLE:'cotação atrasada indisponível: último fechamento oficial'};
+  function quoteCell(q){
+    if(!q.value)return 'Sem cotação nem fechamento oficial';
+    if(q.basis==='DELAYED_QUOTE')return money(q.value)+' · atraso ~'+q.declared_delay_min+' min, coletada às '+clock(q.fetched_at);
+    return money(q.value)+' · '+(flags[q.flag]||'último fechamento oficial')+' de '+day(q.quote_session);
+  }
+  function quotesTable(rows,schedule){
+    const body=Object.entries(rows).map(([t,r])=>{
+      const st=r.stale, move=st.evaluated?st.move:(r.quote.value?Number(r.quote.value)/Number(r.decision)-1:null), tol=r.tolerance_by_minutes;
+      return `<tr><td><strong>${esc(t)}</strong></td><td>${money(r.decision)}</td><td>${esc(quoteCell(r.quote))}</td><td>${move===null?'—':esc(spct(move))+(st.dividends?.length?' (ajustado por proventos)':'')+(st.alert?' · ALERTA: tese possivelmente desatualizada (faixa '+esc(pct(st.band))+')':'')}</td><td>${r.volatility?'até 15 min: '+pct(tol[15])+' · 30 min: '+pct(tol[30])+' · 60 min: '+pct(tol[60]):'sem histórico de volatilidade: faixa máxima de '+pct(0.02)}</td></tr>`;
+    }).join('');
+    return '<p>Cotação atrasada, só informativa: não é preço de execução. Alvo: '+esc(auction(schedule))+'.</p><div class="ds-table-wrap" tabindex="0" role="region" aria-label="Cotações da prévia, tabela rolável"><table class="ds-table"><thead><tr><th>Ativo</th><th>Preço de decisão (fechamento do gestor)</th><th>Cotação atrasada</th><th>Variação vs decisão</th><th>Variação aceita até a aprovação</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+  }
   async function api(commandName, payload, runId=run()){
     const r=await fetch('/api/platform/wallet-manager'+(commandName?'/'+commandName:'?'+new URLSearchParams({run:runId})),payload?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':data.csrf_token},body:JSON.stringify(payload)}:{cache:'no-store'});
     const d=await r.json();if(!r.ok)throw Error(d.error||'Não foi possível consultar a proposta.');return d;
   }
-  function dismiss(){report=null;preview=null;el('manager-paid').checked=false;el('manager-financial').checked=false;el('manager-run').disabled=true;el('manager-apply').disabled=true;el('manager-inference').hidden=true;el('manager-preview-box').hidden=true;}
+  function dismiss(){report=null;preview=null;el('manager-paid').checked=false;el('manager-financial').checked=false;el('manager-run').disabled=true;el('manager-apply').disabled=true;el('manager-inference').hidden=true;el('manager-preview-box').hidden=true;el('manager-stale').hidden=true;el('manager-stale-ack').checked=false;el('manager-quotes').innerHTML='';needsAck=false;}
   function draw(){
     const s=current(), c=s?.context, r=s?.result;
     el('manager-history').innerHTML=data.history.length?data.history.map(s=>`<option value="${esc(s.context.proposal)}">${esc(new Date(s.context.created_at).toLocaleString('pt-BR'))} · ${esc(stateText(s))} · taxa original da proposta ${esc(s.context.cost_rate_pct)}%</option>`).join(''):'<option value="">Nenhuma proposta</option>';
@@ -100,13 +114,18 @@
     const d=await api('preview',p);if(v!==version)return;
     preview={...p,preview_token:d.preview_token,confirm:true};
     el('manager-effect').textContent=`Nada é registrado agora. A ordem executa no ${auction(d.schedule)}, ao preço oficial B3 (ainda desconhecido); aprovações até ${new Date(d.schedule.valid_until).toLocaleString('pt-BR')} valem para o pregão-alvo. Estimativa aos preços de referência: caixa ${money(d.before.cash)} → ${money(d.after.cash)}; custos ${money(d.before.costs)} → ${money(d.after.costs)}. Se o caixa não bastar ao preço oficial, as compras serão reduzidas em ações inteiras.`;
+    el('manager-quotes').innerHTML=quotesTable(d.quotes,d.schedule);
+    needsAck=d.stale_alert.length>0;el('manager-stale').hidden=!needsAck;el('manager-stale-text').textContent=d.stale_alert.join(' ');
     el('manager-preview-box').hidden=false;el('manager-financial').focus();
   }));
-  el('manager-financial').addEventListener('change',()=>{el('manager-apply').disabled=!preview||!el('manager-financial').checked||busy;});
+  const approvable=()=>Boolean(preview)&&el('manager-financial').checked&&(!needsAck||el('manager-stale-ack').checked)&&!busy;
+  el('manager-financial').addEventListener('change',()=>{el('manager-apply').disabled=!approvable();});
+  el('manager-stale-ack').addEventListener('change',()=>{el('manager-apply').disabled=!approvable();});
   el('manager-apply').addEventListener('click',()=>{
-    if(!preview||!el('manager-financial').checked)return;
-    const p=preview;
-    action(async v=>{await api('apply',p);if(v!==version)return;dismiss();await load();el('manager-receipt').focus();});
+    if(!approvable())return;
+    const p=needsAck?{...preview,acknowledge_stale:true}:preview;
+    action(async v=>{try{await api('apply',p);}catch(e){dismiss();throw e;} // refused: a new preview is required
+      if(v!==version)return;dismiss();await load();el('manager-receipt').focus();});
   });
   el('manager-history').addEventListener('change',()=>{version++;selected=el('manager-history').value;dismiss();draw();});
   el('manager-refresh').addEventListener('click',()=>action(async()=>{dismiss();await load();}));

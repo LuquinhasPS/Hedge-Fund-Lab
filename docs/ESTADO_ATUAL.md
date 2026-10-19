@@ -10,6 +10,38 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Execução no leilão oficial — DP-33, APP-05, 19/10/2026
+
+Decisão de Lucas sobre o [relatório de relógio de dados e preço de
+execução](../reports/Relógio%20de%20dados%20e%20preço%20de%20execução.md).
+`dashboard/auction_orders.py`: grade com cortes 09:45 e 16:50
+(America/Sao_Paulo) e regimes de horário de verão dos EUA como dados editáveis
+(troca de 03/11/2025 com fonte; 09/03/2026 e 02/11/2026 inferidas, a confirmar
+por ofício da B3). Aprovar grava ordem selada e imutável na pasta da proposta,
+uma por carteira, sem alterar caixa ou posições; a atualização de dados
+(`_run`) liquida ao PREABE/PREULT oficial da sessão-alvo pelo `batch()`
+existente: vendas antes, compras reduzidas em ações inteiras se faltar caixa
+(registrado), ativo sem preço não executado, nada inventado, idempotente pelo
+livro. Validade até os leilões do pregão-alvo; expirada grava dados de custo
+de oportunidade. Prévia: retrato selado da cotação atrasada (DP-26 reutilizada,
+valor, fonte, atraso, horários, estado do pregão, hash); fora do pregão usa o
+último fechamento oficial marcado como tal. Faixa por volatilidade (σ60 de
+log fechamento/abertura, dobrada nos 30 minutos iniciais) recusa a aprovação
+com pedido de nova prévia, sem chamada paga; alerta de tese velha exige
+ciência explícita (`acknowledge_stale`). Os quatro preços chegam ao `source`
+da operação. A alocação aplicada em 19/10 10:43 segue a regra antiga.
+
+Faixas reais (σ de 60 pregões até 16/10): tolerância de 15 min entre 0,74% e
+1,19%, de 60 min entre 1,49% e 2,00%; alerta de tese velha na abertura entre
+2,61% e 4,16%.
+
+Verificação: `poetry run pytest tests/test_wallet_manager.py tests/test_market_base.py tests/test_portfolio_history.py tests/test_dividends.py tests/test_manual_portfolio.py tests/test_legacy_web.py tests/test_stock_history.py tests/test_backtest.py tests/test_radar_network_isolation.py -q` → 149 aprovados, 1 ignorado; check de navegador do gestor com provedor falso (`HFL_MANAGER_BROWSER=1`) aprovado; checks da home, Proventos e Comparação PASS.
+
+Limites: troca de horário de novembro não confirmada; travas só no processo;
+ordem sem preço bloqueia nova aprovação da carteira até liquidar; σ sem ajuste
+de desdobramento; alterar `wallet_manager_api.py` tornou não aplicáveis as
+propostas anteriores. Primeiro uso real previsto para 20/10.
+
 ## Proventos no livro, backtest de regras e pesquisa — DP-30 A, DP-31, 18/10/2026
 
 Proventos (DP-30 opção A): recebidos viram lançamento `DIVIDEND` no livro

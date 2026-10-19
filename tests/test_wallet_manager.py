@@ -1,6 +1,7 @@
 """Wallet sizing → durable fake inference → preview → atomic paper approval."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -26,6 +27,9 @@ def lab(tmp_path, monkeypatch):
     monkeypatch.setattr(a.radar_api, "ACTIVE", False)
     monkeypatch.setattr(m.radar, "now", lambda: pd.Timestamp("2026-10-15T10:00:00-03:00"))
     monkeypatch.setattr(m, "used_budget", lambda: m.b.ZERO)
+    # DP-33 B: no real market base and no Yahoo; the snapshot falls back to "no value".
+    monkeypatch.setattr(m.orders.base, "ROOT", tmp_path / "base")
+    monkeypatch.setattr(m.orders, "delayed_bars", lambda tickers, now: {})
     monkeypatch.setattr(m.network_scope, "qualified", lambda: True)
     monkeypatch.setenv("GEMINI_API_KEY", "OFFLINE_TEST_NO_SECRET")
     m.runs.register(
@@ -715,7 +719,9 @@ def test_open_leg_books_at_official_open_with_session_economic_date(lab, monkeyp
     order = approve(c)["order"]
     assert (order["session"], order["leg"]) == ("2026-10-15", "OPEN")
     assert order["decision_prices"] == {"VALE3": "60.00", "PETR4": "40.00"}
-    assert order["quotes"] == {"preview": None, "approval": None}  # stage B fills these
+    # before the pre-open and with an empty base: flagged snapshots without a value
+    flags = {t: (q["flag"], q["value"]) for t, q in order["quotes"]["approval"].items()}
+    assert flags == {"PETR4": ("SESSION_PRE", None), "VALE3": ("SESSION_PRE", None)}
     wallet = c["wallet"]["id"]
     seed(monkeypatch, {})  # auction price not in the base yet: waits, nothing changes
     assert m.orders.settle_pending()["waiting"] == [c["proposal"]]
@@ -735,8 +741,8 @@ def test_open_leg_books_at_official_open_with_session_economic_date(lab, monkeyp
     prices = trades[0]["source"]["prices"]["VALE3"]  # the four prices of the TCC
     assert prices == {
         "decision": "60.00",
-        "preview_quote": None,
-        "approval_quote": None,
+        "preview_quote": order["quotes"]["preview"]["VALE3"],
+        "approval_quote": order["quotes"]["approval"]["VALE3"],
         "auction": "62.50",
     }
     import portfolio_history_api
@@ -852,3 +858,323 @@ def test_sweep_leaves_a_proposal_booked_under_the_old_rule_alone(lab, monkeypatc
     out = m.orders.settle_pending()
     assert out["expired"] == [] and out["errors"] == []
     assert m.status(c["run"], c["proposal"])["status"] == "APPLIED"
+
+
+# ---- DP-33 stage B: delayed-quote snapshot, tolerance band, stale thesis ----
+
+
+def synthetic(close, a=0.01, gap=0.0, n=70):
+    """Fake base rows: alternating +-a intraday (and +-gap overnight) returns ending at `close`."""
+    days = [d.date().isoformat() for d in pd.bdate_range(end="2026-10-14", periods=n)]
+    rows, prev = [], 100.0
+    for i, day in enumerate(days):
+        sign = 1 if i % 2 == 0 else -1
+        opened = prev * math.exp(sign * gap)
+        rows.append((day, opened, opened * math.exp(sign * a)))
+        prev = rows[-1][2]
+    scale = close / prev
+    return [
+        {"date": d, "open": o * scale, "close": cl * scale, "conflict": False}
+        for d, o, cl in rows
+    ]
+
+
+def fake_base(monkeypatch, per_ticker):
+    def merged(ticker, as_of=None):
+        return [r for r in per_ticker.get(ticker, []) if not as_of or r["date"] <= as_of]
+
+    monkeypatch.setattr(m.orders.base, "merged", merged)
+
+
+def both(monkeypatch):
+    fake_base(monkeypatch, {"VALE3": synthetic(60.0), "PETR4": synthetic(40.0)})
+
+
+def fake_quotes(monkeypatch, px):
+    """Fake DP-26 provider: one coherent 1-min bar at `px[ticker]` + an empty trailing bar."""
+
+    def delayed(tickers, now):
+        return {
+            t: {
+                "day": now.date().isoformat(),
+                "interval": "1m",
+                "fetched_at": now.isoformat(),
+                "bars": [
+                    ["10:58", px[t], px[t], px[t], px[t], 10.0],
+                    ["10:59", None, None, None, None, None],
+                ],
+            }
+            for t in tickers
+        }
+
+    monkeypatch.setattr(m.orders, "delayed_bars", delayed)
+
+
+def clock(monkeypatch, text):
+    monkeypatch.setattr(m.radar, "now", lambda: at(text))
+
+
+def preview_at(monkeypatch, c, when="2026-10-15T11:00:00"):
+    p = {"run": c["run"], "proposal": c["proposal"], "economic_date": "2026-10-15"}
+    clock(monkeypatch, when)
+    return p, m.post("preview", p)
+
+
+def apply_at(monkeypatch, p, preview, when, **extra):
+    clock(monkeypatch, when)
+    token = {"preview_token": preview["preview_token"], "confirm": True}
+    return m.post("apply", {**p, **token, **extra})
+
+
+def test_volatility_and_tolerance_band(monkeypatch):
+    fake_base(monkeypatch, {"X": synthetic(50.0, a=0.01, gap=0.005)})
+    v = m.orders.volatility("X", "2026-10-14")
+    assert v["sessions"] == 60 and v["as_of"] == "2026-10-14"
+    assert v["sigma60"] == pytest.approx(0.01 * math.sqrt(60 / 59))
+    assert v["sigma_d"] == pytest.approx(0.015 * math.sqrt(60 / 59))
+    assert v["overnight_share"] == pytest.approx(1 / 9)
+    sigma, tol = v["sigma60"], m.orders.tolerance
+    assert tol(sigma, 15) == pytest.approx(3 * sigma * math.sqrt(15 / 415))
+    assert tol(sigma, 2) == 0.005  # floor: a few minutes is noise
+    assert tol(sigma, 400) == 0.02  # ceiling
+    assert tol(sigma, 15, early=True) == pytest.approx(2 * tol(sigma, 15))  # first 30 min
+    assert tol(None, 15) == 0.02  # unknown sigma: ceiling, nothing invented
+    fake_base(monkeypatch, {"X": synthetic(50.0, n=15)})  # short base
+    assert m.orders.volatility("X", "2026-10-14") is None
+    rows = synthetic(50.0)  # conflicts are skipped, leaving too few sessions
+    fake_base(
+        monkeypatch, {"X": [{**r, "conflict": True} for r in rows[:-3]] + rows[-3:]}
+    )
+    assert m.orders.volatility("X", "2026-10-14") is None
+
+
+def test_snapshot_shape_open_session(lab, monkeypatch):
+    fake_base(monkeypatch, {"VALE3": synthetic(60.0)})
+    fake_quotes(monkeypatch, {"VALE3": 60.55})
+    clock(monkeypatch, "2026-10-15T11:00:00")
+    snap = m.orders.snapshot(["VALE3"], m.radar.now())["VALE3"]
+    assert (snap["value"], snap["basis"], snap["flag"]) == (
+        "60.55",
+        "DELAYED_QUOTE",
+        None,
+    )
+    assert (snap["source"], snap["declared_delay_min"]) == ("Yahoo (atraso ~15 min)", 15)
+    assert snap["quote_time"] == "2026-10-15T10:58:00-03:00"  # last coherent bar
+    assert snap["fetched_at"] == "2026-10-15T11:00:00-03:00"
+    assert (snap["session_state"], snap["session_fraction"]) == (
+        "OPEN",
+        round(60 / 415, 6),
+    )
+    assert snap["policy"] == m.orders.POLICY and len(snap["payload_sha256"]) == 64
+
+
+def test_closed_session_snapshot_carries_the_flagged_official_close(lab, monkeypatch):
+    fake_base(monkeypatch, {"VALE3": synthetic(60.0)})
+
+    def forbidden(*a):
+        raise AssertionError("no Yahoo call outside the session")
+
+    monkeypatch.setattr(m.orders, "delayed_bars", forbidden)
+    for when, state, flag in (
+        ("2026-10-15T08:00:00", "PRE", "SESSION_PRE"),
+        ("2026-10-15T17:30:00", "CLOSED", "SESSION_CLOSED"),
+        ("2026-10-17T12:00:00", "CLOSED", "SESSION_CLOSED"),  # Saturday
+    ):
+        clock(monkeypatch, when)
+        snap = m.orders.snapshot(["VALE3", "PETR4"], m.radar.now())
+        vale = snap["VALE3"]
+        assert (vale["session_state"], vale["flag"]) == (state, flag)
+        assert (vale["basis"], vale["value"]) == ("LAST_OFFICIAL_CLOSE", "60.00")
+        assert (
+            vale["quote_session"] == "2026-10-14" and vale["declared_delay_min"] is None
+        )
+        assert snap["PETR4"]["value"] is None  # nothing in the base: no value invented
+    # open session but Yahoo gave nothing: flagged fallback, never a made-up quote
+    monkeypatch.setattr(m.orders, "delayed_bars", lambda tickers, now: {})
+    clock(monkeypatch, "2026-10-15T11:00:00")
+    snap = m.orders.snapshot(["VALE3"], m.radar.now())["VALE3"]
+    assert (snap["session_state"], snap["flag"], snap["value"]) == (
+        "OPEN",
+        "INTRADAY_UNAVAILABLE",
+        "60.00",
+    )
+
+
+def test_delayed_bars_reuses_the_dp26_path_and_its_lock(monkeypatch):
+    stock = m.orders.stock
+    now = at("2026-10-15T11:00:00")
+    monkeypatch.setattr(stock, "session_today", lambda n: "2026-10-15")
+    monkeypatch.setattr(stock, "LIVE", {})
+
+    def collect(ticker, n):
+        if ticker == "BAD":
+            raise OSError("yahoo down")
+        if ticker == "OLD":  # fetch "succeeds" without refreshing the cached record
+            return
+        stock.LIVE[ticker] = {
+            "day": "2026-10-15",
+            "fetched_at": n.isoformat(),
+            "bars": [],
+        }
+
+    monkeypatch.setattr(stock, "collect", collect)
+    old = "2026-10-15T09:00:00-03:00"
+    stock.LIVE["OLD"] = {"day": "2026-10-15", "fetched_at": old, "bars": []}
+    got = m.orders.delayed_bars(["GOOD", "BAD", "OLD"], now)
+    assert list(got) == ["GOOD"]  # failed and stale-cached tickers are left out
+    assert not stock.INTRADAY_LOCK.locked()
+    monkeypatch.setattr(stock, "session_today", lambda n: None)
+    assert m.orders.delayed_bars(["GOOD"], now) == {}
+
+
+def test_preview_seals_quotes_and_shows_the_band_without_a_stale_alert(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    both(monkeypatch)
+    fake_quotes(monkeypatch, {"VALE3": 60.20, "PETR4": 40.00})
+    p, preview = preview_at(monkeypatch, c)
+    row = preview["quotes"]["VALE3"]
+    assert row["decision"] == "60.00" and row["quote"]["value"] == "60.20"
+    assert row["tolerance_by_minutes"]["15"] == pytest.approx(
+        3 * row["volatility"]["sigma60"] * math.sqrt(15 / 415), rel=1e-4
+    )
+    assert preview["stale_alert"] == []
+    root = m.folder(c["run"], c["proposal"])
+    assert m.orders.read(root / "quotes-preview.json")["quotes"]["VALE3"] == row["quote"]
+    assert not (root / "order.json").exists()
+
+
+def test_approval_refused_when_the_quote_moves_beyond_the_band(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    both(monkeypatch)
+    px = {"VALE3": 60.00, "PETR4": 40.00}
+    fake_quotes(monkeypatch, px)
+    p, preview = preview_at(monkeypatch, c)
+    px["VALE3"] = 60.60  # +1.00% in 15 minutes; limit 0.58%
+    with pytest.raises(m.manual.Invalid) as e:
+        apply_at(monkeypatch, p, preview, "2026-10-15T11:15:00")
+    assert e.value.field == "manager_quote_moved"
+    assert str(e.value) == (
+        "O preço de VALE3 mudou 1,00% desde a prévia (limite 0,58%). Gere uma nova prévia."
+    )
+    assert not (m.folder(c["run"], c["proposal"]) / "order.json").exists()
+    px["VALE3"] = 60.20  # +0.33%: inside the band
+    order = apply_at(monkeypatch, p, preview, "2026-10-15T11:15:00")["order"]
+    assert order["quotes"]["preview"]["VALE3"]["value"] == "60.00"
+    assert order["quotes"]["approval"]["VALE3"]["value"] == "60.20"
+    assert order["checks"]["bands"]["VALE3"]["minutes"] == 15.0
+    assert (
+        order["checks"]["stale_alert"] == [] and not order["checks"]["stale_acknowledged"]
+    )
+
+
+def test_band_doubles_in_the_first_half_hour_of_trading(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    both(monkeypatch)
+    px = {"VALE3": 60.00, "PETR4": 40.00}
+    fake_quotes(monkeypatch, px)
+    p, preview = preview_at(monkeypatch, c, "2026-10-15T10:05:00")
+    assert preview["quotes"]["VALE3"]["tolerance_by_minutes"]["15"] == pytest.approx(
+        0.011503, abs=1e-5
+    )
+    px["VALE3"] = 60.60  # +1.00%: over 0.58%, inside the doubled 1.15%
+    done = apply_at(
+        monkeypatch, p, preview, "2026-10-15T10:20:00", acknowledge_stale=True
+    )  # +1.00% also breaches the 0.66% stale band: acknowledged
+    order = done["order"]
+    assert order["checks"]["bands"]["VALE3"]["tolerance"] == pytest.approx(
+        0.011503, abs=1e-5
+    )
+
+
+def test_two_closed_session_snapshots_pass_trivially(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    both(monkeypatch)
+    p, preview = preview_at(monkeypatch, c, "2026-10-15T17:30:00")
+    assert preview["quotes"]["VALE3"]["quote"]["flag"] == "SESSION_CLOSED"
+    order = apply_at(monkeypatch, p, preview, "2026-10-15T17:40:00")["order"]
+    assert order["checks"]["bands"]["VALE3"]["move"] == 0
+    assert order["quotes"]["approval"]["VALE3"]["basis"] == "LAST_OFFICIAL_CLOSE"
+
+
+def test_stale_thesis_alert_requires_and_records_the_acknowledgement(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    both(monkeypatch)
+    px = {
+        "VALE3": 61.00,
+        "PETR4": 40.00,
+    }  # +1.67% at 11:00; band 3 sigma sqrt(60/415) = 1.15%
+    fake_quotes(monkeypatch, px)
+    p, preview = preview_at(monkeypatch, c)
+    assert preview["stale_alert"] == [
+        "Tese possivelmente desatualizada: VALE3 moveu +1,67% desde o fechamento usado pelo"
+        " gestor (faixa de 3 desvios: 1,15%)."
+    ]
+    assert not preview["quotes"]["PETR4"]["stale"]["alert"]
+    with pytest.raises(m.manual.Invalid) as e:  # never silently approved or rejected
+        apply_at(monkeypatch, p, preview, "2026-10-15T11:05:00")
+    assert e.value.field == "manager_stale_thesis_acknowledgement_required"
+    assert "Tese possivelmente desatualizada: VALE3" in str(e.value)
+    with pytest.raises(m.manual.Invalid):  # only a real True counts
+        apply_at(monkeypatch, p, preview, "2026-10-15T11:05:00", acknowledge_stale="yes")
+    assert not (m.folder(c["run"], c["proposal"]) / "order.json").exists()
+    done = apply_at(
+        monkeypatch, p, preview, "2026-10-15T11:05:00", acknowledge_stale=True
+    )
+    checks = done["order"]["checks"]
+    assert checks["stale_alert"] == ["VALE3"] and checks["stale_acknowledged"]
+    assert checks["stale"]["VALE3"]["move"] == pytest.approx(61 / 60 - 1, abs=1e-6)
+
+
+def test_dividend_adjusts_the_stale_reference(lab, monkeypatch):
+    c, _ = lab
+    fake_base(monkeypatch, {"VALE3": synthetic(60.0)})
+    vol = m.orders.volatility("VALE3", "2026-10-14")
+    snap = {
+        "value": "59.00",
+        "basis": "DELAYED_QUOTE",
+        "quote_session": "2026-10-15",
+        "session_fraction": 0.1,
+    }
+    plain = m.orders.stale_check(c, "VALE3", snap, vol)
+    assert plain["alert"] and plain["move"] == pytest.approx(59 / 60 - 1, abs=1e-6)
+    event = {"kind": "DIVIDENDO", "data_com": "2026-10-14", "value_per_share": "1.00"}
+    monkeypatch.setattr(m.orders.dividends, "events", lambda t: [event])  # ex-date 15/10
+    adjusted = m.orders.stale_check(c, "VALE3", snap, vol)
+    assert adjusted["adjusted_reference"] == 59.0 and adjusted["move"] == 0
+    assert not adjusted["alert"] and adjusted["dividends"][0]["value_per_share"] == "1.00"
+    old = {
+        **event,
+        "data_com": "2026-10-13",
+    }  # ex-date 14/10: already in the manager's close
+    monkeypatch.setattr(m.orders.dividends, "events", lambda t: [old])
+    assert m.orders.stale_check(c, "VALE3", snap, vol)["dividends"] == []
+
+
+def test_quotes_reach_the_ledger_trade_source_prices(lab, monkeypatch):
+    c, raw = lab
+    result(c, raw)
+    both(monkeypatch)
+    px = {"VALE3": 60.10, "PETR4": 40.00}
+    fake_quotes(monkeypatch, px)
+    p, preview = preview_at(monkeypatch, c)
+    px["VALE3"] = 60.25
+    order = apply_at(monkeypatch, p, preview, "2026-10-15T11:05:00")["order"]
+    seed(
+        monkeypatch,
+        {("VALE3", "2026-10-15"): (59, 60.5), ("PETR4", "2026-10-15"): (41, 40.0)},
+    )
+    m.orders.settle_pending()
+    trade = m.manual.get({"wallet": c["wallet"]["id"]})["selected"]["trades"][1]
+    prices = trade["source"]["prices"]["VALE3"]
+    assert prices["decision"] == "60.00" and prices["auction"] == "60.50"
+    assert prices["preview_quote"] == order["quotes"]["preview"]["VALE3"]
+    assert prices["approval_quote"] == order["quotes"]["approval"]["VALE3"]
+    assert (prices["preview_quote"]["value"], prices["approval_quote"]["value"]) == (
+        "60.10",
+        "60.25",
+    )

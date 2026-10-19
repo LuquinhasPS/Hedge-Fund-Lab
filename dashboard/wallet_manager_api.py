@@ -1,6 +1,8 @@
 """APP-05: wallet-aware quantities, separate inference consent and atomic paper book.
 
-No quote downloads, broker orders, or changes to sealed Global PM treatments.
+No broker orders or changes to sealed Global PM treatments. The manager prompt carries no
+quote; the delayed Yahoo quote (DP-33) enters only the preview/approval code, never marks,
+execution prices or prompts.
 """
 
 import asyncio
@@ -648,15 +650,71 @@ def application(c, result, payload, confirm=False):
         source,
     )
     schedule = orders.schedule(now, c["target_date"])
+    root = folder(c["run"], c["proposal"])
+    tickers = [t["ticker"] for t in result["trades"]]
+    # DP-33 (2, 3): the preview's delayed-quote snapshot is sealed beside the proposal (the
+    # newest one replaces the older) and bound to the token the user approves.
+    stored = root / "quotes-preview.json"
     if not confirm:
-        return {**estimate, "schedule": schedule}
+        quotes = orders.snapshot(tickers, now)
+        record = b.sealed(
+            {
+                "identity": "HFL-WALLET-MANAGER-QUOTES-PREVIEW-V1",
+                "proposal_sha256": result["sha256"],
+                "created_at": now.isoformat(),
+                "quotes": quotes,
+            }
+        )
+        radar.write(stored, record)
+        rows, _ = orders.review(c, tickers, quotes)
+        return {
+            **estimate,
+            "preview_token": b.digest([estimate["preview_token"], record["sha256"]]),
+            "schedule": schedule,
+            "quotes": rows,
+            "stale_alert": [
+                orders.stale_message(t, r["stale"])
+                for t, r in rows.items()
+                if r["stale"]["alert"]
+            ],
+        }
+    record = orders.read(stored)
     manual.require(
-        payload.get("preview_token") == estimate["preview_token"],
+        record is not None
+        and payload.get("preview_token")
+        == b.digest([estimate["preview_token"], record["sha256"]]),
         "form",
         "A prévia mudou. Revise a cesta novamente.",
     )
-    # ponytail: stage B stores the delayed-quote snapshots (preview/approval) in this call.
-    order, replayed = orders.place(folder(c["run"], c["proposal"]), c, result, now)
+    approval = orders.snapshot(tickers, now)
+    rows, breaches = orders.review(c, tickers, record["quotes"], approval)
+    manual.require(
+        not breaches,
+        "manager_quote_moved",
+        "; ".join(breaches) + ". Gere uma nova prévia.",
+    )
+    alerts = {t: r["stale"] for t, r in rows.items() if r["stale"]["alert"]}
+    acknowledged = bool(alerts) and payload.get("acknowledge_stale") is True
+    manual.require(
+        not alerts or acknowledged,
+        "manager_stale_thesis_acknowledgement_required",
+        " ".join(orders.stale_message(t, s) for t, s in alerts.items())
+        + " Gere uma nova prévia e marque a ciência para aprovar.",
+    )
+    checks = {
+        "bands": {t: r.get("band") for t, r in rows.items()},
+        "stale": {t: r["stale"] for t, r in rows.items()},
+        "stale_alert": sorted(alerts),
+        "stale_acknowledged": acknowledged,
+    }
+    order, replayed = orders.place(
+        root,
+        c,
+        result,
+        now,
+        quotes={"preview": record["quotes"], "approval": approval},
+        checks=checks,
+    )
     return {"order": order, "replayed": replayed, "schedule": schedule}
 
 
@@ -679,6 +737,8 @@ def post(command, payload):
         if command == "apply"
         else {"invalid"}
     )
+    if command == "apply" and "acknowledge_stale" in payload:  # DP-33 (3): optional
+        expected |= {"acknowledge_stale"}
     manual.fields(payload, expected)
     root = folder(payload["run"], payload["proposal"])
     c = checked(root)
