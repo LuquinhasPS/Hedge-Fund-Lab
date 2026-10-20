@@ -210,25 +210,30 @@ def session_clock(now):
     return ("OPEN", f) if f < 1 else ("CLOSED", 1.0)
 
 
-def delayed_bars(tickers, now):
-    """{ticker: DP-26 live record} after refreshing today's 1-min bars under its lock.
+def delayed_bars(tickers, now, day):
+    """{ticker: DP-26 1-min record of `day`} after refreshing it under the DP-26 lock.
 
-    Reuses stock_history_api.collect (the only Yahoo client). A lock busy for 20 s, a failed
-    fetch or no delayed bar yet just leaves the ticker out; the snapshot then says so.
+    Reuses stock_history_api.collect (the only Yahoo client). `day` still trading (or
+    ended before 18:00) -> the live record, fetched now; a closed `day` -> the sealed
+    archive collect writes for it. A lock busy for 20 s, a failed fetch or no delayed
+    bar yet just leaves the ticker out; the snapshot then says so.
     """
-    if not stock.session_today(now) or not stock.INTRADAY_LOCK.acquire(timeout=20):
+    live = day == stock.session_today(now)
+    if not (live or day <= radar.last_closed(now)) or not stock.INTRADAY_LOCK.acquire(
+        timeout=20
+    ):
         return {}
     try:
         out = {}
         for t in tickers:
             try:
                 stock.collect(t, now)
+                rec = stock.LIVE.get(t) if live else stock.load_day(t, day)
             except Exception:
                 continue
-            rec = stock.LIVE.get(t)
-            if (
-                rec and datetime.fromisoformat(rec["fetched_at"]) >= now
-            ):  # not a stale one
+            if rec and (
+                not live or datetime.fromisoformat(rec["fetched_at"]) >= now
+            ):  # not a stale live one
                 out[t] = rec
         return out
     finally:
@@ -247,13 +252,20 @@ def last_close(ticker, as_of):
 def snapshot(tickers, now):
     """{ticker: delayed-quote snapshot}. Never a fabricated value.
 
-    OPEN with a coherent delayed bar -> that bar's close (DELAYED_QUOTE). Otherwise (PRE,
-    CLOSED, Yahoo down, before the first delayed bar) -> the last official close of the
-    base, flagged; `value` is None if even that is missing.
+    The session that matters is today while trading or once it ended, else the last closed
+    one. Its official close in the base wins (published, flagged). Without it (COTAHIST
+    lands the next morning), its last coherent delayed bar (DELAYED_QUOTE; flagged
+    outside trading). ponytail: Yahoo's 1-min bars stop at the continuous session's last
+    trade, so after the session this is not the closing-auction price. Otherwise (Yahoo
+    down, before the first delayed bar) -> the last official close of the base, flagged;
+    `value` is None if even that is missing.
     """
     state, fraction = session_clock(now)
-    live = delayed_bars(tickers, now) if state == "OPEN" else {}
     today, out = now.date().isoformat(), {}
+    day = today if state == "OPEN" or fraction == 1 else radar.last_closed(now)
+    official = {t: last_close(t, today) for t in tickers}
+    missing = [t for t in tickers if not official[t] or official[t]["date"] < day]
+    live = delayed_bars(missing, now, day) if missing else {}
     for t in tickers:
         common = {
             "session_state": state,
@@ -261,30 +273,32 @@ def snapshot(tickers, now):
             "policy": POLICY,
         }
         rec = live.get(t)
-        bars = rec["bars"] if rec and rec["day"] == today else []
+        bars = rec["bars"] if rec and rec["day"] == day else []
         bar = next((x for x in reversed(bars) if stock.bar_close(x) is not None), None)
         if bar:
             hour, minute = map(int, bar[0].split(":"))
             out[t] = {
                 **common,
+                # a closed day's bar covers the whole session (stale check units)
+                "session_fraction": round(fraction if state == "OPEN" else 1.0, 6),
                 "basis": "DELAYED_QUOTE",
-                "flag": None,
+                "flag": None if state == "OPEN" else "SESSION_" + state,
                 "value": f"{stock.bar_close(bar):.2f}",
                 "source": SOURCE,
                 "declared_delay_min": DELAY_MIN,
                 "quote_time": datetime.combine(
-                    date.fromisoformat(today), time(hour, minute), SP
+                    date.fromisoformat(day), time(hour, minute), SP
                 ).isoformat(),
-                "quote_session": today,
+                "quote_session": day,
                 "fetched_at": rec["fetched_at"],
                 "payload_sha256": digest(rec),
             }
             continue
-        row = last_close(t, today)
+        row = official[t]
         out[t] = {
             **common,
             "basis": "LAST_OFFICIAL_CLOSE",
-            "flag": "INTRADAY_UNAVAILABLE" if state == "OPEN" else "SESSION_" + state,
+            "flag": "INTRADAY_UNAVAILABLE" if t in missing else "SESSION_" + state,
             "value": str(price_of(row, "close")) if row else None,
             "source": "B3 COTAHIST (fechamento oficial)",
             "declared_delay_min": None,

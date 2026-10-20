@@ -42,6 +42,22 @@ ordem sem preço bloqueia nova aprovação da carteira até liquidar; σ sem aju
 de desdobramento; alterar `wallet_manager_api.py` tornou não aplicáveis as
 propostas anteriores. Primeiro uso real previsto para 20/10.
 
+**Correção de 20/10 (prévia depois do pregão):** no primeiro uso real, a prévia
+das 17:10 mostrou o fechamento de 19/10 como "cotação atrasada" (WEGE3 a
+R$ 47,67 com o pregão de 20/10 em +1,9%), porque fora do pregão contínuo o
+retrato caía no último fechamento da base, e o COTAHIST do dia só chega na
+manhã seguinte. Variação, faixa e alerta de tese velha ficavam cegos
+justamente para aprovações que vão ao leilão de abertura seguinte. Agora o
+retrato usa o fechamento oficial do pregão relevante (hoje, se ele já terminou,
+senão o último fechado) quando ele está na base; sem ele, usa a última barra
+coerente do Yahoo desse pregão (registro vivo até 18:00, arquivo selado da DP-26
+depois), marcada como pregão encerrado e contada como sessão inteira no alerta.
+Yahoo indisponível aparece como `INTRADAY_UNAVAILABLE`, não como pregão fechado.
+Limite: a última barra do Yahoo é o último negócio do contínuo, não o leilão de
+fechamento. Verificação: mesmo conjunto direcionado acima → 150 aprovados,
+1 ignorado (teste novo para 17:10 e para a manhã seguinte antes do COTAHIST);
+check de navegador do gestor aprovado.
+
 ## Proventos no livro, backtest de regras e pesquisa — DP-30 A, DP-31, 18/10/2026
 
 Proventos (DP-30 opção A): recebidos viram lançamento `DIVIDEND` no livro

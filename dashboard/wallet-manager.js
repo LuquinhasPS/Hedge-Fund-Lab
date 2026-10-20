@@ -18,7 +18,7 @@
   const flags={SESSION_CLOSED:'pregão fechado: último fechamento oficial',SESSION_PRE:'pregão ainda não abriu: último fechamento oficial',INTRADAY_UNAVAILABLE:'cotação atrasada indisponível: último fechamento oficial'};
   function quoteCell(q){
     if(!q.value)return 'Sem cotação nem fechamento oficial';
-    if(q.basis==='DELAYED_QUOTE')return money(q.value)+' · atraso ~'+q.declared_delay_min+' min, coletada às '+clock(q.fetched_at);
+    if(q.basis==='DELAYED_QUOTE')return money(q.value)+(q.flag?' · pregão encerrado: último negócio atrasado de '+day(q.quote_session)+', '+clock(q.quote_time)+'; fechamento oficial ainda não publicado':' · atraso ~'+q.declared_delay_min+' min, coletada às '+clock(q.fetched_at));
     return money(q.value)+' · '+(flags[q.flag]||'último fechamento oficial')+' de '+day(q.quote_session);
   }
   function quotesTable(rows,schedule){

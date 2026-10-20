@@ -29,7 +29,7 @@ def lab(tmp_path, monkeypatch):
     monkeypatch.setattr(m, "used_budget", lambda: m.b.ZERO)
     # DP-33 B: no real market base and no Yahoo; the snapshot falls back to "no value".
     monkeypatch.setattr(m.orders.base, "ROOT", tmp_path / "base")
-    monkeypatch.setattr(m.orders, "delayed_bars", lambda tickers, now: {})
+    monkeypatch.setattr(m.orders, "delayed_bars", lambda *a: {})
     monkeypatch.setattr(m.network_scope, "qualified", lambda: True)
     monkeypatch.setenv("GEMINI_API_KEY", "OFFLINE_TEST_NO_SECRET")
     m.runs.register(
@@ -721,7 +721,7 @@ def test_open_leg_books_at_official_open_with_session_economic_date(lab, monkeyp
     assert order["decision_prices"] == {"VALE3": "60.00", "PETR4": "40.00"}
     # before the pre-open and with an empty base: flagged snapshots without a value
     flags = {t: (q["flag"], q["value"]) for t, q in order["quotes"]["approval"].items()}
-    assert flags == {"PETR4": ("SESSION_PRE", None), "VALE3": ("SESSION_PRE", None)}
+    assert flags == {t: ("INTRADAY_UNAVAILABLE", None) for t in ("PETR4", "VALE3")}
     wallet = c["wallet"]["id"]
     seed(monkeypatch, {})  # auction price not in the base yet: waits, nothing changes
     assert m.orders.settle_pending()["waiting"] == [c["proposal"]]
@@ -893,10 +893,10 @@ def both(monkeypatch):
 def fake_quotes(monkeypatch, px):
     """Fake DP-26 provider: one coherent 1-min bar at `px[ticker]` + an empty trailing bar."""
 
-    def delayed(tickers, now):
+    def delayed(tickers, now, day):
         return {
             t: {
-                "day": now.date().isoformat(),
+                "day": day,
                 "interval": "1m",
                 "fetched_at": now.isoformat(),
                 "bars": [
@@ -969,28 +969,27 @@ def test_snapshot_shape_open_session(lab, monkeypatch):
 
 
 def test_closed_session_snapshot_carries_the_flagged_official_close(lab, monkeypatch):
-    fake_base(monkeypatch, {"VALE3": synthetic(60.0)})
-
-    def forbidden(*a):
-        raise AssertionError("no Yahoo call outside the session")
-
-    monkeypatch.setattr(m.orders, "delayed_bars", forbidden)
-    for when, state, flag in (
-        ("2026-10-15T08:00:00", "PRE", "SESSION_PRE"),
-        ("2026-10-15T17:30:00", "CLOSED", "SESSION_CLOSED"),
-        ("2026-10-17T12:00:00", "CLOSED", "SESSION_CLOSED"),  # Saturday
+    fake_base(monkeypatch, {"VALE3": synthetic(60.0)})  # official closes through 14/10
+    asked = []
+    monkeypatch.setattr(
+        m.orders, "delayed_bars", lambda t, now, day: asked.append((t, day)) or {}
+    )
+    for when, state, flag, session in (
+        ("2026-10-15T08:00:00", "PRE", "SESSION_PRE", "2026-10-14"),
+        ("2026-10-14T17:30:00", "CLOSED", "SESSION_CLOSED", "2026-10-14"),
+        ("2026-10-10T12:00:00", "CLOSED", "SESSION_CLOSED", "2026-10-09"),  # Saturday
     ):
         clock(monkeypatch, when)
         snap = m.orders.snapshot(["VALE3", "PETR4"], m.radar.now())
         vale = snap["VALE3"]
         assert (vale["session_state"], vale["flag"]) == (state, flag)
-        assert (vale["basis"], vale["value"]) == ("LAST_OFFICIAL_CLOSE", "60.00")
-        assert (
-            vale["quote_session"] == "2026-10-14" and vale["declared_delay_min"] is None
-        )
+        assert vale["basis"] == "LAST_OFFICIAL_CLOSE"
+        assert vale["quote_session"] == session and vale["declared_delay_min"] is None
         assert snap["PETR4"]["value"] is None  # nothing in the base: no value invented
+        # Yahoo only for what the base lacks: never VALE3, whose close is published
+        assert asked.pop() == (["PETR4"], session)
     # open session but Yahoo gave nothing: flagged fallback, never a made-up quote
-    monkeypatch.setattr(m.orders, "delayed_bars", lambda tickers, now: {})
+    monkeypatch.setattr(m.orders, "delayed_bars", lambda *a: {})
     clock(monkeypatch, "2026-10-15T11:00:00")
     snap = m.orders.snapshot(["VALE3"], m.radar.now())["VALE3"]
     assert (snap["session_state"], snap["flag"], snap["value"]) == (
@@ -998,6 +997,34 @@ def test_closed_session_snapshot_carries_the_flagged_official_close(lab, monkeyp
         "INTRADAY_UNAVAILABLE",
         "60.00",
     )
+
+
+def test_ended_session_without_official_close_uses_its_last_delayed_bar(lab, monkeypatch):
+    """20/10 bug: a 17:10 preview showed 19/10's close while the 20/10 session had moved."""
+    c, _ = lab
+    fake_base(monkeypatch, {"VALE3": synthetic(60.0)})  # COTAHIST of 15/10 not in yet
+    fake_quotes(monkeypatch, {"VALE3": 62.00})
+    vol = m.orders.volatility("VALE3", "2026-10-14")
+    for when, state, session in (
+        ("2026-10-15T17:10:00", "CLOSED", "2026-10-15"),  # after the session, same day
+        ("2026-10-16T08:00:00", "PRE", "2026-10-15"),  # next morning, before COTAHIST
+    ):
+        clock(monkeypatch, when)
+        snap = m.orders.snapshot(["VALE3"], m.radar.now())["VALE3"]
+        assert (snap["basis"], snap["value"], snap["flag"]) == (
+            "DELAYED_QUOTE",
+            "62.00",
+            "SESSION_" + state,
+        )
+        assert snap["quote_session"] == session and snap["session_fraction"] == 1.0
+        stale = m.orders.stale_check(c, "VALE3", snap, vol)  # one whole session: 3 sigma_d
+        assert stale["band"] == pytest.approx(3 * vol["sigma_d"], abs=1e-6)
+        assert stale["alert"] and stale["move"] == pytest.approx(62 / 60 - 1, abs=1e-6)
+    # Yahoo down: flagged as unavailable, not as if the old close were the session's
+    monkeypatch.setattr(m.orders, "delayed_bars", lambda *a: {})
+    clock(monkeypatch, "2026-10-15T17:10:00")
+    snap = m.orders.snapshot(["VALE3"], m.radar.now())["VALE3"]
+    assert (snap["flag"], snap["quote_session"]) == ("INTRADAY_UNAVAILABLE", "2026-10-14")
 
 
 def test_delayed_bars_reuses_the_dp26_path_and_its_lock(monkeypatch):
@@ -1020,11 +1047,17 @@ def test_delayed_bars_reuses_the_dp26_path_and_its_lock(monkeypatch):
     monkeypatch.setattr(stock, "collect", collect)
     old = "2026-10-15T09:00:00-03:00"
     stock.LIVE["OLD"] = {"day": "2026-10-15", "fetched_at": old, "bars": []}
-    got = m.orders.delayed_bars(["GOOD", "BAD", "OLD"], now)
+    got = m.orders.delayed_bars(["GOOD", "BAD", "OLD"], now, "2026-10-15")
     assert list(got) == ["GOOD"]  # failed and stale-cached tickers are left out
     assert not stock.INTRADAY_LOCK.locked()
     monkeypatch.setattr(stock, "session_today", lambda n: None)
-    assert m.orders.delayed_bars(["GOOD"], now) == {}
+    assert m.orders.delayed_bars(["GOOD"], now, "2026-10-15") == {}  # not closed yet
+    # from 18:00 the day is closed: collect archives it and the sealed archive is read
+    archive = {"day": "2026-10-15", "fetched_at": old, "bars": []}
+    monkeypatch.setattr(stock, "load_day", lambda t, d: archive if t == "GOOD" else None)
+    night = at("2026-10-15T19:00:00")
+    got = m.orders.delayed_bars(["GOOD", "BAD", "NONE"], night, "2026-10-15")
+    assert got == {"GOOD": archive}  # an archive's older fetch time is not "stale"
 
 
 def test_preview_seals_quotes_and_shows_the_band_without_a_stale_alert(lab, monkeypatch):
@@ -1094,7 +1127,8 @@ def test_two_closed_session_snapshots_pass_trivially(lab, monkeypatch):
     result(c, raw)
     both(monkeypatch)
     p, preview = preview_at(monkeypatch, c, "2026-10-15T17:30:00")
-    assert preview["quotes"]["VALE3"]["quote"]["flag"] == "SESSION_CLOSED"
+    # 15/10 ended without its official close and Yahoo is offline: same fallback twice
+    assert preview["quotes"]["VALE3"]["quote"]["flag"] == "INTRADAY_UNAVAILABLE"
     order = apply_at(monkeypatch, p, preview, "2026-10-15T17:40:00")["order"]
     assert order["checks"]["bands"]["VALE3"]["move"] == 0
     assert order["quotes"]["approval"]["VALE3"]["basis"] == "LAST_OFFICIAL_CLOSE"
