@@ -10,6 +10,95 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Ciclo diário autônomo da Multiagentes — DP-34, 20/10/2026
+
+`dashboard/daily_cycle.py`, ligado só com `HFL_DAILY_CYCLE=1` (thread no processo do
+servidor). Em pregão B3, 09:00, 12:00 e 16:00 (America/Sao_Paulo; a última janela vai
+até o corte do leilão de fechamento): atualização de mercado (DP-27) → análise com alvo
+hoje e dados até o último pregão encerrado, que precisa estar publicado pela B3 →
+preparo gratuito → analistas pagos → gestor (taxa da proposta anterior da carteira) →
+prévia DP-33 → aprovação automática só sem alerta de tese velha e sem recusa do backend.
+Teto de US$ 4,00 de reserva por dia (analistas + gestor, todas as tentativas). Cada
+autorização fica registrada como "DP-34 rotina diária" em
+`data/platform/daily-cycle/<dia>/` (`attempt-*.json` e `day.json`, selados e imutáveis);
+retentativas reaproveitam a análise e a proposta do dia. Aviso por e-mail via Resend
+(`HFL_RESEND_API_KEY`, `HFL_NOTIFY_TO`, `HFL_NOTIFY_FROM`); sem chave, registra "e-mail
+não configurado". Últimos registros em `GET /api/platform/market-base` → `daily_cycle`.
+Tentativa manual: `python dashboard/daily_cycle.py` (com o servidor parado). Servidor
+aceita `HFL_PUBLIC_HOST` (nome MagicDNS do Tailscale, Origin https). Verificação: testes
+offline com fakes (`tests/test_daily_cycle.py`); nenhuma execução real.
+Limites: o teto global do Gestor (US$ 5 acumulados, contrato selado) bloqueia o gestor
+após ~31 chamadas; a tentativa das 16:00 pode passar do corte das 16:50; reinício no meio
+de uma tentativa repete o horário, sem repetir chamada paga já reservada.
+
+## Pregão encerrado e ainda não publicado pela B3 — DP-27, 20/10/2026
+
+Incidente: análise `radar-ui-2a50db4164c84195a7d8cae2728e24f4` (alvo 21/10, dados
+até 20/10) criada às 20:56; o preparo terminou às 20:59 (job `COMPLETED`, não
+travado: ~3 min baixando o COTAHIST anual) com os cinco ativos bloqueados por
+`KeyError: Timestamp('2026-10-20')`. Causa: o formulário usava o calendário
+(`last_closed`, fechado a partir das 18:00), mas o arquivo da B3 só trazia até
+19/10; o preparo selado (`scripts/multiasset_radar.py:307`, `rawbars.loc[end]`)
+indexa a sessão antes da própria checagem `no_trading_on_reference_session`.
+Correção fora dos módulos selados: `market_base_api.published()` (último pregão na
+base oficial); o formulário oferece e aceita no máximo esse pregão, com
+`reference_note` explicando a lacuna; o gate do `/radar` recusa preparo oficial de
+sessão não publicada (`reference_session_not_yet_published_by_b3`), sem baixar nada;
+a conferência por ativo mostra a lacuna e a próxima ação em português. Limite: base
+vazia volta ao calendário; base desatualizada exige "Atualizar" após a publicação;
+a mensagem do topo do `/radar` ainda lê o `last_prepare.json` selado (KeyError cru).
+
+## Tela dos agentes mais direta — DP-17, 20/10/2026
+
+Pedido de Lucas: menos cliques e rolagem no ciclo diário. Passos gratuitos agora
+andam sozinhos; os quatro consentimentos (orçamento, chamada paga dos analistas,
+chamada paga do gestor e aprovação financeira) continuam separados e explícitos.
+- Cadastro: a carteira Multiagentes vem selecionada; criar a análise já inicia a
+  verificação de dados (`auto=1`, sem custo).
+- Dados e custo: ao ficar pronto, o foco vai para o próximo consentimento
+  (teto de orçamento, que continua digitado, ou a chamada paga); durante o lote
+  pago, progresso "X/Y pareceres"; quórum completo abre Resultados sozinho.
+- Gestor: a última taxa digitada é lembrada no navegador (`localStorage`); sem
+  proposta, a proposta é preparada sozinha; proposta só preparada mostra a
+  estimativa e o consentimento pago; plano aprovável abre a prévia sozinho.
+- Barra de etapas fixa no topo.
+
+Verificação: harness do Radar (`radar_budget_ui_check.js`, com progresso e troca
+para Resultados), check Chrome do gestor (`HFL_MANAGER_BROWSER=1`, preparação e
+prévia sem clique, foco no consentimento, taxa lembrada) e check Chrome de
+orçamento aprovados; 116 testes Python direcionados aprovados. O check Chrome de
+criação de análise (`radar_analysis_browser_check.mjs`) já falhava antes desta
+mudança (foco inicial e POST intradiário da home) e não foi corrigido.
+Limite: o início automático da verificação após criar não tem check próprio.
+Próximo passo: usar alguns dias e decidir com Lucas se um consentimento pago
+único para analistas + gestor vale a mudança de regra (DP-13/16/24).
+
+**Segunda passada, 20/10:** a tela vira um ciclo visual no topo de /radar
+("Ciclo da análise"): barra-resumo (carteira, dia-alvo, dados até, início e
+próxima ação) e 8 etapas ligadas (Análise criada → Dados → Orçamento →
+Analistas X/Y → Gestor → Prévia → Aprovação → Leilão) com estado ao vivo
+(concluído, em andamento, aguardando você, bloqueado com motivo e "Ver
+diagnóstico", aguardando o mercado). Clicar numa etapa leva ao controle dela; as
+abas foram removidas; comparação recolhida; consentimentos e APIs inalterados.
+Estados derivados por `HFLCycle.nodes()` (`dashboard/radar-analysis.js`) a
+partir do que radar.js, radar-analysis.js e wallet-manager.js já buscam (evento
+`hfl:cycle`). Verificação: `tests/agent_cycle_check.js`, harness do Radar, check
+Chrome do gestor e 108 testes Python/navegador aprovados. Limites: duração só do
+último job; sair da etapa Dados descarta o preflight (segurança de consentimento).
+
+**Yahoo provisório, 20/10 22:11:** com a B3 já publicada, o preparo de 20/10
+bloqueou com "no adjustment factor around 2026-10-20": o Yahoo já tinha a linha
+diária de 20/10, mas com volume 0 (provisória), e o extrator selado descarta
+linhas sem volume. Mudanças: o diagnóstico (`platform_api.provisional_yahoo`)
+explica "Yahoo ainda não consolidou o pregão… prepare mais tarde ou use dados
+até <pregão anterior>" quando o fator ausente é o do próprio pregão; cada
+atualização de mercado registra em
+`data/platform/stock-history-v1/yahoo-consolidation.json` o último horário com
+volume zerado e o primeiro com volume (`stock_history_api.consolidation`, só
+para ativos ainda pendentes; resultado em `last.yahoo_volume`). Limite: sem
+agendador (DP-13), o registro é um intervalo entre atualizações, não a hora
+exata. Verificação: 82 testes direcionados aprovados (2 novos), ruff limpo.
+
 ## Execução no leilão oficial — DP-33, APP-05, 19/10/2026
 
 Decisão de Lucas sobre o [relatório de relógio de dados e preço de

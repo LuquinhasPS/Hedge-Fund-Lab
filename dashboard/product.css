@@ -97,9 +97,6 @@ body.hfl-platform .product-top-actions button{min-height:36px;padding:7px 11px;b
 .product-compare-table .ds-table{min-width:680px}
 .product-footer{margin-top:25px;padding-top:17px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}
 .product-agent-setup #new-analysis{margin:0;padding:23px;background:#fff;border:1px solid var(--line);border-radius:18px}
-.product-stage-tabs{display:flex;gap:9px;flex-wrap:wrap;border:0;margin:0 0 24px;padding:0}
-.product-stage-tabs a{padding:9px 14px;border-radius:9px;text-decoration:none;border:1px solid var(--line);background:#fff;color:var(--muted);font-size:13px;min-height:42px}
-.product-stage-tabs a[aria-current]{background:#edf1ff;color:var(--accent);border-color:#d0dafa}
 [data-agent-screen=results]>details{margin-bottom:20px}
 [data-agent-screen=results] summary{min-height:40px;cursor:pointer;font-weight:500}
 #diagnostic-details>summary{min-height:44px;padding-top:12px;font-size:13px;cursor:pointer;color:var(--text-2)}
@@ -114,9 +111,6 @@ body.hfl-platform .product-top-actions button{min-height:36px;padding:7px 11px;b
 .product-history-panel .market-filters{display:block}
 .product-history-panel select{width:100%}
 .product-history-panel #refresh{margin-top:10px}
-.product-stepper{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin:18px 0 24px;padding:0;list-style:none}
-.product-stepper li{display:flex;align-items:center;gap:7px}
-.product-stepper b{display:grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#edf1ff;color:var(--accent);font-weight:500}
 .product-workflow{margin:25px 0;padding:24px;border-radius:18px;border:1px solid var(--line);background:#fff}
 .product-workflow>.metrics{margin-top:20px}
 .product-workflow .card{padding:0;border:0;margin-bottom:10px}
@@ -178,7 +172,7 @@ body.hfl-platform .product-top-actions button{min-height:36px;padding:7px 11px;b
 body.hfl-platform main>section{margin-top:0}
 body.hfl-platform :is(#home-laboratory, #home-portfolio){margin-top:20px}
 @media(max-width:1100px){.product-operations-grid,.product-agent-setup{grid-template-columns:1fr}.product-heading{flex-wrap:wrap}body.hfl-platform main{padding:26px 24px}.product-overview{grid-template-columns:1fr}}
-@media(max-width:700px){body.hfl-platform{padding:0}body.hfl-platform .hfl-shell{position:static;width:auto;max-height:none;padding:18px 17px 10px;gap:16px;border-right:0;border-bottom:1px solid var(--line);overflow:visible}body.hfl-platform .hfl-links{gap:10px}body.hfl-platform .hfl-primary{flex-direction:row;flex-wrap:wrap;gap:3px}body.hfl-platform .hfl-primary a{font-size:12px;padding:9px 10px;min-height:42px;gap:0}body.hfl-platform .hfl-primary a::before{display:none}body.hfl-platform .hfl-archive{flex-direction:row;flex-wrap:wrap;border:0;padding:0;gap:0}body.hfl-platform .hfl-archive a{padding:5px 10px;font-size:11px}body.hfl-platform .hfl-secondary{flex-direction:row;flex-wrap:wrap}body.hfl-platform .product-profile{display:none}.product-topbar{padding:14px 17px;gap:8px;flex-wrap:wrap}.product-top-actions{gap:6px}body.hfl-platform .product-top-actions button{padding:6px 8px;font-size:11px}body.hfl-platform .product-topbar select{max-width:180px;font-size:14px}body.hfl-platform main{padding:23px 17px 36px}body.hfl-platform :is(h1,.ds-title){font-size:25px}.product-actions{width:100%}.product-actions a{flex:1}.product-panel,.product-workflow,.product-agent-setup #new-analysis{padding:18px}#personal-metrics{grid-template-columns:1fr 1fr;padding:21px;gap:22px}#personal-metrics .ds-kpi{padding:0}#personal-metrics .ds-kpi:first-child{grid-column:1/-1}.personal-form,.product-agent-setup #new-analysis .controls{grid-template-columns:1fr}.product-stepper{gap:12px;font-size:11px}.product-chip{font-size:10px}.product-data-table{min-width:560px}body.hfl-platform .personal-form input{font-size:16px}}
+@media(max-width:700px){body.hfl-platform{padding:0}body.hfl-platform .hfl-shell{position:static;width:auto;max-height:none;padding:18px 17px 10px;gap:16px;border-right:0;border-bottom:1px solid var(--line);overflow:visible}body.hfl-platform .hfl-links{gap:10px}body.hfl-platform .hfl-primary{flex-direction:row;flex-wrap:wrap;gap:3px}body.hfl-platform .hfl-primary a{font-size:12px;padding:9px 10px;min-height:42px;gap:0}body.hfl-platform .hfl-primary a::before{display:none}body.hfl-platform .hfl-archive{flex-direction:row;flex-wrap:wrap;border:0;padding:0;gap:0}body.hfl-platform .hfl-archive a{padding:5px 10px;font-size:11px}body.hfl-platform .hfl-secondary{flex-direction:row;flex-wrap:wrap}body.hfl-platform .product-profile{display:none}.product-topbar{padding:14px 17px;gap:8px;flex-wrap:wrap}.product-top-actions{gap:6px}body.hfl-platform .product-top-actions button{padding:6px 8px;font-size:11px}body.hfl-platform .product-topbar select{max-width:180px;font-size:14px}body.hfl-platform main{padding:23px 17px 36px}body.hfl-platform :is(h1,.ds-title){font-size:25px}.product-actions{width:100%}.product-actions a{flex:1}.product-panel,.product-workflow,.product-agent-setup #new-analysis{padding:18px}#personal-metrics{grid-template-columns:1fr 1fr;padding:21px;gap:22px}#personal-metrics .ds-kpi{padding:0}#personal-metrics .ds-kpi:first-child{grid-column:1/-1}.personal-form,.product-agent-setup #new-analysis .controls{grid-template-columns:1fr}.product-chip{font-size:10px}.product-data-table{min-width:560px}body.hfl-platform .personal-form input{font-size:16px}}
 .lab-bt{margin-block:var(--sp-4)}
 .lab-bt-assets{display:flex;flex-wrap:wrap;gap:var(--sp-3);border:1px solid var(--line);border-radius:6px;padding:var(--sp-3)}
 .lab-bt-assets label{display:flex;align-items:center;gap:var(--sp-2)}
@@ -187,3 +181,47 @@ body.hfl-platform :is(#home-laboratory, #home-portfolio){margin-top:20px}
 #lab-bt-error{color:var(--state-danger,#a32b2b);font-weight:600}
 #lab-bt-result .home-chart-canvas{min-height:280px}
 #lab-bt-notes{padding-left:var(--sp-5)}
+/* Cycle view (DP-17): the analysis cycle as connected steps; each step's look comes from data-state. */
+.product-cycle{margin:0 0 24px;padding:18px 20px;background:var(--surface);border:1px solid var(--line);border-radius:18px}
+.cycle-summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 24px;margin-bottom:16px}
+body.hfl-platform .cycle-summary h2{margin:0;font-size:15px}
+.cycle-summary dl{display:flex;flex-wrap:wrap;gap:4px 20px;margin:0}
+.cycle-summary dl div{display:flex;gap:6px;align-items:baseline;min-width:0}
+.cycle-summary dt{font-size:11px;color:var(--muted)}
+.cycle-summary dd{margin:0;font-size:13px;font-weight:600;overflow-wrap:anywhere}
+body.hfl-platform #cycle-next{flex-basis:100%;margin:0;padding:9px 12px;border-radius:10px;background:var(--surface-2);color:var(--text);font-size:13px;line-height:1.5;overflow-wrap:anywhere}
+body.hfl-platform .product-cycle[data-state=blocked] #cycle-next{background:color-mix(in srgb,var(--state-error) 9%,var(--surface));color:var(--state-error)}
+body.hfl-platform .product-cycle[data-state=you] #cycle-next{background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--accent)}
+.cycle-nodes{list-style:none;margin:0;padding:0;display:flex;gap:14px}
+.cycle-nodes li{position:relative;flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:4px}
+.cycle-nodes li+li::before{content:'';position:absolute;top:20px;left:-14px;width:14px;border-top:2px solid var(--line)}
+.cycle-nodes li[data-state=done]+li::before{border-top-color:var(--state-ok)}
+body.hfl-platform .cycle-nodes button{display:grid;grid-template-columns:20px minmax(0,1fr);column-gap:8px;align-content:start;width:100%;flex:1;min-height:120px;padding:10px;border-radius:12px;text-align:left;font-size:12px;font-weight:400;line-height:1.4;color:var(--text-2);background:var(--surface);border:1px solid var(--line);cursor:pointer}
+body.hfl-platform .cycle-nodes button:hover{background:var(--surface-2)}
+.cycle-nodes button>span{grid-column:2;min-width:0;overflow-wrap:anywhere}
+.cycle-nodes button::before{grid-row:1/span 4;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;box-sizing:border-box;border:2px solid var(--border-control);content:'';font-size:12px;font-weight:700;line-height:1;color:#fff}
+.cycle-name{font-size:13px;font-weight:600;color:var(--text)}
+.cycle-nodes .cycle-state{font-size:11px;font-weight:600;color:var(--muted)}
+.cycle-detail{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cycle-time{font-size:11px;color:var(--muted)}
+.cycle-nodes :is(.cycle-time,.cycle-detail):empty{display:none}
+body.hfl-platform .cycle-diag{padding-left:10px;font-size:12px;font-weight:600;color:var(--state-error)}
+.cycle-nodes [data-state=done]>button::before{content:'✓';background:var(--state-ok);border-color:var(--state-ok)}
+.cycle-nodes [data-state=done] .cycle-state{color:var(--state-ok)}
+.cycle-nodes [data-state=running]>button::before{border-top-color:var(--accent);animation:ds-spin 1s linear infinite}
+.cycle-nodes [data-state=running] .cycle-state{color:var(--accent)}
+.cycle-nodes [data-state=you]>button::before{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 22%,transparent)}
+body.hfl-platform .cycle-nodes [data-state=you]>button{border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface));padding:9px}
+.cycle-nodes [data-state=you] .cycle-state{color:var(--accent)}
+.cycle-nodes [data-state=blocked]>button::before{content:'✕';background:var(--state-error);border-color:var(--state-error)}
+body.hfl-platform .cycle-nodes [data-state=blocked]>button{border:2px solid var(--state-error);background:color-mix(in srgb,var(--state-error) 6%,var(--surface));padding:9px}
+.cycle-nodes [data-state=blocked] .cycle-state{color:var(--state-error)}
+.cycle-nodes [data-state=waiting]>button::before{content:'◷';font-size:13px;color:var(--state-info);border-color:var(--state-info)}
+.cycle-nodes [data-state=waiting] .cycle-state{color:var(--state-info)}
+.cycle-nodes [data-state=skipped]>button::before{content:'–';color:var(--muted);border-style:dashed}
+body.hfl-platform .cycle-nodes :is([data-state=skipped],[data-state=pending])>button{color:var(--muted)}
+/* the screen on display: a bar under its steps */
+body[data-agent-stage=setup] .cycle-nodes [data-agent-stage=setup],body[data-agent-stage=workflow] .cycle-nodes [data-agent-stage=workflow],body[data-agent-stage=results] .cycle-nodes [data-agent-stage=results]{box-shadow:inset 0 -3px 0 var(--accent)}
+@media(prefers-reduced-motion:reduce){.cycle-nodes [data-state=running]>button::before{animation:none;border-style:dotted}}
+@media(max-width:1280px){.cycle-nodes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.cycle-nodes li:nth-child(4n+1)::before{display:none}}
+@media(max-width:700px){.product-cycle{padding:14px}.cycle-nodes{grid-template-columns:minmax(0,1fr);gap:8px}.cycle-nodes li:nth-child(n)::before{display:block;top:-8px;left:19px;width:0;height:8px;border-top:0;border-left:2px solid var(--line)}.cycle-nodes li[data-state=done]+li::before{border-left-color:var(--state-ok)}.cycle-nodes li:first-child::before{display:none}body.hfl-platform .cycle-nodes button{grid-template-columns:20px minmax(0,1fr) auto;min-height:44px;padding:8px 10px}.cycle-nodes .cycle-state{grid-column:3;grid-row:1;text-align:right}.cycle-nodes button>:is(.cycle-detail,.cycle-time){display:none}}

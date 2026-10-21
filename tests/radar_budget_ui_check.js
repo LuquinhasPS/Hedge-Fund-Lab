@@ -3,11 +3,11 @@ const fields={},requests=[];
 function el(id){return fields[id]??={id,value:'',checked:false,disabled:false,hidden:false,innerHTML:'',textContent:'',dataset:{},listeners:{},classList:{toggle(){}},
   addEventListener(k,f){this.listeners[k]=f},querySelectorAll(){return []},closest(){return el(id+'-label')},replaceChildren(){this.innerHTML=''},focus(){},scrollIntoView(){}};}
 const tick=()=>new Promise(r=>setImmediate(r));
-let authorized=false,authorizeReply, readinessItems=[], currentJob=null;
+let authorized=false,authorizeReply, readinessItems=[], currentJob=null, opinions=0;
 const tickers=['PETR4','VALE3','ITUB4','WEGE3','BBAS3'];
 const money=()=>({runs:[],other_runs_reserved_usd:6.63552,run_reserved_usd:0,aggregate_exposure_usd:9.95328,aggregate_cap_usd:5,
   budget_token:'a'.repeat(64),planned:{tickers,calls_max:30,calls_planned:29,usd_reserved:3.31776},authorization:{required:true,state:authorized?'VALID':'ABSENT'}});
-const run=()=>({id:'radar-current',session:'2026-10-13',universe:tickers,mode:'CONSULTATIVE_SANDBOX',state:'INPUTS_READY',reasons:[],treatment:{},budget:money(),budget_usd:3.5});
+const run=()=>({id:'radar-current',session:'2026-10-13',universe:tickers,opinions,mode:'CONSULTATIVE_SANDBOX',state:'INPUTS_READY',reasons:[],treatment:{},budget:money(),budget_usd:3.5});
 const view=()=>({run:run(),items:[],universe:tickers,examples:[],last_closed_session:'2026-10-13',csrf_token:'csrf',network_isolation:true,mutation_available:true,job:currentJob});
 const preflight={ready:true,session:'2026-10-13',identity:'RADAR',confirmation_token:'sealed',items:tickers.map(ticker=>({ticker,ready:true,mode:'live',input_sha256:'hash',estimate:{calls_max:6}})),usd_estimated:.14625,usd_reserved:3.31776,max_usd:3.5,global_budget_used:0,global_budget_cap:5};
 async function fetch(url,options={}){
@@ -24,7 +24,8 @@ async function fetch(url,options={}){
 }
 let confirmations=0;
 const ctx=vm.createContext({document:{getElementById:el},fetch,URLSearchParams,AbortController,location:{search:'',hash:''},history:{replaceState(){}},setTimeout,clearTimeout,setInterval(){},clearInterval(){},console});
-ctx.window=ctx;ctx.addEventListener=()=>{};ctx.dispatchEvent=()=>{};ctx.PopStateEvent=class{};
+const cycles=[]; // snapshots sent to the cycle view
+ctx.window=ctx;ctx.addEventListener=()=>{};ctx.dispatchEvent=e=>{if(e.type==='hfl:cycle')cycles.push(e.detail.radar);};ctx.PopStateEvent=class{};ctx.CustomEvent=class{constructor(type,o){this.type=type;this.detail=o.detail;}};
 ctx.HFL={confirmCost:async()=>{confirmations++;return false}};
 vm.runInContext(fs.readFileSync(path.join(path.dirname(process.argv[2]),'market-ui.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),ctx);
@@ -32,6 +33,7 @@ vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),ctx);
   await tick();await tick();assert.equal(requests.some(r=>r.options.method==='POST'),false);
   await el('preflight').listeners.click();
   assert.equal(el('budget-review').hidden,false);assert.match(el('preflight-result').innerHTML,/revisão de orçamento pendente/);
+  assert.equal(cycles.at(-1).review,true);assert.equal(cycles.at(-1).report.ready,true); // the cycle sees the budget consent waiting
   assert.equal(el('aggregate-budget').value,'');assert.equal(el('budget-consent').checked,false);
   el('paid').checked=true;el('paid').listeners.change();assert.equal(el('execute').disabled,true);
   el('aggregate-budget').value='5';el('aggregate-budget').listeners.input();el('budget-consent').checked=true;el('budget-consent').listeners.input();
@@ -72,6 +74,16 @@ vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),ctx);
   assert.deepEqual(JSON.parse(prepares[0].options.body),{tickers,session:'2026-10-13',mode:'live'});
   assert.equal(prepares[0].options.headers['X-HFL-Radar-Run'],'radar-current');
   assert.match(el('guided-status').textContent,/dados ainda não estão prontos/);
+  assert.equal(cycles.at(-1).readiness[0].input_state,'BLOCKED_DATA'); // the block reaches the cycle in words
   assert.equal(requests.some(r=>r.url==='/api/radar/run'),false);
-  console.log('PASS: budget review in UI, insufficient ceiling, explicit consent, double click, fresh preflight and separate paid confirmation');
+  // the paid batch shows live progress; a complete quorum opens Resultados (the manager)
+  currentJob={id:'batch',command:'run',status:'RUNNING'};opinions=2;
+  await el('refresh').listeners.click();
+  assert.ok(el('guided-status').textContent.includes('Agentes em execução: 2/5 pareceres'));
+  assert.equal(ctx.location.hash,'');
+  currentJob={id:'batch',command:'run',status:'COMPLETED',outcome:{state:'COMPLETED',summary:'ok'}};opinions=5;
+  await el('refresh').listeners.click();
+  assert.equal(ctx.location.hash,'#analysis-results');
+  assert.equal(cycles.at(-1).run.opinions,5);assert.equal(cycles.at(-1).job.status,'COMPLETED');
+  console.log('PASS: budget review in UI, insufficient ceiling, explicit consent, double click, fresh preflight and separate paid confirmation, live batch progress, results opened at a complete quorum, cycle snapshots');
 })().catch(e=>{console.error(e);process.exitCode=1});

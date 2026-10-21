@@ -8,6 +8,7 @@ import os
 import re
 import sqlite3
 import threading
+from datetime import date, timedelta
 from pathlib import Path
 
 import forward_api as forward
@@ -15,6 +16,7 @@ import forward_jobs
 import global_pm_api as global_api
 import h2_api
 import market_api
+import market_base_api as market_base
 import network_scope
 import portfolio_api
 import radar_api
@@ -324,6 +326,27 @@ def run_selection(mode, day, symbols, root):
     }
 
 
+def unpublished(day, mode):
+    """Official session still absent from the DP-27 base (B3 publishes hours after the
+    close). Synthetic runs use no market data; an empty base proves nothing."""
+    if mode != "CONSULTATIVE_SANDBOX":
+        return False
+    last = market_base.published()
+    return last is not None and isinstance(day, str) and day > last
+
+
+def provisional_yahoo(day):
+    """The reference session's own factor is missing: Yahoo's first daily row of a session
+    comes with volume 0 (provisional) and the sealed prepare drops it (DP-27)."""
+    d = date.fromisoformat(day)
+    prev = runs.radar.B3Calendar().sessions_between(d - timedelta(14), d - timedelta(1))[-1]
+    return (
+        f"Yahoo ainda não consolidou o pregão de {d:%d/%m/%Y} (volume ainda zerado; "
+        "costuma sair de madrugada ou na manhã seguinte). Prepare novamente mais tarde, "
+        f"sem custo, ou crie uma análise com dados até {prev:%d/%m/%Y}."
+    )
+
+
 def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=None):
     """Per official ticker: input, normalization, risk restriction, opinion and next step."""
     root = root or global_api.OFFICIAL_RADAR
@@ -342,6 +365,13 @@ def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=No
     except (ValueError, OSError) as exc:
         preflight = {"ready": False, "items": [], "error": str(exc)}
     checks = {i["ticker"]: i for i in preflight["items"]}
+    br = lambda d: "/".join(reversed(d.split("-")))  # noqa: E731
+    gap = unpublished(day, mode) and (
+        f"Pregão de {br(day)} ainda não publicado pela B3 (o arquivo oficial sai à noite "
+        "ou na manhã seguinte). Aguarde a publicação, atualize a base de mercado e "
+        f"prepare novamente, ou crie uma nova análise com dados até "
+        f"{br(market_base.published())}. Nenhum agente foi executado."
+    )
     command = (
         RUN_PREPARE_COMMAND.format(run=run)
         if run
@@ -370,6 +400,16 @@ def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=No
                 )
                 items.append(item)
                 continue
+            if gap:
+                item.update(
+                    preflight="INPUT_REQUIRED",
+                    state="INPUT_BLOCKED",
+                    input_state="BLOCKED_DATA",
+                    error="reference_session_not_yet_published_by_b3",
+                    action=gap,
+                )
+                items.append(item)
+                continue
             error = blocked.get(ticker)
             corporate = bool(error) and any(k in error for k in CORPORATE_ERRORS)
             item.update(
@@ -381,7 +421,9 @@ def radar_readiness(day, symbols, root=None, mode="CONSULTATIVE_SANDBOX", run=No
                 if error
                 else "PREPARATION_REQUIRED",
                 error=error,
-                action="Fator de ajuste Yahoo indisponível para a sessão. Aguarde a fonte "
+                action=provisional_yahoo(day)
+                if error and f"no adjustment factor around {day}" in error
+                else "Fator de ajuste Yahoo indisponível para a sessão. Aguarde a fonte "
                 "fornecer uma linha válida e prepare novamente; preços RAW B3 sozinhos "
                 "não completam o histórico ajustado dos agentes."
                 if error and "no adjustment factor" in error
@@ -557,6 +599,10 @@ def radar_post_gate(command, payload, headers):
     report = None
     if command == "prepare" and payload.get("mode") != runs.MODES[owner["mode"]]:
         raise ValueError("synthetic_official_mix")
+    if command == "prepare" and unpublished(payload["session"], owner["mode"]):
+        # The sealed prepare would download the annual COTAHIST for minutes and then
+        # block every ticker with a raw KeyError on the missing session.
+        raise ValueError("reference_session_not_yet_published_by_b3")
     if command == "run":
         if not network_scope.qualified():
             raise ValueError("network_isolation_not_qualified_restart_server")

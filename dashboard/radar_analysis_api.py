@@ -4,6 +4,7 @@ import re
 from datetime import timedelta
 
 import manual_portfolio_api as manual
+import market_base_api as base
 import pilot_observed_data as observed
 import platform_api as platform
 import radar_api
@@ -20,13 +21,27 @@ def choices():
     target = next((d for d in days if d >= tomorrow), None)
     if target is None:
         raise ValueError("analysis_calendar_coverage_insufficient")
+    closed, published = radar.last_closed(at), base.published()
+    # B3 publishes a session's COTAHIST hours after the close: default (and latest
+    # accepted) reference is the last session already in the official base (DP-27).
+    # ponytail: an empty base falls back to the calendar (the sealed prepare may then
+    # block with a raw KeyError); upgrade: refuse analyses until the base is loaded.
+    reference = min(closed, published) if published else closed
+    br = lambda d: "/".join(reversed(d.split("-")))  # noqa: E731
     return {
         "today": at.date().isoformat(),
         "target_date": target,
-        "reference_session": radar.last_closed(at),
+        "reference_session": reference,
+        "last_closed_session": closed,
+        "reference_note": None
+        if reference == closed
+        else f"Pregão de {br(closed)} encerrado, mas ainda não publicado pela B3 "
+        f"(arquivo oficial sai à noite ou na manhã seguinte): dados até {br(reference)}. "
+        "Após a publicação, atualize a base de mercado para usar o pregão mais recente.",
         "sessions": days,
         "calendar_basis": "DOCUMENTED_PLAN_NOT_OBSERVATION",
-        "reference_cutoff": "18:00 America/Sao_Paulo; availability checked during prepare",
+        "reference_cutoff": "last session in the official B3 market base (DP-27), "
+        "never after 18:00 America/Sao_Paulo of the session",
     }
 
 

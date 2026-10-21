@@ -166,6 +166,32 @@ def download(ticker, closed):
     return ticker
 
 
+def consolidation(closed, tickers):
+    """{ticker: {last_zero_at, first_volume_at}}: when Yahoo filled the `closed` daily volume.
+
+    Yahoo's first daily row of a session is provisional (volume 0) and the sealed Radar
+    prepare drops it, so the analysis waits. Each market update asks again for the tickers
+    still pending and narrows the bracket. ponytail: sampled only when the app updates (no
+    scheduler, DP-13), so this is a bracket, not the exact time.
+    """
+    path = ROOT / "yahoo-consolidation.json"
+    log = radar.read(path) if path.exists() else {}
+    day, now = log.setdefault(closed, {}), radar.now().isoformat()
+    end = (date.fromisoformat(closed) + timedelta(days=1)).isoformat()
+    for t in tickers:
+        if day.setdefault(t, {}).get("first_volume_at"):
+            continue
+        frame = yf.Ticker(symbol(t)).history(
+            start=closed, end=end, interval="1d", auto_adjust=False, timeout=12
+        )
+        volume = next(
+            (v for s, v in frame.get("Volume", {}).items() if str(s.date()) == closed), 0
+        )
+        day[t]["first_volume_at" if volume and volume > 0 else "last_zero_at"] = now
+    radar.write(path, log)
+    return day
+
+
 def get(query):
     manual.fields(query, ("wallet",))
     series, errors = {}, {}
