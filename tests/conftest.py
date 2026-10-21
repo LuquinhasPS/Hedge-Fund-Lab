@@ -1,5 +1,6 @@
 """Fixtures compartilhadas para todos os testes do Hedge-fund-lab."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -7,11 +8,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
+# server.main() must never start the real market-base network update in tests
+os.environ["HFL_MARKET_BASE_AUTOUPDATE"] = "0"
+# the CDI default fetcher answers "not published" instead of reaching api.bcb.gov.br
+os.environ["HFL_RATES_OFFLINE"] = "1"
+
 # Adiciona src/ ao path
 SRC = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(SRC.parent))
 
 # ── Dados sintéticos ─────────────────────────────────────────────
+
 
 @pytest.fixture
 def synthetic_ohlcv() -> pd.DataFrame:
@@ -66,6 +73,7 @@ def synthetic_data_with_nan(synthetic_clean_data: pd.DataFrame) -> pd.DataFrame:
 
 
 # ── Mock helpers ─────────────────────────────────────────────────
+
 
 @pytest.fixture
 def mock_db_session():
