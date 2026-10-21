@@ -28,5 +28,6 @@ WORKDIR /app
 COPY . .
 RUN sed -i 's/\r$//' scripts/railway_entrypoint.sh && chmod +x scripts/railway_entrypoint.sh \
     && mkdir -p /app/data \
+    && python scripts/restore_frozen_bytes.py \
     && python -c "import zoneinfo; zoneinfo.ZoneInfo('America/Sao_Paulo')"
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/app/scripts/railway_entrypoint.sh"]
