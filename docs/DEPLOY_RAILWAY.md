@@ -80,6 +80,7 @@ padrão); não há dependência extra (HTTP da biblioteca padrão).
    | `HFL_NOTIFY_FROM` | opcional; padrão `Hedge Fund Lab <onboarding@resend.dev>` | |
    | `HFL_DAILY_CYCLE` | `0` no primeiro boot, `1` depois da migração | `0` |
    | `HFL_MARKET_BASE_AUTOUPDATE` | `0` no primeiro boot; remova (ou `1`) depois | `0` |
+   | `TS_DEBUG_MTU` | `1280`; ajuste qualificado em 21/10 para evitar timeout do handshake Chrome neste caminho | `1280` |
 
    `TZ` não é necessário: as regras usam `ZoneInfo("America/Sao_Paulo")` (pacote
    `tzdata` do lock). Os horários do log saem em UTC. `HFL_PORT` (padrão 8081) e

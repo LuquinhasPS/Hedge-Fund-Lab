@@ -42,7 +42,29 @@ ignorado; 20 checks de restauração/calendário aprovados (20 subchecks), 37 de
 mercado/web e 11 da rotina após o gate de ordem pendente; quatro do CDI. Um
 check histórico de exportação sintética Legacy mantém divergência de
 fingerprints de implementação; não alterado o fixture/ledger selado para fazê-lo
-passar. Ativação e verificação do deploy final registradas abaixo quando concluídas.
+passar.
+
+**Ativação concluída em 21/10:** `tcc` fixado no commit
+`60020aca758ec86e4879401c62c0a95d818f6046`, branch
+`fix/railway-daily-cycle-20261021`, [PR em rascunho](https://github.com/LuquinhasPS/Hedge-Fund-Lab/pull/1).
+Deploy `78fe344b-ad78-4fab-85e8-62459dbc182f` ativo e SUCCESS; flags
+`HFL_DAILY_CYCLE=1` e `HFL_MARKET_BASE_AUTOUPDATE=1`. Logs confirmam o agendador
+09:00/12:00/16:00; API confirma teto US$ 4 e rotina habilitada. Atualização ao
+iniciar terminou sem erro: Yahoo/IBOV, CDI e proventos consultados, nenhum provento
+novo ou ordem lançada; ordem OPEN 21/10 continua aguardando preço oficial.
+Primeira tentativa agendada: 21/10 às 09:00, ainda futura na verificação.
+
+**Rede:** reproduzido timeout de TLS do Chrome (inclusive com `curl_cffi`
+imitando Chrome); cliente clássico e HTTP/2 funcionavam. `TS_DEBUG_MTU=1280`
+no contêiner fez o teste Chrome retornar 200 em três conexões novas e a página
+real exibir cotações, patrimônio e gráfico das duas carteiras. Ajuste configurado
+nas variáveis do serviço e aplicado ao daemon em execução, com a identidade
+preservada. Sem troca de cifra, desativação de TLS ou exposição pública. Houve
+uma falha de builder ao aplicar a variável; nova tentativa usa o mesmo commit,
+sem interromper o deploy saudável anterior. Evidências locais:
+`output/railway-migration-20261020/final-acceptance.json` e
+`cotacoes-restauradas.png`. Próximo passo operacional: conferir o registro/e-mail
+da tentativa das 09:00 e a chegada do preço oficial da ordem pendente.
 
 ## Volume do Railway — DP-34, 20/10/2026
 
