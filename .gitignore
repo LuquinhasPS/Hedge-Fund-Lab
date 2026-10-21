@@ -48,3 +48,6 @@ dashboard/data.json
 .pytest_temp/
 .coverage
 data/logs/
+
+# Cópias locais e evidências da migração; contêm os dados pessoais do volume.
+output/railway-migration-*/

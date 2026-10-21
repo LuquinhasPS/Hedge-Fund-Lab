@@ -147,6 +147,26 @@ def test_unpublished_reference_session_blocks_before_creating(analysis_lab, monk
     assert not [r for r in dc.runs.load()["runs"] if r.startswith("radar-ui-")]
 
 
+def test_pending_auction_retries_before_creating_analysis_or_spending(
+    tmp_path, monkeypatch
+):
+    seen = []
+    monkeypatch.setattr(dc, "update_market", lambda rec: seen.append("market"))
+    monkeypatch.setattr(dc, "multiagent_wallet", lambda: {"id": "wallet"})
+    monkeypatch.setattr(dc.orders, "folders", lambda: [tmp_path])
+    monkeypatch.setattr(
+        dc.orders,
+        "read",
+        lambda path: {"wallet": {"id": "wallet"}, "session": DAY, "leg": "OPEN"},
+    )
+    monkeypatch.setattr(
+        dc, "open_analysis", lambda *a: pytest.fail("analysis before settlement")
+    )
+    with pytest.raises(dc.Stop, match="ordem_aguardando_leilao_oficial") as e:
+        dc.cycle({}, DAY)
+    assert e.value.retry and seen == ["market"]
+
+
 @pytest.fixture
 def ledger(tmp_path, monkeypatch):
     """Fake run roots with reserved USD per run; reservations never shrink."""

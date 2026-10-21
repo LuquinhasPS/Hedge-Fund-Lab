@@ -8,13 +8,15 @@ da tailnet. Arquivos: `Dockerfile`, `.dockerignore`, `railway.json`,
 
 **[conta]** = passo que exige a conta de Lucas (Railway, Tailscale, Resend, Google).
 
-> **Pré-requisito no código (bloqueia o acesso):** o servidor só aceita
-> `Host: localhost:<porta>`/`127.0.0.1:<porta>` e `Origin: http://…`. O `tailscale
-> serve` preserva o `Host` do navegador (`hedge-fund-lab.<tailnet>.ts.net`) e o
-> `Origin` é `https://…`, então hoje toda requisição volta 403
-> `local_origin_required`. O entrypoint já exporta `HFL_PUBLIC_HOST` com o nome
-> MagicDNS do nó; `dashboard/server.py` precisa aceitar exatamente esse host com
-> `Origin: https://<HFL_PUBLIC_HOST>` antes do deploy.
+O entrypoint exporta `HFL_PUBLIC_HOST` com o nome MagicDNS do nó; o servidor já
+aceita exatamente esse host com `Origin: https://<HFL_PUBLIC_HOST>`. Use o endereço
+anunciado nos logs: um nó anterior pode fazer o Tailscale acrescentar `-1` ao nome.
+
+O build executa `scripts/restore_frozen_bytes.py`: restaura finais de linha apenas
+quando o SHA-256 reproduz o selo original. As capturas HTML com finais mistos são
+preservadas por `.gitattributes`; conteúdo diferente faz o build falhar. Não
+recalcule hashes para contornar `original_source_changed` ou
+`observed_evidence_bytes_mismatch`.
 
 ## Como o contêiner sobe
 
@@ -78,6 +80,7 @@ padrão); não há dependência extra (HTTP da biblioteca padrão).
    | `HFL_NOTIFY_FROM` | opcional; padrão `Hedge Fund Lab <onboarding@resend.dev>` | |
    | `HFL_DAILY_CYCLE` | `0` no primeiro boot, `1` depois da migração | `0` |
    | `HFL_MARKET_BASE_AUTOUPDATE` | `0` no primeiro boot; remova (ou `1`) depois | `0` |
+   | `TS_DEBUG_MTU` | `1280`; ajuste qualificado em 21/10 para evitar timeout do handshake Chrome neste caminho | `1280` |
 
    `TZ` não é necessário: as regras usam `ZoneInfo("America/Sao_Paulo")` (pacote
    `tzdata` do lock). Os horários do log saem em UTC. `HFL_PORT` (padrão 8081) e

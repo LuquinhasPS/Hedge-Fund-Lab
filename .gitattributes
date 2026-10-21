@@ -9,3 +9,6 @@ scripts/run_h2_v6_provisional.py -text
 docs/evidence/h2_v6_provisional/** -text
 # Biblioteca de terceiros servida localmente: bytes exatos do pacote npm.
 dashboard/vendor/** -text
+# Acervo DATA-01: inclui HTML com finais de linha mistos, selados na aquisição.
+docs/evidence/pilot_market_data_2026/** -text
+docs/evidence/h2_v6_evaluation/system_freeze_candidate.* -text

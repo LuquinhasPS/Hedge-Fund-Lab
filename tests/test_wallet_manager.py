@@ -456,6 +456,37 @@ def test_changed_source_and_budget_require_new_review(lab, monkeypatch):
         )
 
 
+def test_daily_budget_uses_sp_date_and_preserves_uncertain_reservations(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(m.runs, "load", lambda: {"runs": {"run": {}}})
+    monkeypatch.setattr(m.runs, "root_of", lambda entry: tmp_path)
+    monkeypatch.setattr(m.radar, "now", lambda: pd.Timestamp("2026-10-21T10:00:00-03:00"))
+    for name, at, usd in (
+        ("yesterday", "2026-10-21T02:59:59+00:00", "5.00"),
+        ("today", "2026-10-21T03:00:00+00:00", "3.90"),
+    ):
+        m.radar.write(
+            tmp_path / "wallet-manager" / name / "authorization.json",
+            m.b.sealed({"authorized_at": at, "usd_reserved": usd}),
+        )
+    assert m.used_budget() == m.b.dec("3.90")
+    monkeypatch.setattr(m.radar, "now", lambda: pd.Timestamp("2026-10-22T00:00:00-03:00"))
+    assert m.used_budget() == m.b.ZERO
+
+
+def test_daily_manager_cap_is_enforced(lab, monkeypatch):
+    c, _ = lab
+    root = m.folder(c["run"], c["proposal"])
+    with pytest.raises(ValueError, match="invalid_budget"):
+        m.preflight(c, root, "4.01")
+    monkeypatch.setattr(m, "used_budget", lambda: m.b.dec("3.90"))
+    report = m.preflight(c, root, "4.00")
+    assert not report["ready"] and "manager_budget_exceeded" in report["errors"]
+    assert report["budget_date"] == "2026-10-15"
+    assert not (root / "authorization.json").exists()
+
+
 def test_durable_fake_native_call_offline_replay(lab):
     c, raw = lab
     root = m.folder(c["run"], c["proposal"])
@@ -1017,7 +1048,9 @@ def test_ended_session_without_official_close_uses_its_last_delayed_bar(lab, mon
             "SESSION_" + state,
         )
         assert snap["quote_session"] == session and snap["session_fraction"] == 1.0
-        stale = m.orders.stale_check(c, "VALE3", snap, vol)  # one whole session: 3 sigma_d
+        stale = m.orders.stale_check(
+            c, "VALE3", snap, vol
+        )  # one whole session: 3 sigma_d
         assert stale["band"] == pytest.approx(3 * vol["sigma_d"], abs=1e-6)
         assert stale["alert"] and stale["move"] == pytest.approx(62 / 60 - 1, abs=1e-6)
     # Yahoo down: flagged as unavailable, not as if the old close were the session's
