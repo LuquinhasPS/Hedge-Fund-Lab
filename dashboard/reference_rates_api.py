@@ -85,6 +85,10 @@ def update(closed, fetch=None):
         url = URL.format(br(start), br(end))
         raw = fetch(url)
         rows = json.loads(raw) if raw else []
+        # SGS can wrap a missing-value 404 in HTTP 200. Preserve it as a gap.
+        missing = rows.get("erro") if isinstance(rows, dict) else None
+        if isinstance(missing, dict) and missing.get("statusCode") == 404:
+            rows = []
         if not isinstance(rows, list):
             raise ValueError("cdi_unexpected_answer")
         rows = [

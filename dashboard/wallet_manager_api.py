@@ -28,7 +28,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 b, radar, runs = analysis.b, analysis.radar, analysis.runs
 IDENTITY = "HFL-WALLET-MANAGER-V1"
-CONFIG = global_cli.pm.CONFIG
+CONFIG = {
+    **global_cli.pm.CONFIG,
+    "version": "WALLET_MANAGER_DAILY_DP34_V1",
+    "root_budget_usd": "4.00",
+}
 LOCK = threading.Lock()
 PROMPT = """Você é o gestor final da carteira selecionada, em BRL. Produza uma cesta
 coordenada com quantidades, usando exclusivamente o contexto fornecido. Pareceres
@@ -234,10 +238,17 @@ def source_check(c):
 
 
 def used_budget():
-    total = global_cli.v1cli.used_budget() + global_cli.used_budget()
+    # DP-34: wallet calls have a daily ceiling; the sealed Legacy cap stays intact.
+    today = radar.now().date()
+    total = b.ZERO
     for entry in runs.load()["runs"].values():
         for path in (runs.root_of(entry) / "wallet-manager").glob("*/authorization.json"):
-            total += b.dec(b.check_seal(radar.read(path))["usd_reserved"])
+            authorization = b.check_seal(radar.read(path))
+            if (
+                b.instant(authorization["authorized_at"]).astimezone(orders.SP).date()
+                == today
+            ):
+                total += b.dec(authorization["usd_reserved"])
     return total
 
 
@@ -269,6 +280,8 @@ def preflight(c, root, max_usd):
         "estimate": estimate,
         "max_usd": str(cap),
         "budget_used": str(used),
+        "budget_date": radar.now().date().isoformat(),
+        "budget_scope": "WALLET_MANAGER_DAILY_DP34",
         "usd_reserved": str(reserved),
         "ready": not errors,
         "errors": errors,

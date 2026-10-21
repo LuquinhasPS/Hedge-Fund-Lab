@@ -10,6 +10,84 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Cotações e agentes no Railway — DP-27/DP-34, 21/10/2026
+
+Corrigido o bloqueio de integridade da imagem: finais de linha das fontes
+congeladas restaurados somente quando reproduzem seus SHA-256 originais;
+recuperadas as três capturas HTML com finais mistos, com hashes e tamanhos
+idênticos aos do catálogo selado. Nenhum selo recalculado. `.gitattributes`
+preserva as capturas e o build roda `scripts/restore_frozen_bytes.py`, recusando
+conteúdo que não reproduza o original.
+
+Deploy de verificação `ab25ae1b-15ea-43fd-bbb4-ae5f0ce0915a`: APIs HTTPS de histórico
+e agentes voltaram a responder. Fechamento RAW B3 de 20/10, cinco posições sem
+preços faltantes: Buy & Hold R$ 98.777,70; Multiagentes R$ 99.113,82. Oito análises
+anteriores preservadas. Download diário da B3 testado no servidor: 470.840 bytes,
+pregão 20/10, uma linha para cada ativo, SHA-256
+`cc1d527231edc8d473492439453997b19c5af2977739aad83d8e8e6a88dfc784`.
+Modelo configurado disponível na consulta gratuita do Google; e-mail de teste
+aceito pelo Resend. Não foi executada inferência paga nesta verificação.
+
+Gestor da carteira passa a ter teto de reservas de US$ 4 por dia de São Paulo,
+sem consumir o teto acumulado selado do Global PM Legacy. O teto combinado da
+rotina (analistas + gestor, todas as tentativas) continua US$ 4. Datas de reserva
+entram no preflight/token; reservas incertas continuam contando. Ordem já
+aprovada aguardando preço oficial adia a rotina antes de criar análise/gastar:
+há uma ordem para OPEN de 21/10, preservada sem execução antecipada.
+CDI ainda não publicado, quando devolvido pelo SGS como envelope 404 em HTTP
+200, vira lacuna; outros envelopes continuam recusados.
+
+Verificação offline: 96 testes ativos aprovados e um browser check optativo
+ignorado; 20 checks de restauração/calendário aprovados (20 subchecks), 37 de
+mercado/web e 11 da rotina após o gate de ordem pendente; quatro do CDI. Um
+check histórico de exportação sintética Legacy mantém divergência de
+fingerprints de implementação; não alterado o fixture/ledger selado para fazê-lo
+passar. Ativação e verificação do deploy final registradas abaixo quando concluídas.
+
+## Volume do Railway — DP-34, 20/10/2026
+
+A pedido de Lucas, criado o volume `hfl-data` (20 GB, ID
+`8f660448-45ed-4a61-b145-118915e7b924`) no projeto Centauro ERP, ambiente `tcc`,
+serviço `impartial-comfort`, região `us-east4-eqdc4a`, montado em `/app/data`.
+Verificação pela API: volume live e montagem associada ao serviço. O deploy
+`a200b35e-d20e-4b73-a547-692da2421cc6` chegou a SUCCESS; logs confirmam Tailscale
+Running, Serve ativo e servidor Python iniciado. O novo endereço anunciado é
+`https://hedge-fund-lab-1.tail2f2f04.ts.net/` (sufixo `-1`, diferente do primeiro
+nó efêmero). O certificado estava em emissão no último log observado; acesso
+pelo navegador, migração de `data/` e ativação da rotina continuam pendentes.
+O volume passa a preservar os dados e a identidade do Tailscale dos próximos boots.
+Nenhuma migração ou inferência foi executada nesta etapa.
+
+## Migração para o Railway — DP-34, 20/10/2026
+
+Lucas autorizou a cópia de `data/`. Dashboards locais parados; destino sem eventos
+financeiros anteriores e rotina/coleta automática em `0`. Transferência pelo SSH
+do Railway (SSH Tailscale não respondeu): 23.112 arquivos, 2.592.611.142 bytes de
+dados, excluindo cache, tmp, logs e `radar/tmp*`; arquivo de transporte com
+2.640.168.960 bytes. Cada arquivo conferido por SHA-256 após a extração e novamente
+em `/app/data`; registro Radar com hash
+`68ec52811290b53786ef0e5e4d7d063aec4ff622b190b60ec361ff94b19fa689`.
+SQLite íntegro, mesmos 20 eventos; API HTTPS retorna Buy & Hold e Multiagentes
+com projeções integralmente iguais às locais. Histórico do cadastro excluído
+também preservado. Identidade Tailscale mantida após reinício; home HTTPS 200.
+
+Railway passa a ser a cópia de trabalho. Dados locais preservados, servidor local
+parado. Arquivo de transporte local e relatórios em
+`output/railway-migration-20261020/` (ignorados pelo Git); arquivo temporário de
+transporte removido do servidor após a conferência. Manifestos da migração e
+backup pré-migração preservados em `/app/data/.migration-20261020/`.
+
+**Limites observados no código publicado:** o histórico de patrimônio retorna
+400 por `original_source_changed` em `multiasset_radar.frozen_sources`; a página
+dos agentes retorna 400 por `observed_evidence_bytes_mismatch`. Três capturas de
+`pilot_market_data_2026` no Git não correspondem aos bytes esperados pelo catálogo
+selado (`official_notices.html`, `cash_equities_week_ion.html`,
+`download_selector.html`); há também divergências entre fontes Git e o manifesto
+congelado. São verificações de arquivos da imagem, não divergências da cópia de
+`data/`. Não alterados selos/evidências para contornar esses bloqueios. Rotina e
+coleta seguem desligadas; próximo passo é resolver a compatibilidade dos bytes
+selados no deploy e o teto acumulado do gestor antes da ativação diária.
+
 ## Ciclo diário autônomo da Multiagentes — DP-34, 20/10/2026
 
 `dashboard/daily_cycle.py`, ligado só com `HFL_DAILY_CYCLE=1` (thread no processo do

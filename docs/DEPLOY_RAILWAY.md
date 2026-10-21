@@ -8,13 +8,15 @@ da tailnet. Arquivos: `Dockerfile`, `.dockerignore`, `railway.json`,
 
 **[conta]** = passo que exige a conta de Lucas (Railway, Tailscale, Resend, Google).
 
-> **Pré-requisito no código (bloqueia o acesso):** o servidor só aceita
-> `Host: localhost:<porta>`/`127.0.0.1:<porta>` e `Origin: http://…`. O `tailscale
-> serve` preserva o `Host` do navegador (`hedge-fund-lab.<tailnet>.ts.net`) e o
-> `Origin` é `https://…`, então hoje toda requisição volta 403
-> `local_origin_required`. O entrypoint já exporta `HFL_PUBLIC_HOST` com o nome
-> MagicDNS do nó; `dashboard/server.py` precisa aceitar exatamente esse host com
-> `Origin: https://<HFL_PUBLIC_HOST>` antes do deploy.
+O entrypoint exporta `HFL_PUBLIC_HOST` com o nome MagicDNS do nó; o servidor já
+aceita exatamente esse host com `Origin: https://<HFL_PUBLIC_HOST>`. Use o endereço
+anunciado nos logs: um nó anterior pode fazer o Tailscale acrescentar `-1` ao nome.
+
+O build executa `scripts/restore_frozen_bytes.py`: restaura finais de linha apenas
+quando o SHA-256 reproduz o selo original. As capturas HTML com finais mistos são
+preservadas por `.gitattributes`; conteúdo diferente faz o build falhar. Não
+recalcule hashes para contornar `original_source_changed` ou
+`observed_evidence_bytes_mismatch`.
 
 ## Como o contêiner sobe
 

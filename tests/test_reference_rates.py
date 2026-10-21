@@ -77,3 +77,13 @@ def test_conflict_is_not_latest_wins(root):
     with pytest.raises(ValueError, match="cdi_conflict:2026-10-13"):
         r.daily()
     assert m.benchmark("2026-10-14")["cdi"]["rows"] == []
+
+
+def test_sgs_missing_values_envelope_remains_a_gap(root):
+    missing = {
+        "erro": {"statusCode": 404, "detail": "SGSNegocioException: Value(s) not found"}
+    }
+    assert r.update("2026-10-16", lambda url: json.dumps(missing).encode()) == []
+    assert r.daily() == {} and r.files() == []
+    with pytest.raises(ValueError, match="cdi_unexpected_answer"):
+        r.update("2026-10-16", lambda url: b'{"erro":{"statusCode":500}}')

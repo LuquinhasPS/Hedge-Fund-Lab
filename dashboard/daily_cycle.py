@@ -457,6 +457,18 @@ def manager(rec, entry, day):
 
 def cycle(rec, day):
     update_market(rec)
+    wallet = multiagent_wallet()
+    for root in orders.folders():
+        order = orders.read(root / "order.json")
+        if (
+            order
+            and order["wallet"]["id"] == wallet["id"]
+            and not (root / "execution.json").exists()
+        ):
+            raise Stop(
+                f"ordem_aguardando_leilao_oficial: {order['session']} {order['leg']}",
+                retry=True,
+            )
     run = open_analysis(rec, day)
     entry, root = prepare_data(rec, run)
     analysts(rec, entry, root, day)
