@@ -295,3 +295,25 @@ def test_ibov_uses_index_symbol_and_accepts_zero_volume(history, monkeypatch):
     assert symbols == ["^BVSP", "PETR4.SA"]
     snap = h.load("IBOV")
     assert snap["symbol"] == "^BVSP" and snap["rows"][0]["close"] == 11.0
+
+
+def test_consolidation_brackets_when_yahoo_fills_the_volume(history, monkeypatch):
+    """The first daily row of a session has volume 0; the log narrows when it filled."""
+    frame, calls = history
+    clock = iter(["2026-10-20T22:11:00-03:00", "2026-10-21T08:30:00-03:00", "2026-10-21T09:00:00-03:00"])
+    monkeypatch.setattr(h.radar, "now", lambda: pd.Timestamp(next(clock)))
+    day = pd.DatetimeIndex(["2026-10-20"], tz="America/Sao_Paulo")
+    frame.drop(frame.index, inplace=True)
+    frame.loc[day[0]] = [24.0, 24.5, 23.9, 24.2, 0.0, 24.2, 0.0]  # provisional row
+    assert h.consolidation("2026-10-20", ["BBAS3"]) == {
+        "BBAS3": {"last_zero_at": "2026-10-20T22:11:00-03:00"}
+    }
+    frame.loc[day[0], "Volume"] = 32715300.0
+    got = h.consolidation("2026-10-20", ["BBAS3"])["BBAS3"]
+    assert got == {
+        "last_zero_at": "2026-10-20T22:11:00-03:00",
+        "first_volume_at": "2026-10-21T08:30:00-03:00",
+    }
+    asked = len(calls)
+    assert h.consolidation("2026-10-20", ["BBAS3"])["BBAS3"] == got  # no new Yahoo call
+    assert len(calls) == asked

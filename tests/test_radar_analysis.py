@@ -184,6 +184,39 @@ def test_weekend_default_and_historical_classification(lab, monkeypatch):
     assert result["context"]["classification"] == "HISTORICAL_REANALYSIS"
 
 
+def test_session_closed_but_not_yet_published_by_b3_is_an_explicit_gap(lab, monkeypatch):
+    # 20/10 20:56: the calendar says 20/10 closed, the B3 file only reaches 19/10.
+    monkeypatch.setattr(a.radar, "now", lambda: pd.Timestamp("2026-10-20T20:56:00-03:00"))
+    monkeypatch.setattr(a.base, "published", lambda: "2026-10-19")
+    c = a.choices()
+    assert (c["reference_session"], c["last_closed_session"]) == ("2026-10-19", "2026-10-20")
+    assert "20/10/2026" in c["reference_note"] and "19/10/2026" in c["reference_note"]
+    lab = {**lab, "target_date": "2026-10-21"}
+    with pytest.raises(ValueError, match="reference_must_be_closed"):
+        a.create({**lab, "reference_session": "2026-10-20"})
+    # A run whose session is not in the base yet: prepare refused, readiness explains.
+    run = a.create(lab)["run"]
+    monkeypatch.setattr(a.base, "published", lambda: "2026-10-13")
+    body = {"tickers": lab["tickers"], "session": "2026-10-14", "mode": "live"}
+    with pytest.raises(ValueError, match="not_yet_published_by_b3"):
+        a.platform.radar_post_gate("prepare", body, [run])
+    item = a.platform.radar_readiness(
+        "2026-10-14", ["PETR4"], a.radar_api.ROOT, run=run
+    )["items"][0]
+    assert item["error"] == "reference_session_not_yet_published_by_b3"
+    assert "13/10/2026" in item["action"] and "KeyError" not in item["action"]
+    # 20/10 22:11: B3 published, but Yahoo's row of the session is provisional (volume 0).
+    monkeypatch.setattr(a.base, "published", lambda: "2026-10-14")
+    error = "ValueError: no adjustment factor around 2026-10-14"
+    blocked = {"ticker": "PETR4", "session": "2026-10-14", "status": "BLOCKED", "error": error}
+    (a.radar_api.ROOT / "last_prepare.json").write_bytes(json.dumps({"items": [blocked]}).encode())
+    item = a.platform.radar_readiness(
+        "2026-10-14", ["PETR4"], a.radar_api.ROOT, run=run
+    )["items"][0]
+    assert "Yahoo ainda não consolidou o pregão de 14/10/2026" in item["action"]
+    assert "dados até 13/10/2026" in item["action"]
+
+
 def test_context_tampering_is_not_silently_ignored(lab):
     result = a.create(lab)
     path = a.radar_api.ROOT / a.CONTEXT

@@ -1,0 +1,25 @@
+# data/ vive no volume do Railway (/app/data); segredos nunca entram na imagem.
+data/
+.env
+.env.*
+.git/
+.venv/
+venv/
+env/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.pytest_temp/
+.hypothesis/
+.ruff_cache/
+.coverage
+**/node_modules/
+tests/
+unused-cache/
+output/
+.vscode/
+.idea/
+.claude/
+.obsidian/
+hedgefundlab.db
+dashboard/data.json

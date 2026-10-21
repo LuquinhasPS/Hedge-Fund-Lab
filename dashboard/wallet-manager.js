@@ -10,9 +10,16 @@
   const auction=a=>'leilão de '+(a.leg==='OPEN'?'abertura':'fechamento')+' de '+day(a.session);
   const stateText=s=>s.status==='PENDING_AUCTION'?'Aprovada, aguardando o '+auction(s.order)+'. Executa ao preço oficial B3.':s.status==='EXECUTED'?'Executada no '+auction(s.execution):states[s.status];
   const errors={manager_wallet_changed_new_analysis_required:'A carteira mudou (provento lançado ou nova operação). Abra uma nova análise.',manager_complete_unique_universe_required:'O gestor devolveu uma cesta incompleta ou repetida. A resposta foi preservada para revisão.',manager_universe_must_cover_all_positions:'Inclua todas as posições da carteira nos ativos do quórum.',manager_budget_exceeded:'O teto informado ou o orçamento acumulado do Gestor Global não cobre esta chamada.',manager_key_or_network_isolation_missing:'Chave ou isolamento do servidor indisponível. Reinicie o servidor padrão.',manager_contract_changed:'O contrato mudou. Esta proposta continua no histórico; prepare outra para operar.',manager_insufficient_cash:'A proposta ultrapassou o caixa disponível, incluindo custos. Foi preservada para revisão.',manager_operation_incompatible_with_opinion:'A proposta contrariou um parecer ou veto. Não foi liberada para registro.',manager_insufficient_units:'A proposta tentou vender mais ações do que a carteira possui.',manager_financial_consent_required:'Revise a prévia e confirme a aprovação das movimentações.',manager_context_expired:'O contexto do gestor expirou. Prepare outra proposta.',manager_proposal_expired:'Proposta expirada: os leilões do pregão-alvo já passaram. Nada foi registrado; prepare outra análise.',manager_pending_order_exists:'Esta carteira já tem uma ordem aprovada aguardando leilão. Aguarde a execução.',manager_order_already_placed:'Esta proposta já foi aprovada.',manager_no_envelope_to_replay_or_busy:'Não há resposta recuperável ou a chamada ainda está em andamento.'};
+  // Free steps run by themselves once per view (prepare when there is no proposal, preview
+  // when one is approvable); every paid call and the approval keep their own consent.
+  let autoPrepared='', autoPreviewed='';
+  const COST='hfl-manager-cost'; // last cost rate typed, a per-browser convenience
+  try{const v=localStorage.getItem(COST);if(v!==null)el('manager-cost').value=v;}catch{}
   let needsAck=false, data, selected=new URLSearchParams(location.search).get('proposal')||'', report, preview, version=0, busy=false, poll, command=crypto.randomUUID().replaceAll('-','');
   const run=()=>el('radar-run').value||new URLSearchParams(location.search).get('run');
   const current=()=>data?.history.find(s=>s.context.proposal===selected);
+  // What this panel already shows, for the cycle view in radar-analysis.js; no extra request.
+  const cycle=()=>window.dispatchEvent(new CustomEvent('hfl:cycle',{detail:{manager:data&&(data.context?{s:current(),failure:current()?.failure&&message({message:current().failure.code}),consult:data.context.wallet.nature!=='SIMULATION'||data.context.wallet.strategy==='BUY_HOLD'||current()?.compatible===false,preview:Boolean(preview),inference:!el('manager-inference').hidden,cost:el('manager-cost').value!==''}:null)}}));
   function message(e){const code=e.message||String(e);return code.startsWith('manager_incomplete_quorum_')?'O gestor aguarda pareceres completos: '+code.slice('manager_incomplete_quorum_'.length).split('_').join(', ').toUpperCase()+'. Consulte os resultados por ativo e a recuperação do quórum.':errors[code]||code;}
   const spct=v=>(v>0?'+':'')+pct(v), clock=v=>new Date(v).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
   const flags={SESSION_CLOSED:'pregão fechado: último fechamento oficial',SESSION_PRE:'pregão ainda não abriu: último fechamento oficial',INTRADAY_UNAVAILABLE:'cotação atrasada indisponível: último fechamento oficial'};
@@ -32,7 +39,7 @@
     const r=await fetch('/api/platform/wallet-manager'+(commandName?'/'+commandName:'?'+new URLSearchParams({run:runId})),payload?{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':data.csrf_token},body:JSON.stringify(payload)}:{cache:'no-store'});
     const d=await r.json();if(!r.ok)throw Error(d.error||'Não foi possível consultar a proposta.');return d;
   }
-  function dismiss(){report=null;preview=null;el('manager-paid').checked=false;el('manager-financial').checked=false;el('manager-run').disabled=true;el('manager-apply').disabled=true;el('manager-inference').hidden=true;el('manager-preview-box').hidden=true;el('manager-stale').hidden=true;el('manager-stale-ack').checked=false;el('manager-quotes').innerHTML='';needsAck=false;}
+  function dismiss(){report=null;preview=null;el('manager-paid').checked=false;el('manager-financial').checked=false;el('manager-run').disabled=true;el('manager-apply').disabled=true;el('manager-inference').hidden=true;el('manager-preview-box').hidden=true;el('manager-stale').hidden=true;el('manager-stale-ack').checked=false;el('manager-quotes').innerHTML='';needsAck=false;cycle();}
   function draw(){
     const s=current(), c=s?.context, r=s?.result;
     el('manager-history').innerHTML=data.history.length?data.history.map(s=>`<option value="${esc(s.context.proposal)}">${esc(new Date(s.context.created_at).toLocaleString('pt-BR'))} · ${esc(stateText(s))} · taxa original da proposta ${esc(s.context.cost_rate_pct)}%</option>`).join(''):'<option value="">Nenhuma proposta</option>';
@@ -43,6 +50,7 @@
     el('manager-replay').hidden=!s||!['CLAIMED_RECOVERY_ONLY','RECOVERY_OR_REVIEW_REQUIRED'].includes(s.status)||!s.compatible;
     el('manager-status').textContent=s?stateText(s):'Informe os custos para preparar o contexto do gestor. Nenhuma chamada é feita nesta consulta.';
     if(s?.failure&&!r)el('manager-status').textContent+=' · '+message({message:s.failure.code})+' · nenhum registro financeiro foi feito.';
+    cycle();
     if(!r)return;
     el('manager-summary').textContent=r.response.summary;
     el('manager-price-note').textContent=`Referência: fechamento RAW B3 de ${day(c.reference_session)}. Não é cotação ao vivo. Contexto congelado em ${new Date(c.created_at).toLocaleString('pt-BR')}; alvo da análise ${day(c.target_date)}. Taxa utilizada na proposta original: ${c.cost_rate_pct}% por operação.`;
@@ -75,10 +83,15 @@
       }catch{} // Historical proposal stays readable when the personal ledger is unavailable.
       if(v!==version)return;
     }
-    data=d;panel.hidden=!d.context;if(!d.context)return;
+    data=d;panel.hidden=!d.context;if(!d.context)return cycle();
     if(reset||!d.history.some(s=>s.context.proposal===selected))selected=d.history.at(-1)?.context.proposal||'';
     el('manager-context').textContent=`${d.context.wallet.name} · alvo ${day(d.context.target_date)} · dados até ${day(d.context.reference_session)} · caixa preservado ${money(d.context.wallet.cash)}.`+(d.context.wallet.strategy==='BUY_HOLD'?' Buy & Hold: o plano será consultivo; para rebalancear, abra o quórum da Multiagentes.':d.context.wallet.nature!=='SIMULATION'?' Carteira real externa: consulta apenas, sem registrar negócios simulados.':'');
     draw();
+    // product.js's stage rule, read here because it may run after this first load
+    const s=current(), shown=location.hash==='#analysis-results'||(!['#new-analysis','#analysis-workflow'].includes(location.hash)&&new URLSearchParams(location.search).has('run'));
+    // nothing yet -> prepare (needs a cost rate); prepared but not run -> its paid consent
+    if(shown&&autoPrepared!==id&&(s?.status==='PREPARED'&&s.compatible||!d.history.length&&el('manager-cost').value!=='')){autoPrepared=id;setTimeout(()=>s?action(v=>offer(v,el('manager-budget').value)):el('manager-prepare-form').requestSubmit());}
+    else if(shown&&s?.result&&!el('manager-approval').hidden&&!preview&&autoPreviewed!==selected){autoPreviewed=selected;setTimeout(()=>el('manager-preview').click());}
     clearTimeout(poll);
     if(['RUNNING','CLAIMED_RECOVERY_ONLY'].includes(current()?.status))poll=setTimeout(()=>load().catch(failure),2500);
   }
@@ -88,17 +101,22 @@
     const v=version;
     try{await fn(v);}catch(e){if(v===version)failure(e);}finally{busy=false;panel.removeAttribute('aria-busy');}
   }
+  async function offer(v,cap){ // free preflight of the selected proposal -> its paid-call consent
+    const p=await api('preflight',{run:run(),proposal:selected,max_usd:cap});if(v!==version)return;
+    await load();if(v!==version)return;report=p;
+    el('manager-estimate').textContent=`Uma chamada do gestor · estimativa US$ ${p.estimate.usd_estimated} · reserva máxima US$ ${p.usd_reserved} · reservas acumuladas do Gestor Global US$ ${p.budget_used}. Não altera o orçamento do Radar nem autoriza movimentações.`;
+    el('manager-inference').hidden=false;el('manager-paid').disabled=!p.ready;cycle();
+    if(!p.ready)throw Error(p.errors.join(', '));
+    el('manager-paid').scrollIntoView({block:'center',behavior:'smooth'});el('manager-paid').focus({preventScroll:true});
+  }
   el('manager-prepare-form').addEventListener('submit',event=>{
     event.preventDefault();if(!data)return;
     const request={run:run(),proposal:command,cost_rate_pct:el('manager-cost').value}, cap=el('manager-budget').value;
+    try{localStorage.setItem(COST,request.cost_rate_pct);}catch{}
     action(async v=>{
       dismiss();el('manager-status').textContent='Conferindo quórum, carteira e preços…';
       const d=await api('prepare',request);if(v!==version)return;selected=d.context.proposal;command=crypto.randomUUID().replaceAll('-','');
-      const p=await api('preflight',{run:request.run,proposal:selected,max_usd:cap});if(v!==version)return;
-      await load();if(v!==version)return;report=p;
-      el('manager-estimate').textContent=`Uma chamada do gestor · estimativa US$ ${p.estimate.usd_estimated} · reserva máxima US$ ${p.usd_reserved} · reservas acumuladas do Gestor Global US$ ${p.budget_used}. Não altera o orçamento do Radar nem autoriza movimentações.`;
-      el('manager-inference').hidden=false;el('manager-paid').disabled=!p.ready;
-      if(!p.ready)throw Error(p.errors.join(', '));
+      await offer(v,cap);
     });
   });
   el('manager-prepare-form').addEventListener('input',()=>{version++;command=crypto.randomUUID().replaceAll('-','');dismiss();});
@@ -116,7 +134,7 @@
     el('manager-effect').textContent=`Nada é registrado agora. A ordem executa no ${auction(d.schedule)}, ao preço oficial B3 (ainda desconhecido); aprovações até ${new Date(d.schedule.valid_until).toLocaleString('pt-BR')} valem para o pregão-alvo. Estimativa aos preços de referência: caixa ${money(d.before.cash)} → ${money(d.after.cash)}; custos ${money(d.before.costs)} → ${money(d.after.costs)}. Se o caixa não bastar ao preço oficial, as compras serão reduzidas em ações inteiras.`;
     el('manager-quotes').innerHTML=quotesTable(d.quotes,d.schedule);
     needsAck=d.stale_alert.length>0;el('manager-stale').hidden=!needsAck;el('manager-stale-text').textContent=d.stale_alert.join(' ');
-    el('manager-preview-box').hidden=false;el('manager-financial').focus();
+    el('manager-preview-box').hidden=false;cycle();el('manager-financial').focus();
   }));
   const approvable=()=>Boolean(preview)&&el('manager-financial').checked&&(!needsAck||el('manager-stale-ack').checked)&&!busy;
   el('manager-financial').addEventListener('change',()=>{el('manager-apply').disabled=!approvable();});
@@ -130,6 +148,6 @@
   el('manager-history').addEventListener('change',()=>{version++;selected=el('manager-history').value;dismiss();draw();});
   el('manager-refresh').addEventListener('click',()=>action(async()=>{dismiss();await load();}));
   el('radar-run').addEventListener('change',()=>{version++;selected='';clearTimeout(poll);dismiss();panel.hidden=true;load(true).catch(failure);});
-  window.addEventListener('hfl:analysis-stage',event=>{if(event.detail!=='results'){version++;dismiss();}else load().catch(failure);});
+  window.addEventListener('hfl:analysis-stage',event=>{if(event.detail!=='results'){version++;dismiss();}else{autoPrepared='';load().catch(failure);}});
   load().catch(failure);
 })();

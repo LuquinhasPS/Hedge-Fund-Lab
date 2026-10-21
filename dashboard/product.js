@@ -146,7 +146,7 @@
       const name={'#new-analysis':'setup','#analysis-workflow':'workflow','#analysis-results':'results'}[location.hash]||(params.get('run')?'results':'setup');
       document.body.dataset.agentStage=name;
       document.querySelectorAll('[data-agent-screen]').forEach(n=>{n.hidden=n.dataset.agentScreen!==name;});
-      document.querySelectorAll('[data-agent-stage]').forEach(n=>{if(n.dataset.agentStage===name)n.setAttribute('aria-current','step');else n.removeAttribute('aria-current');});
+      // aria-current belongs to the cycle view (radar-analysis.js): the step that needs attention.
       if(currentStage&&currentStage!==name)window.dispatchEvent(new CustomEvent('hfl:analysis-stage',{detail:name}));
       currentStage=name;
     }

@@ -45,6 +45,7 @@ def base(tmp_path, monkeypatch):
     clock = iter(pd.date_range("2026-10-16T10:00:00-03:00", periods=99, freq="min"))
     monkeypatch.setattr(m.radar, "now", lambda: next(clock))
     monkeypatch.setattr(m.stock, "load", lambda ticker: None)
+    monkeypatch.setattr(m.stock, "consolidation", lambda closed, tickers: {})  # no Yahoo
     # The job also fetches/books dividends: never the network, never the real ledger.
     monkeypatch.setattr(m, "fetch_http", lambda url: None)
     monkeypatch.setattr(m.manual, "ROOT", tmp_path / "personal")

@@ -3,15 +3,24 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agentes · Hedge Fund Lab</title>
 <link rel="stylesheet" href="/radar.css?v=763"><link rel="stylesheet" href="/shell.css?v=7"><link rel="stylesheet" href="/market.css?v=763">
-<script src="/shell.js?v=764" defer></script><script src="/market-ui.js?v=763" defer></script><script src="/radar.js?v=763" defer></script>
-<script src="/radar-analysis.js?v=1" defer></script>
-<script src="/wallet-manager.js?v=4" defer></script>
+<script src="/shell.js?v=764" defer></script><script src="/market-ui.js?v=763" defer></script><script src="/radar-analysis.js?v=3" defer></script><script src="/radar.js?v=765" defer></script>
+<script src="/wallet-manager.js?v=6" defer></script>
 </head><body class="hfl-platform">
 <!-- platform-shell -->
 <main id="main" class="market-main">
-<div class="product-heading"><div><h1 class="ds-title">Agentes da carteira</h1><p>Escolha o dia, confira os dados e revise o custo antes de executar.</p></div><div class="product-actions"><a href="#new-analysis">+ Nova análise</a></div></div>
-<nav class="product-stage-tabs" aria-label="Etapas da análise"><a href="#new-analysis" data-agent-stage="setup">1 · Configurar</a><a href="#analysis-workflow" data-agent-stage="workflow">2 · Dados e custo</a><a href="#analysis-results" data-agent-stage="results">3 · Resultados</a></nav>
-<div class="product-agent-setup" data-agent-screen="setup"><section id="new-analysis"><h2>Nova análise</h2><ol class="product-stepper"><li><b>1</b> Configurar</li><li><b>2</b> Dados e custo</li><li><b>3</b> Resultado</li></ol>
+<div class="product-heading"><div><h1 class="ds-title">Agentes da carteira</h1><p>Acompanhe o ciclo: cada etapa mostra o estado e o que falta. Toque numa etapa para ver seus controles.</p></div><div class="product-actions"><a href="#new-analysis">+ Nova análise</a></div></div>
+<section id="agent-cycle" class="product-cycle" aria-labelledby="cycle-title"><div class="cycle-summary"><h2 id="cycle-title">Ciclo da análise</h2><dl><div><dt>Carteira</dt><dd id="cycle-wallet">—</dd></div><div><dt>Dia-alvo</dt><dd id="cycle-target">—</dd></div><div><dt>Dados até</dt><dd id="cycle-reference">—</dd></div><div><dt>Início</dt><dd id="cycle-start">—</dd></div></dl><p id="cycle-next" role="status" aria-live="polite">Consultando o estado do ciclo…</p></div>
+<ol class="cycle-nodes" aria-label="Etapas do ciclo">
+<li data-node="created" data-state="pending"><button type="button" data-agent-stage="setup"><span class="cycle-name">Análise criada</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button></li>
+<li data-node="data" data-state="pending"><button type="button" data-agent-stage="workflow"><span class="cycle-name">Dados</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button><a class="cycle-diag" href="#analysis-workflow" hidden>Ver diagnóstico</a></li>
+<li data-node="budget" data-state="pending"><button type="button" data-agent-stage="workflow"><span class="cycle-name">Orçamento</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button></li>
+<li data-node="agents" data-state="pending"><button type="button" data-agent-stage="workflow"><span class="cycle-name">Analistas</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button></li>
+<li data-node="manager" data-state="pending"><button type="button" data-agent-stage="results"><span class="cycle-name">Gestor</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button></li>
+<li data-node="preview" data-state="pending"><button type="button" data-agent-stage="results"><span class="cycle-name">Prévia</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button></li>
+<li data-node="approval" data-state="pending"><button type="button" data-agent-stage="results"><span class="cycle-name">Aprovação</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button></li>
+<li data-node="auction" data-state="pending"><button type="button" data-agent-stage="results"><span class="cycle-name">Leilão</span><span class="cycle-state">pendente</span><span class="cycle-detail"></span><span class="cycle-time"></span></button></li>
+</ol></section>
+<div class="product-agent-setup" data-agent-screen="setup"><section id="new-analysis"><h2>Nova análise</h2>
 <p>Escolha a carteira e o dia-alvo. Por padrão, usamos amanhã ou a próxima sessão planejada quando amanhã não houver pregão.</p>
 <form id="new-analysis-form"><div class="controls">
 <label for="analysis-wallet">Carteira<select id="analysis-wallet" required><option value="">Carregando carteiras…</option></select></label>
@@ -72,7 +81,7 @@
 <p id="manager-receipt" role="status" tabindex="-1"></p>
 <h3 id="manager-summary"></h3><div id="manager-plan"></div><p id="manager-cash"></p><ul id="manager-risks"></ul>
 <p>Validação de caixa, quantidades e sinais. Risco global, eventos corporativos, liquidação e cotações ao vivo ainda não estão integrados a este registro manual.</p></div></section>
-<section class="ds-card ds-section" aria-labelledby="results-title">
+<details id="radar-compare" class="ds-card ds-section"><summary>Comparar as decisões por ativo</summary>
 <div class="ds-section-head"><h2 id="results-title">Compare as decisões</h2><button id="clear-filters" class="ds-btn">Limpar filtros</button></div>
 <p>Sinal técnico, aprovação de risco e resultado final são etapas distintas. Um veto pode transformar COMPRA em MANTER.</p>
 <div class="market-filters" aria-label="Filtros de consulta"><label>Ativo<select id="filter-asset"><option value="">Todos</option></select></label><label>Sinal técnico<select id="filter-signal"><option value="">Todos</option><option>COMPRA</option><option>VENDA</option><option>MANTER</option></select></label><label>Risk<select id="filter-risk"><option value="">Todos</option><option>APROVADO</option><option>VETADO</option></select></label><label>Resultado final<select id="filter-final"><option value="">Todos</option><option>COMPRA</option><option>VENDA</option><option>MANTER</option></select></label></div>
@@ -80,7 +89,7 @@
 <div class="ds-table-wrap" tabindex="0" role="region" aria-label="Comparação das decisões, tabela rolável"><table class="ds-table"><caption class="ds-visually-hidden">Resultados por ativo na execução selecionada</caption><thead><tr><th scope="col">Ativo / sessão</th><th scope="col">Sinal técnico <button class="ds-help" data-help="consenso"></button></th><th scope="col">Consenso</th><th scope="col">Risk <button class="ds-help" data-help="risk"></button></th><th scope="col">Resultado final</th><th scope="col">Estado</th></tr></thead><tbody id="results"></tbody></table></div>
       <div class="compare-controls"><label>Primeira análise<select id="compare-a"><option value="">Selecione</option></select></label><label>Segunda análise<select id="compare-b"><option value="">Selecione</option></select></label><button id="compare" class="secondary" data-action="read">Comparar duas empresas</button></div>
       <div id="comparison" aria-live="polite"></div>
-</section>
+</details>
 <section class="ds-card" id="room" aria-labelledby="room-title" hidden><div class="ds-section-head"><h2 id="room-title" tabindex="-1">Detalhe do ativo e comitê</h2><button id="close-room" class="ds-btn">Voltar à comparação</button></div><div id="room-content"></div></section>
 <p><a id="radar-to-global" class="ds-btn" href="/portfolio#global-workflow">Levar seleção à Carteira →</a></p>
 <details id="radar-audit"><summary>Histórico da execução, custos e proveniência</summary><p>Selecione outra execução no controle acima para consultar incidentes e demonstrações, preservando suas identidades.</p><section id="run-card" class="run-card" aria-label="Execução selecionada"></section></details>

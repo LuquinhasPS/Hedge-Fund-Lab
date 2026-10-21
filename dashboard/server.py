@@ -37,6 +37,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import backtest_api
+import daily_cycle
 import forward_api
 import forward_jobs
 import global_pm_api
@@ -250,13 +251,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         hosts = {f"localhost:{port}", f"127.0.0.1:{port}"}
         if port == 80:
             hosts.update(("localhost", "127.0.0.1"))
+        # DP-34: behind `tailscale serve` the browser keeps the node's MagicDNS name as
+        # Host and an https Origin; only that exact name, only when the env names it.
+        public = os.environ.get("HFL_PUBLIC_HOST", "").strip()
+        if public:
+            hosts.add(public)
         values = self.headers.get_all("Host", [])
         if len(values) != 1 or values[0] not in hosts:
             return False
         origins = self.headers.get_all("Origin", [])
         if len(origins) > 1 or (post and len(origins) != 1):
             return False
-        if origins and origins[0] != f"http://{values[0]}":
+        scheme = "https" if public and values[0] == public else "http"
+        if origins and origins[0] != f"{scheme}://{values[0]}":
             return False
         if self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site"):
             # Opening a public HTML entry point from another tab is safe. APIs,
@@ -551,7 +558,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     if query:
                         raise ValueError("invalid_query")
                     return self._send_json(
-                        {**market_base_api.status(), "csrf_token": forward_jobs.JOBS.csrf}
+                        {
+                            **market_base_api.status(),
+                            "csrf_token": forward_jobs.JOBS.csrf,
+                            "daily_cycle": daily_cycle.latest(),  # DP-34 records
+                        }
                     )
                 if command == "market-base/benchmark":
                     if set(query) != {"since"}:
@@ -904,8 +915,8 @@ def load_gemini_key(env_file=ENV_FILE):
     return "ausente"
 
 
-def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
+def setup():
+    """Process guards shared by the server and the DP-34 one-attempt CLI."""
     # The /radar "Preparar dados" button and the CLI share one normalized path.
     radar_corporate_events.install()
     # Offline checks guard only their own request context; a paid worker thread is
@@ -924,6 +935,11 @@ def main():
     run = radar_runs.bind(radar_api)
     logger.info("Radar runner: %s", run or "nenhum (prepare/run recusados)")
 
+
+def main():
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
+    setup()
+
     with ReusableTCPServer(("127.0.0.1", port), Handler) as httpd:
         logger.info("Servidor iniciado em http://localhost:%d", port)
         logger.info("  H2 v6     : http://localhost:%d/h2", port)
@@ -936,6 +952,7 @@ def main():
         # network_scope's context-scoped offline guard does not apply to it).
         if os.environ.get("HFL_MARKET_BASE_AUTOUPDATE") != "0":
             market_base_api.start()
+        daily_cycle.start()  # DP-34: only with HFL_DAILY_CYCLE=1
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

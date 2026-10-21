@@ -156,6 +156,15 @@ def acquired():
     return list(_verified(str(ROOT), stamps))
 
 
+def published():
+    """Last session B3 already published into this base (ISO), or None when empty.
+
+    A session's COTAHIST arrives hours after its 18:00 close (night or next morning):
+    until then the calendar's last closed session is an explicit gap (DP-27).
+    """
+    return max((f.get("session") or f["through"] for f in acquired()), default=None)
+
+
 def plan(closed, have=None):
     """Files still missing up to the `closed` session (ISO date string)."""
     have = acquired() if have is None else have
@@ -359,6 +368,10 @@ def _run(fetch):
                     yahoo[ticker] = "OK"
                 except Exception as e:
                     yahoo[ticker] = f"{type(e).__name__}: {e}"
+            try:  # when Yahoo fills the session's volume (the Radar prepare waits for it)
+                volume = stock.consolidation(last["closed"], TICKERS)
+            except Exception as e:
+                volume = f"{type(e).__name__}: {e}"
         import reference_rates_api as rates  # circular: it needs this module's ROOT
 
         try:  # DP-28 CDI: same fetcher contract (url -> bytes); never aborts the rest
@@ -385,6 +398,7 @@ def _run(fetch):
         JOB["last"] = {
             **last,
             "yahoo": yahoo,
+            "yahoo_volume": volume,
             "cdi": cdi,
             "dividends": divs,
             "dividends_booked": booked,

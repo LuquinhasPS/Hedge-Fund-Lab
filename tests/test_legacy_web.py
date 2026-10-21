@@ -152,7 +152,7 @@ def test_hub_aliases_head_query_and_cross_site_navigation(web):
 def test_redesigned_routes_get_head_and_shared_assets(web, route, area):
     status, body, headers = request(web, route)
     assert status == 200 and f'data-default-area="{area}"' in body
-    assert "/product.css?v=6" in body and "/product.js?v=5" in body
+    assert "/product.css?v=8" in body and "/product.js?v=6" in body
     head, empty, head_headers = request(web, route, "HEAD")
     assert head == 200 and not empty
     assert headers["Content-Length"] == head_headers["Content-Length"]
@@ -224,3 +224,18 @@ def test_market_base_endpoints_need_csrf_and_an_empty_body(web, monkeypatch, tmp
     assert post(b"{}", "wrong") == 403
     assert post(b'{"x":1}', token) == 400
     assert post(b"{}", token) == 202 and started == [1]
+
+
+def test_tailnet_host_only_when_named_and_only_with_https_origin(web, monkeypatch):
+    tailnet = "hedge-fund-lab.example.ts.net"
+    monkeypatch.delenv("HFL_PUBLIC_HOST", raising=False)
+    assert request(web, "/", Host=tailnet, Origin=f"https://{tailnet}")[0] == 403
+    monkeypatch.setenv("HFL_PUBLIC_HOST", tailnet)
+    assert request(web, "/", Host=tailnet, Origin=f"https://{tailnet}")[0] == 200
+    assert request(web, "/", Host=tailnet)[0] == 200  # navigation without Origin
+    assert request(web, "/", Host=tailnet, Origin=f"http://{tailnet}")[0] == 403
+    other = "other.example.ts.net"
+    assert request(web, "/", Host=other, Origin=f"https://{other}")[0] == 403
+    local = f"127.0.0.1:{web}"
+    assert request(web, "/", Host=local, Origin=f"http://{local}")[0] == 200
+    assert request(web, "/", Host=local, Origin=f"https://{local}")[0] == 403
