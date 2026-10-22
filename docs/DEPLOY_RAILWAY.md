@@ -20,6 +20,15 @@ recalcule hashes para contornar `original_source_changed` ou
 
 ## Como o contêiner sobe
 
+**Origem usada no `tcc` (22/10):** fork `LuquinhasPS/Hedge-Fund-Lab` do
+repositório `matheuspc3/Hedge-Fund-Lab`. Lucas usa o fork porque conseguiu
+selecioná-lo no Railway. O serviço segue a branch
+`fix/railway-daily-cycle-20261021`, fixado por `source.commitSha` no código
+`4fefe40cf82fccbf5126ea4ecd37962e3f47a559`. Sincronizar a `main` do fork com
+o original não troca esse pin, não incorpora a branch do PR #2 à `main` e não
+publica automaticamente uma versão nova. Atualizar a versão fixada é uma ação
+separada de deploy; preservar o volume `/app/data`.
+
 DP-35/APP-05: o servidor inicia também o processador de ordens intradiárias,
 com verificação a cada 60 s, independente de `HFL_DAILY_CYCLE`. Novas aprovações
 entre os cortes usam a primeira barra Yahoo de 1 min posterior à aprovação

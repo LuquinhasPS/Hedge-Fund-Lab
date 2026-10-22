@@ -12,7 +12,7 @@ Estado financeiro corrente exige leitura datada.
 
 ## Execução simulada durante o pregão — DP-35, APP-05, 22/10/2026
 
-Implementada localmente a escolha de Lucas: novas aprovações a partir de 22/10,
+Publicada no `tcc` a escolha de Lucas: novas aprovações a partir de 22/10,
 entre os cortes de abertura e fechamento, registram `PENDING_INTRADAY`. Antes
 do corte inicial continua OPEN oficial B3. O preço usado é o Open da primeira
 barra Yahoo de 1 minuto coerente, com volume, iniciada estritamente depois da
@@ -48,15 +48,34 @@ e a espera intradiária; evidência privada
 `4fefe40cf82fccbf5126ea4ecd37962e3f47a559` enviado ao seu fork e fonte do
 serviço fixada nessa versão, sem alterar volume ou variáveis. Deploy
 `5b2b7739-d8db-44ce-a990-514db37b54ae` aceito às 11:44:20 de Brasília,
-ainda `QUEUED`, sem iniciar build. O Railway informa incidente ativo de builds
+inicialmente `QUEUED`, sem iniciar build. O Railway informava incidente de builds
 ([status oficial](https://status.railway.com/incident/QH8L8B3E)); não foram
-criadas tentativas duplicadas. A versão anterior continua atendendo HTTPS 200.
+criadas tentativas duplicadas. Durante a fila, a versão anterior atendia HTTPS 200.
 [PR #2 em rascunho](https://github.com/LuquinhasPS/Hedge-Fund-Lab/pull/2)
 registra o novo incremento; PR #1 já estava merged. A ordem WEGE3 aprovada às
 10:35 conserva CLOSE: não foi migrada, executada ou reenviada. Nenhuma
-inferência real foi acionada por esta verificação. Próximo passo: aguardar o
-build aceito e verificar inicialização e API da nova versão antes de declará-la
-ativa.
+inferência real foi acionada por esta verificação.
+
+**Ativação confirmada às 13:41 de Brasília.** Deploy `SUCCESS`, versão ativa no
+Chrome após atualizar o painel. Logs: restauração dos bytes selados sem mudar
+hashes, Tailscale Running/Serve, servidor iniciado às 12:01:05 e rotina DP-34
+habilitada às 09h/12h/16h. GETs HTTPS da home, gestor, cadastro de análises,
+mercado e JS retornaram 200. API do gestor oferece `INTRADAY` para novas
+aprovações; o JS publicado contém a modalidade e acentos corretos. Cadastro
+Multiagentes retorna PETR4/VALE3/ITUB4/WEGE3/BBAS3. Ordem antiga tem exatamente
+o mesmo hash da captura anterior ao deploy, ainda CLOSE e sem execução.
+Sem erro de mercado ou de inicialização do processador DP-35 observado. Não se
+provocou uma operação para testar o fill; esse caso permanece coberto offline.
+Evidências privadas: `postdeploy-35-health.json`, `postdeploy-manager-35.json`
+e `deploy-intradiario-ativo.png` em `output/railway-migration-20261020/`.
+
+Lucas esclareceu que usa seu fork para disponibilizar o projeto do amigo no
+Railway. Origem de deploy confirmada: `LuquinhasPS/Hedge-Fund-Lab`, branch
+`fix/railway-daily-cycle-20261021`, fixada no código `4fefe40`. A main do fork
+foi sincronizada por Lucas (`212992a`); isso não troca a versão fixada nem
+incorpora a branch do PR #2. Não foi feito merge nem push ao repositório do
+amigo. Próximo passo operacional: acompanhar a próxima nova aprovação e seu
+recibo intradiário, mantendo a ordem antiga sob sua política original.
 
 ## Textos do gestor e leilão-alvo — DP-17/DP-33, 22/10/2026
 
