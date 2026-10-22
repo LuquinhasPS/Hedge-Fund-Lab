@@ -10,6 +10,181 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## Execução simulada durante o pregão — DP-35, APP-05, 22/10/2026
+
+Implementada localmente a escolha de Lucas: novas aprovações a partir de 22/10,
+entre os cortes de abertura e fechamento, registram `PENDING_INTRADAY`. Antes
+do corte inicial continua OPEN oficial B3. O preço usado é o Open da primeira
+barra Yahoo de 1 minuto coerente, com volume, iniciada estritamente depois da
+aprovação e completa no instante da coleta, na mesma sessão. Não é um tick ao
+vivo nem comprovação de execução real. Atraso aproximado de 15 minutos.
+
+O servidor verifica pendências a cada minuto, sem depender da tela ou de
+`HFL_DAILY_CYCLE`. Reutiliza o coletor DP-26, os horários/calendário existentes,
+o ajuste determinístico de compras ao caixa e a cesta atômica de operações.
+Todos os preços precisam estar disponíveis; não lança uma cesta parcial por
+falta de cotação. `execution-prices.json` preserva payload completo, hashes,
+horários e preço escolhido antes de gravar no livro. Recuperação reaproveita
+essa captura e não duplica operações. Sem captura até 30 min após o período
+contínuo, registra `NOT_EXECUTED`, sem fallback de fechamento ou do próximo dia.
+
+Prévia e aprovação vinculam modalidade e sessão; se mudarem, exige nova prévia.
+Painel, recibo, home, resumo do ciclo e aviso da rotina distinguem intradiário
+de leilão. O ciclo automático usa a mesma regra nas tentativas de 12h/16h.
+Nova origem reconhecida no histórico como operação do gestor; marcação diária
+e prompts continuam usando suas bases anteriores. Não há dependência nova.
+
+Verificação offline integrada: **118 aprovados, um teste de navegador optativo
+ignorado** (gestor, intradiário, rotina, universo e histórico). Node confirmou
+estados do ciclo e sintaxe dos JS alterados; Ruff aprovado. Casos incluem
+cotação antiga/futura/sem fuso/NaN/OHLC inválido, cesta incompleta, prazo final,
+falha de escrita e retomada após prazo, idempotência, nova prévia quando muda
+a modalidade e ordem CLOSE histórica sem campo de política. Prévia Chrome
+do painel real, com estado demonstrativo isolado e sem POSTs, confirmou acentos
+e a espera intradiária; evidência privada
+`output/railway-migration-20261020/execucao-intradiaria-previa.png`.
+
+**Publicação pendente.** Nova conexão Railway respondeu com a conta de Lucas e
+confirmou `tcc` saudável no deploy anterior, sem mudanças staged. A ordem WEGE3
+já aprovada às 10:35 conserva CLOSE: não foi migrada, executada ou reenviada
+por esta implementação. Nenhuma inferência real foi acionada. Próximo passo:
+publicar a versão revisável no `tcc` e verificar inicialização e leitura HTTPS.
+
+## Textos do gestor e leilão-alvo — DP-17/DP-33, 22/10/2026
+
+Lucas reportou acentos corrompidos no painel do gestor e perguntou qual preço
+executaria a ordem. Corrompidos os literais do próprio `wallet-manager.js`
+(UTF-8 interpretado como Windows-1252 e salvo novamente); HTML e texto da
+resposta do gestor estavam corretos. Busca nos JS/HTML/Python do dashboard
+encontrou os padrões desse erro somente nesse arquivo. Restaurados 226
+caracteres, preservando os textos que já estavam corretos. Sem correção em
+tempo de execução, novo codec HTTP ou alteração de dados/propostas seladas.
+
+Regressão de rótulos UTF-8 e caso de leilão 22/10 às 10:35 adicionados aos testes
+do gestor: 57 aprovados, um browser check optativo ignorado. Sintaxe JS e Ruff
+aprovados. Prévia Chrome do painel real, usando somente a resposta capturada,
+mostrou leilão, preço, posições, referência e demais acentos corretos. Evidências
+privadas em `output/railway-migration-20261020/manager-pending-22.json` e
+`gestor-textos-corrigidos.png`. Ainda falta publicar com as correções anteriores.
+
+Registro consultado: proposta `fdf671fcb8cb47fc9970402b8c72a79b`, análise
+`radar-ui-1102ef2bde644f1b8220c695df3ffeb7`, ordem aprovada às
+10:35:22-03:00 em 22/10, `leg=CLOSE`, sessão 22/10, venda de 293 WEGE3,
+sem execução registrada. Usa o fechamento oficial de 22/10 quando publicado e
+coletado pela atualização DP-27. R$ 45,21 na prévia é o fechamento de 21/10,
+não o preço final. O registro pode acontecer posteriormente, com data econômica
+do leilão de 22/10. Nenhuma ordem foi reenviada ou antecipada nesta verificação.
+
+## Etapas do ciclo durante os analistas — DP-17/UX-M4, 22/10/2026
+
+Lucas mostrou Dados aguardando verificação e Orçamento pendente enquanto
+Analistas já executava; ao passar ao Gestor, as etapas se corrigiam. Causa no
+frontend: `invalidate()` limpa corretamente o preflight/consentimento após
+confirmar o lote, mas o resumo do ciclo dependia desse estado temporário e só
+reconhecia as etapas anteriores quando todos os pareceres terminavam.
+
+Correção local em `radar-analysis.js`: Dados usa a contagem de inputs com
+integridade OK do servidor; Orçamento reconhece a reserva registrada. Erros
+atuais por ativo continuam bloqueando; falha antiga de preparo não sobrepõe
+inputs já verificados. Consentimentos e validações do backend preservados.
+Check `node tests/agent_cycle_check.js dashboard/radar-analysis.js` cobre
+execução com preflight limpo, autorização consumida/stale, resultado parcial,
+erros atuais e falta real de autorização. Check e sintaxe aprovados.
+
+Consulta apenas de leitura à análise manual
+`radar-ui-1102ef2bde644f1b8220c695df3ffeb7`: cinco inputs, integridade OK, quatro
+pareceres concluídos, lote RUNNING e reserva US$ 3,31776 naquele instante. Inclui
+VALE3, adicionada por Lucas na nova análise; não é a análise automática anterior
+de quatro ativos. Prévia local com o estado capturado e os arquivos reais da
+interface validada no Chrome: Dados/Orçamento concluídos e resumo em Analistas.
+Evidências privadas: `output/railway-migration-20261020/cycle-state-22.json` e
+`ciclo-corrigido-previa.png`. Nenhuma chamada ou operação foi disparada.
+
+Ainda não publicado no Railway; próximo passo é publicar junto da correção de
+universo após a execução manual, sem reiniciá-la para atualizar a tela.
+
+## Universo após venda total — DP-07/DP-24/DP-34, 22/10/2026
+
+Lucas observou VALE3 ausente após a venda integral. Causa: formulário e rotina
+usavam posições atuais como lista de ativos. Correção local em
+`radar_analysis_api.default_tickers`: estratégia MULTIAGENT usa sempre os cinco
+ativos existentes; a API fornece esse padrão ao formulário e a rotina o reutiliza.
+Campo da Multiagentes somente leitura, com explicação de posição zerada; backend
+recusa novas análises incompletas. Outras carteiras mantêm seleção editável e
+padrão pelas posições. O gestor já considera zero unidades para ativos ausentes
+e permite compra sob seus controles; nenhuma nova regra de alocação foi criada.
+
+Verificação offline: 86 testes de análise/rotina/gestor aprovados, um browser
+check optativo ignorado; sintaxe JavaScript e check dos estados do ciclo aprovados.
+Regressões cobrem VALE3 ausente, carteira inteiramente em caixa, recusa de novo
+universo incompleto, criação automática com cinco ativos e preservação exata do
+contexto de uma análise antiga com quatro ativos. Nenhuma chamada de provedor.
+
+Ainda não publicado no Railway: Lucas estava executando manualmente a análise
+de hoje, cujo universo de quatro ativos permanece imutável. Próximo passo é
+publicar a correção em uma janela que preserve esse teste; só novas análises
+passam a incluir os cinco. A falha de download diagnosticada abaixo não foi
+alterada por esta correção.
+
+## Diagnóstico da tentativa das 09h — DP-27/DP-34, 22/10/2026
+
+Consulta solicitada por Lucas, sem execução manual, novo preparo, inferência ou
+alteração do serviço. Registro da rotina pela API: início 09:00:56, término
+09:06:32, estado RETRY, e-mail enviado e reserva diária US$ 0. Análise
+`radar-ui-0337de26db59410289a78fbc80b0fecd`, alvo 22/10, referência 21/10:
+BBAS3, ITUB4 e WEGE3 com inputs congelados; PETR4 sem input, bloqueado por
+`IncompleteRead(24005935 bytes read, 62697231 more expected)`. Zero chamadas
+de agentes; nova tentativa agendada para 12h. APIs responderam HTTP 200.
+
+Fluxo rastreado: rotina chama `radar_api.post("prepare", ...)`, o mesmo caminho
+do botão, que executa `multiasset_radar.prepare`. O extrator de eventos
+corporativos herda `_cotahist` do Radar: nova instância por ativo, ano corrente
+baixado novamente e inteiro via `urlopen(...).read()`, sem retentativa nesse
+download. Recebidos 24.005.935 de 86.703.166 bytes; fechamento prematuro da
+resposta, não ausência comprovada da sessão. A exceção ocorre antes da escrita
+atômica, e os inputs dos outros ativos são preservados. O agendador disparou;
+a falha está na coleta usada também pelo caminho manual. Retry manual pode
+funcionar se a transferência completar, sem demonstrar defeito do agendamento.
+
+Railway consultado pelo navegador: mesmo deploy ativo e serviço online;
+logs mostram servidor atendendo consultas. O bloqueio de dados é tratado e
+persistido no registro/diagnóstico, sem traceback no log da tentativa. CLI
+recusou autenticação e o conector não retomou após autenticar. O
+[incidente oficial do Railway](https://status.railway.com/incident/QH8L8B3E)
+informa invalidação de tokens/sessões e problemas de builds; não comprova relação
+com o download interrompido. O [comunicado de segurança de 21/10](https://blog.railway.com/p/security-disclosure-wednesday-october-21st)
+recomenda trocar os segredos armazenados na plataforma. Não foi verificada a
+validade atual das chaves Gemini/Resend; não foram lidas ou alteradas.
+
+Evidências privadas em `output/railway-migration-20261020/market-22.json`,
+`analysis-22.json` e `readiness-22.json`; os arquivos de captura do CLI estão
+vazios porque a autenticação foi recusada. Próximo passo autorizado por Lucas:
+ele repetir apenas o preparo na mesma análise antes das etapas pagas; correção
+de robustez do download permanece proposta, não aplicada.
+
+## Recorrência do acesso Chrome — DP-34, 21/10/2026
+
+Às 01h de São Paulo, Lucas voltou a relatar falha de acesso. Deploy
+`5a1c528f-6eac-45dc-a3a9-ec9a99e267b9` concluído, SUCCESS, uma réplica online,
+sem trabalho pendente. Aplicação local HTTP 200, Tailscale Running/Online,
+Serve correto e nenhuma advertência de saúde. Confirmado `TS_DEBUG_MTU=1280`
+no processo do daemon; ainda assim, HTTPS clássico respondia 200 e TLS imitando
+Chrome expirava em 12 segundos. O ajuste anterior não resolveu a recorrência.
+
+Configurado `TS_DEBUG_ALWAYS_USE_DERP=true` só no serviço de `tcc`, sem rebuild,
+e reiniciado apenas o daemon Tailscale com essa variável. Identidade, Serve,
+processo Python, agendador e dados preservados. Dez novas conexões Chrome ao
+longo de 34 segundos responderam HTTP 200 (0,57–0,84 s); cliente confirmou relay
+`iad`, sem endereço UDP direto. A própria aba antes em `ERR_CONNECTION_RESET` carregou patrimônio,
+cotações e gráfico após recarregar. Evidências privadas ignoradas pelo Git:
+`output/railway-migration-20261020/relay-acceptance.json` e `acesso-relay.png`.
+
+O relay contorna o caminho UDP direto; a causa exata da falha nesse caminho não
+foi determinada. Mantidos TLS, validação de certificado e acesso só pela tailnet.
+A variável está salva na configuração para próximos deploys; nesta verificação
+não houve reinício completo da aplicação. Limite: relay pode aumentar a latência.
+Próximo passo continua conferir a primeira rodada automática e seu aviso.
+
 ## Cotações e agentes no Railway — DP-27/DP-34, 21/10/2026
 
 Corrigido o bloqueio de integridade da imagem: finais de linha das fontes

@@ -306,6 +306,51 @@ Verificação e limites no estado atual.
 
 **Ciclo diário autônomo, 20/10 — DP-34:** rotina no próprio servidor (`dashboard/daily_cycle.py`, ligada por `HFL_DAILY_CYCLE=1`) roda o ciclo completo da Multiagentes às 09:00, com novas tentativas às 12:00 e 16:00, teto diário de reserva US$ 4, aprovação automática salvo alerta de tese velha, registro selado por tentativa e e-mail via Resend; empacotamento Railway + Tailscale pronto ([guia](DEPLOY_RAILWAY.md)). Volume `hfl-data` de 20 GB criado a pedido de Lucas no ambiente `tcc`, montado em `/app/data`; novo deploy SUCCESS, com Tailscale Running, Serve ativo e servidor iniciado nos logs. Migração concluída: 23.112 arquivos com hashes conferidos, SQLite íntegro e carteiras iguais pela API HTTPS; home 200. Em 21/10, cotações/histórico e agentes restaurados com os selos originais, download B3 e e-mail testados; gestor com teto diário, sem alterar o Legacy. Ordem pendente adia novas análises pagas até o preço oficial. Deploy final e ativação concluídos em 21/10: rotina e coleta em `1`, agendador confirmado nos logs, API HTTPS e cotações/gráficos verificados no Chrome após ajuste de MTU 1280. Primeira tentativa automática às 09:00 de 21/10 ainda futura; conferir registro/e-mail e preço oficial da ordem pendente. Ambiente fixado no commit da correção, com PR em rascunho para revisão. Cópia local preservada com dashboard parado; Railway é a cópia de trabalho.
 
+**Execução intradiária, 22/10 — DP-35/APP-05:** modalidade implementada localmente:
+novas aprovações entre os cortes usam o Open da primeira barra negociada de 1 min
+posterior à aprovação (Yahoo, atraso ~15 min), sem esperar o fechamento. Consulta
+automática a cada minuto; fonte completa selada antes da cesta atômica, retomada
+idempotente e não execução explícita sem captura até 30 min após o contínuo.
+Prévia vincula modalidade/sessão à aprovação; painel, home e ciclo distinguem a
+modalidade. Ordens antigas preservadas. Verificação integrada: 118 aprovados,
+um optativo ignorado; Node/Ruff e prévia Chrome aprovados. Conexão Railway
+restabelecida; publicação e verificação no `tcc` ainda pendentes.
+
+**Textos do gestor, 22/10 — DP-17/UX-M4:** acentos restaurados no arquivo JS,
+com check UTF-8, sintaxe e prévia Chrome; 57 testes do gestor aprovados, um
+browser check optativo ignorado. Ordem de venda de WEGE3 aprovada às 10:35
+confirmada para CLOSE de 22/10 (DP-33), ainda aguardando preço oficial. Pendente
+publicar os textos com as correções abaixo; registros financeiros preservados.
+
+**Ciclo em execução, 22/10 — DP-17/UX-M4:** correção local do resumo que
+regredia Dados/Orçamento durante os Analistas e só se ajustava no Gestor. Usa
+inputs verificados e reservas persistidas, com check Node e prévia Chrome do
+estado real capturado. Não altera consentimentos nem inicia chamadas. Pendente
+publicar após a execução manual, junto da correção de universo abaixo.
+
+**Universo após venda total, 22/10 — DP-07/DP-24/DP-34, APP-05:** corrigido
+localmente o padrão da análise manual e da rotina: a Multiagentes acompanha os
+cinco ativos mesmo com posições zeradas, permitindo ao gestor considerar novas
+compras. Novas análises incompletas recusadas no backend; histórico e análise
+manual em curso preservados. 86 testes aprovados, um browser check optativo
+ignorado. Pendente publicar no Railway após a execução manual de Lucas;
+[verificação e limites](ESTADO_ATUAL.md).
+
+**Diagnóstico de coleta, 22/10 — DP-27/DP-34:** disparo automático das 09h
+confirmado; 3/4 inputs prontos, PETR4 bloqueado por download anual B3 interrompido
+(24 de 86,7 MB), zero chamadas de agentes e US$ 0 reservado. Preparo manual e
+automático compartilham a mesma função; transferência sem retry e download
+repetido por ativo identificados. Sem alteração operacional para preservar o
+teste manual pedido por Lucas. Evidências, limite de atribuição ao incidente do
+Railway e pendência de troca de segredos no [estado atual](ESTADO_ATUAL.md).
+
+**Acesso, 21/10 — DP-34:** MTU 1280 não impediu recorrência do timeout Chrome.
+Deploy seguinte concluído e aplicação saudável; acesso voltou usando relay
+Tailscale (`TS_DEBUG_ALWAYS_USE_DERP=true`, salvo só no serviço `tcc` e aplicado
+ao daemon). Dez novas conexões Chrome com HTTP 200, relay confirmado e carteira
+carregada no navegador. A causa exata do problema UDP direto segue indeterminada;
+o relay pode aumentar latência. Próximo passo: acompanhar a rodada automática.
+
 **Tela dos agentes, 20/10 — DP-17:** passos gratuitos andam sozinhos (verificação após criar, preparação e prévia do gestor, Resultados ao completar o quórum), foco no próximo consentimento, progresso do lote, taxa lembrada e barra de etapas fixa; os quatro consentimentos seguem separados. Consentimento pago único analistas + gestor fica para decisão de Lucas. Verificação e limites no estado atual.
 
 **Execução no leilão, 19/10 — DP-33, APP-05:** a aprovação do gestor vira ordem "aguardando leilão" e executa no primeiro leilão oficial da B3 após a aprovação (abertura antes de 09:45, fechamento até 16:50, abertura seguinte depois; horários configuráveis por regime), lançada pela atualização de dados ao preço oficial com data do leilão; proposta válida até os leilões do pregão-alvo. A prévia mostra a cotação atrasada do Yahoo como retrato selado (nunca preço de execução, marca ou prompt), pede nova prévia se o preço sair da faixa `clamp(3·σ60·√(h/415); 0,5%; 2%)` e exige ciência no alerta de tese velha. Cada operação guarda preço de decisão, cotações da prévia e da aprovação e preço do leilão. Verificação e limites no estado atual.

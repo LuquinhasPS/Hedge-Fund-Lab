@@ -20,6 +20,13 @@ recalcule hashes para contornar `original_source_changed` ou
 
 ## Como o contêiner sobe
 
+DP-35/APP-05: o servidor inicia também o processador de ordens intradiárias,
+com verificação a cada 60 s, independente de `HFL_DAILY_CYCLE`. Novas aprovações
+entre os cortes usam a primeira barra Yahoo de 1 min posterior à aprovação
+(atraso ~15 min); ordens OPEN/CLOSE gravadas mantêm sua regra. O recibo conserva
+a fonte em `execution-prices.json` no mesmo volume. Não exige variável ou chave
+nova; falhas desse processador são registradas com prefixo `DP-35` nos logs.
+
 1. `tini` (PID 1) executa `scripts/railway_entrypoint.sh` e repassa o SIGTERM do
    Railway ao Python e ao `tailscaled` (parada limpa em menos de 1 s no teste local).
 2. Sem `TS_AUTHKEY` e sem identidade salva no volume, sai com código 64 (falha
@@ -80,7 +87,8 @@ padrão); não há dependência extra (HTTP da biblioteca padrão).
    | `HFL_NOTIFY_FROM` | opcional; padrão `Hedge Fund Lab <onboarding@resend.dev>` | |
    | `HFL_DAILY_CYCLE` | `0` no primeiro boot, `1` depois da migração | `0` |
    | `HFL_MARKET_BASE_AUTOUPDATE` | `0` no primeiro boot; remova (ou `1`) depois | `0` |
-   | `TS_DEBUG_MTU` | `1280`; ajuste qualificado em 21/10 para evitar timeout do handshake Chrome neste caminho | `1280` |
+   | `TS_DEBUG_MTU` | `1280`; sozinho não impediu a recorrência do timeout Chrome | `1280` |
+   | `TS_DEBUG_ALWAYS_USE_DERP` | `true`; neste ambiente, usar relay criptografado para contornar o timeout do caminho UDP direto | `true` |
 
    `TZ` não é necessário: as regras usam `ZoneInfo("America/Sao_Paulo")` (pacote
    `tzdata` do lock). Os horários do log saem em UTC. `HFL_PORT` (padrão 8081) e
