@@ -314,7 +314,11 @@ idempotente e não execução explícita sem captura até 30 min após o contín
 Prévia vincula modalidade/sessão à aprovação; painel, home e ciclo distinguem a
 modalidade. Ordens antigas preservadas. Verificação integrada: 118 aprovados,
 um optativo ignorado; Node/Ruff e prévia Chrome aprovados. Conexão Railway
-restabelecida; publicação e verificação no `tcc` ainda pendentes.
+restabelecida; envio autorizado ao fork concluído, fonte fixada em `4fefe40`.
+Deploy `5b2b7739-d8db-44ce-a990-514db37b54ae` aceito no `tcc` às 11:44 de
+Brasília, aguardando build (`QUEUED`) durante incidente do Railway.
+[PR #2](https://github.com/LuquinhasPS/Hedge-Fund-Lab/pull/2) em rascunho;
+confirmação da nova versão ativa e verificação HTTPS ainda pendentes.
 
 **Textos do gestor, 22/10 — DP-17/UX-M4:** acentos restaurados no arquivo JS,
 com check UTF-8, sintaxe e prévia Chrome; 57 testes do gestor aprovados, um

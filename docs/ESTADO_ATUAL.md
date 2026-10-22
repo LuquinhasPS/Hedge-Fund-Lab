@@ -44,11 +44,19 @@ do painel real, com estado demonstrativo isolado e sem POSTs, confirmou acentos
 e a espera intradiária; evidência privada
 `output/railway-migration-20261020/execucao-intradiaria-previa.png`.
 
-**Publicação pendente.** Nova conexão Railway respondeu com a conta de Lucas e
-confirmou `tcc` saudável no deploy anterior, sem mudanças staged. A ordem WEGE3
-já aprovada às 10:35 conserva CLOSE: não foi migrada, executada ou reenviada
-por esta implementação. Nenhuma inferência real foi acionada. Próximo passo:
-publicar a versão revisável no `tcc` e verificar inicialização e leitura HTTPS.
+**Publicação autorizada em 22/10.** Lucas confirmou o envio e deploy; commit
+`4fefe40cf82fccbf5126ea4ecd37962e3f47a559` enviado ao seu fork e fonte do
+serviço fixada nessa versão, sem alterar volume ou variáveis. Deploy
+`5b2b7739-d8db-44ce-a990-514db37b54ae` aceito às 11:44:20 de Brasília,
+ainda `QUEUED`, sem iniciar build. O Railway informa incidente ativo de builds
+([status oficial](https://status.railway.com/incident/QH8L8B3E)); não foram
+criadas tentativas duplicadas. A versão anterior continua atendendo HTTPS 200.
+[PR #2 em rascunho](https://github.com/LuquinhasPS/Hedge-Fund-Lab/pull/2)
+registra o novo incremento; PR #1 já estava merged. A ordem WEGE3 aprovada às
+10:35 conserva CLOSE: não foi migrada, executada ou reenviada. Nenhuma
+inferência real foi acionada por esta verificação. Próximo passo: aguardar o
+build aceito e verificar inicialização e API da nova versão antes de declará-la
+ativa.
 
 ## Textos do gestor e leilão-alvo — DP-17/DP-33, 22/10/2026
 
