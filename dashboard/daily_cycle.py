@@ -216,7 +216,8 @@ def multiagent_wallet():
     found = [
         w
         for w in manual.get({})["wallets"]
-        if w["nature"] == "SIMULATION" and w.get("strategy") != "BUY_HOLD"
+        if w["nature"] == "SIMULATION"
+        and w.get("strategy") not in ("BUY_HOLD", *manual.RULE_STRATEGIES)
     ]
     if len(found) != 1:
         raise Stop("carteira_multiagentes_ausente_ou_ambigua")

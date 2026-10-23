@@ -10,6 +10,62 @@ PAPER-02 reexecutou checks direcionados da integração e contratos reutilizados
 conforme registro abaixo. Os resultados da suíte completa são históricos.
 Estado financeiro corrente exige leitura datada.
 
+## SMA/Bollinger na comparação — DP-36, PAPER-05, 23/10/2026
+
+Implementação local, ainda não publicada no Railway. As duas carteiras usam o
+livro `manual-v1`: mesma cesta, preços, caixa e capital independente de 14/10,
+20% do capital por ativo, quantidades inteiras e proventos sem reinvestimento.
+Custos posteriores fixados na criação pelo percentual da última configuração
+dos agentes (0,03%, também confirmado por GET HTTPS no servidor em 23/10).
+SMA 50/200 e Bollinger 20/2 reaproveitam os sinais causais existentes; histórico
+de 201/21 pregões serve ao cálculo, sem série de patrimônio anterior a 14/10.
+
+`dashboard/rule_portfolios.py` inicializa as duas carteiras atomicamente e
+registra `RULE_DECISION` com dados/versão/sinais congelados e `RULE_EXECUTION`
+com as operações no OPEN RAW B3 da sessão seguinte. Também registra manter,
+compra com posição já aberta e ausência de operação. Repetir ou interromper não
+duplica nem deixa meia cesta. Preço/histórico faltante bloqueia, e a home mostra
+atraso. A atualização de mercado avança carteiras já inicializadas; GETs apenas
+consultam. Controle manual e agentes não podem movimentá-las; a rotina paga
+continua selecionando só a Multiagentes. Home, seletor, operações/sinais e
+comparação usam as mesmas projeções existentes. CDI/Ibovespa seguem externos;
+Equal Weight e Mínima Variância não entram neste incremento.
+
+Limites: reconstrução produzida agora, identificada pelo horário real do
+registro; fator Yahoo da versão disponível, sem afirmar disponibilidade
+histórica desse ajuste. O snapshot e os inputs usados ficam vinculados ao
+recibo; fechamentos futuros não entram no cálculo. Política/fontes das regras
+ficam seladas na criação; alteração exige revisão, sem reescrever o histórico.
+Caixa econômico do livro existente, sem liquidação de corretora D+2; sem
+shorts, alavancagem ou eventos de ações além dos já suportados pelo livro.
+
+Verificação: 126 testes existentes passaram, um optativo ignorado, mais quatro
+testes novos (`tests/test_rule_portfolios.py`) de sinais causais, fonte
+congelada, abertura ausente, isolamento de caixa/dividendos, rollback da cesta,
+retomada, idempotência, direito a proventos após venda e preservação da referência.
+Rodada integrada: **130 aprovados, um ignorado, nove subchecks aprovados**.
+Ruff/sintaxe JS aprovados. O verificador global encontra divergências antigas de
+baselines nesta árvore Windows; nenhum arquivo alterado nesta entrega está na
+lista de divergências de evidências seladas. Não foram recalculados selos.
+Prévia em cópia SQLite isolada em `data/cache/rules-preview`: comparação
+desktop/celular e telas das duas carteiras/operações verificadas sem POSTs,
+sem erros de console, com controles manuais/agentes ocultos e aviso de atraso.
+Nas fontes reais locais, ambas acompanharam Buy & Hold de 14 a 20/10; dados
+necessários desde 21/10 estão ausentes, sem preenchimento fictício. O SQLite
+operacional local e as evidências Legacy não foram alterados.
+
+Publicação e criação no servidor **pendentes de acesso**: Tailscale reconectado
+por Lucas, HTTPS acessível, mas SSH exige checagem adicional da conta e aguarda
+autenticação. CLI Railway `Unauthorized`; conector da conta Lucas solicita
+autenticação novamente após indicar aceite. A outra conexão e a sessão de
+navegador disponíveis pertencem ao Centauro ERP e não foram usadas para mutações.
+GETs do servidor confirmaram a taxa de 0,03% e duas carteiras originais, sem
+gravar, inferir ou aprovar ordens. Próximo passo: concluir autenticação, fazer
+backup do SQLite no volume, publicar e executar a inicialização uma vez. Não
+copiar o SQLite antigo do PC sobre o da nuvem. Com a versão publicada, a criação
+usa `python dashboard/rule_portfolios.py --baseline manual-bf4d687c03594170b0e2a2bcaa39fa46 --cost-rate-pct 0.03 --confirm`;
+confere a base, cria as duas carteiras atomicamente e avança sobre a base atual.
+
 ## Execução simulada durante o pregão — DP-35, APP-05, 22/10/2026
 
 Publicada no `tcc` a escolha de Lucas: novas aprovações a partir de 22/10,

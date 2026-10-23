@@ -75,7 +75,7 @@
     options=d;
     el('analysis-wallet').innerHTML=d.wallets.map(w=>`<option value="${esc(w.id)}">${esc(w.name)} · ${esc(w.nature_label)}</option>`).join('') || '<option value="">Nenhuma carteira</option>';
     const query=new URLSearchParams(location.search), wanted=query.get('wallet');
-    const agents=d.wallets.find(w=>w.nature==='SIMULATION'&&w.strategy!=='BUY_HOLD'); // the wallet the agents move
+    const agents=d.wallets.find(w=>w.nature==='SIMULATION'&&w.strategy==='MULTIAGENT'); // the wallet the agents move
     if(d.wallets.some(w=>w.id===wanted))el('analysis-wallet').value=wanted;else if(agents)el('analysis-wallet').value=agents.id;
     el('analysis-target').min=d.sessions[1];el('analysis-target').max=d.sessions.at(-1);el('analysis-target').value=d.target_date;
     el('analysis-reference').min=d.sessions[0];reference();wallet();

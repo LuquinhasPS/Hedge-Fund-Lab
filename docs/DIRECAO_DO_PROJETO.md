@@ -1,6 +1,6 @@
 # Direção do projeto e decisões de produto
 
-Versão 19 — **22/10/2026**. Decisões registradas a partir da conversa com Lucas.
+Versão 20 — **23/10/2026**. Decisões registradas a partir da conversa com Lucas.
 Este documento fixa o destino do produto; o [roadmap](ROADMAP.md) organiza o
 caminho e o [estado atual](ESTADO_ATUAL.md) registra o que já existe.
 
@@ -62,6 +62,31 @@ autorização financeira ou afirmação de que a funcionalidade já foi entregue
 | DP-33 | Operação aprovada executa no primeiro leilão oficial da B3 após a aprovação; cotação atrasada só na prévia; tolerância proporcional à volatilidade e ao tempo; proposta válida até os leilões do pregão-alvo; sem cotação no prompt do gestor | Lucas aprovou em 19/10 as cinco recomendações do [relatório](../reports/Relógio%20de%20dados%20e%20preço%20de%20execução.md). (1) Aprovação antes da pré-abertura executa na abertura oficial do dia; durante o pregão até o corte antes do call de fechamento, no fechamento oficial do dia; depois, na abertura do pregão seguinte; estado "aguardando leilão" até o preço oficial chegar pela atualização DP-27, lançamento idempotente com data do leilão; horários de corte configuráveis por regime (horário de verão dos EUA). (2) A cotação atrasada do Yahoo entra só no código da prévia, como retrato selado (valor, fonte, atraso, horários de cotação e coleta, estado do pregão, hash), nunca na marcação, no preço da operação ou nos prompts — exceção restrita à DP-26. (3) Nova prévia quando a cotação se move além de clamp(3·σ₆₀·√(h/415); 0,5%; 2%), sem nova chamada paga, e alerta de "tese velha" a 3σ desde o fechamento anterior ajustado por proventos. (4) Proposta válida até os leilões do pregão-alvo; expirada, registra custo de oportunidade. (5) Cotação no prompt só com teste pareado pré-registrado e orçamento próprio. Atualiza a DP-24 no preço de registro (antes: fechamento de referência do pregão anterior); cada operação guarda preço de decisão, da prévia, da aprovação e do leilão para medir o implementation shortfall |
 | DP-34 | Ciclo diário autônomo da carteira Multiagentes: análise, analistas, gestor e aprovação rodam sozinhos todo pregão, com teto diário de reserva Gemini de US$ 4, aprovação automática salvo alerta de tese velha, tentativas às 09:00, 12:00 e 16:00 (America/Sao_Paulo), aviso por e-mail, servidor pessoal no Railway acessível só pela rede Tailscale de Lucas | Lucas pediu em 20/10 o ciclo completo ("nem todo dia eu vou entrar lá", "rodar fielmente todo dia pouco antes da bolsa abrir… caso não tenha ele tenta de novo 12h e depois 16h") e escolheu: teto diário de reserva US$ 4; aprovação automática exceto com alerta de tese velha (aí espera Lucas); download automático da B3 no servidor do Railway para uso pessoal, sem redistribuição (amplia a DP-27 de "uso local"); aviso por e-mail; acesso via Tailscale. Substitui, para essa rotina, a rotina manual e a autorização explícita da DP-13 e os consentimentos por chamada/ordem da DP-16/DP-21/DP-24, que continuam valendo no uso manual pela interface. Toda autorização automática fica registrada como da rotina (não de Lucas), com teto, horário e motivo; a regra de leilão da DP-33 não muda. Três tentativas sem dados consolidados: dia registrado como sem análise, nada inventado |
 | DP-35 | Novas aprovações durante o pregão executam na simulação com preço posterior à aprovação, sem esperar o fechamento | Lucas escolheu explicitamente em 22/10 “Executar durante o pregão, com um preço obtido após a aprovação”. Atualiza DP-33/34: antes do corte da abertura continua OPEN oficial B3; entre os cortes de abertura e fechamento passa a INTRADAY, inclusive nas tentativas automáticas de 12h/16h. Preço simulado = Open da primeira barra negociada e coerente de 1 minuto do Yahoo cujo início seja estritamente posterior à aprovação, da mesma sessão e já completa na coleta; atraso aproximado de 15 min, sem alegar fill real ou preço instantâneo. A fonte de todos os ativos da cesta é selada antes do lançamento atômico/idempotente; faltando preço, espera, sem antecipar abertura nem substituir pelo fechamento. Prazo de coleta: até 30 min após o fim do período contínuo; sem captura válida, registra não execução. Depois do corte final, o próximo OPEN só vale se ainda dentro do alvo. Ordens OPEN/CLOSE já aprovadas mantêm a política gravada. Servidor consulta pendências a cada minuto sem depender do navegador. Amplia DP-26 apenas para esta execução simulada; marcação diária continua RAW B3, e cotações não entram nos prompts do gestor |
+
+**DP-36 — SMA e Bollinger na comparação desde 14/10 (23/10/2026).** Lucas pediu
+carteiras simuladas de SMA 50/200 e Bollinger 20/2, sem chamadas de agentes,
+usando dados reais e a mesma cesta, caixa, capital independente e grupo das
+carteiras iniciadas em 14/10. Histórico anterior serve só ao aquecimento dos
+indicadores; reconstruir os sinais desde o fechamento de 14/10, com operações
+na abertura oficial B3 da sessão seguinte e registro do instante real da
+reconstrução. Cada ativo tem uma parcela independente de 20% do capital inicial;
+compra com o saldo dessa parcela quando está zerado, venda integral quando há
+sinal de saída, sem shorts/alavancagem nem transferência de caixa entre ativos;
+proventos recebidos continuam em caixa. Entrada inicial com custos zero (DP-20);
+Lucas escolheu o percentual da última configuração do gestor, fixado na criação
+das regras (0,03%, confirmado por GET no servidor em 23/10). Sinais de cruzamento
+SMA e rompimento das bandas reutilizam as implementações existentes, com
+parâmetros fixos; cada decisão, inclusive manter, conserva os inputs e a fonte.
+As decisões usam fechamento B3 × fator Yahoo da versão disponível, congelada
+no recibo; a reconstrução não afirma disponibilidade histórica dessa versão do
+ajuste. Operações e patrimônio usam RAW B3 e o mesmo livro com proventos.
+Rotina avança na atualização de mercado, separada da rotina paga Multiagentes;
+dados/preço faltantes bloqueiam, sem substituir por fechamento ou inventar fill.
+Equal Weight e Mínima Variância ficam fora deste incremento, dado o horizonte
+de um mês e pouco até a entrega do TCC. Curvas podem coincidir com Buy & Hold;
+Lucas aceita mantê-las para coletar eventual diferença. Ocultar uma curva depois
+não apaga evidências nem omite do relato que a regra não produziu diferença.
+Amplia DP-18/28/31 e PAPER-05; os backtests/H2 Legacy continuam preservados.
 
 DP-01–DP-06 e DP-08 registram a direção apresentada por Lucas e discutida na
 conversa. DP-07 registra sua concordância explícita com os 20% por ativo.
@@ -252,6 +277,7 @@ sem necessidade do fluxo principal. Nenhum desses itens é requisito atual.
 | 20/10/2026 | Versão 17: DP-34, ciclo diário autônomo (teto US$ 4/dia, aprovação automática salvo alerta, 09:00/12:00/16:00, e-mail, Railway + Tailscale) | Lucas: "eu queria o ciclo completo, pq nem todo dia eu vou entrar la"; respostas às perguntas de teto, aprovação, B3 na nuvem e avisos |
 | 22/10/2026 | Versão 18: explicita o universo fixo dos cinco ativos mesmo após venda total | Lucas observou que sair de VALE3 não elimina a possibilidade de recomprar em outra sessão |
 | 22/10/2026 | Versão 19: DP-35, execução simulada intradiária com barra posterior à aprovação | Escolha explícita de Lucas da modalidade “Executar durante o pregão”, após discutir a exposição adicional de esperar o fechamento |
+| 23/10/2026 | Versão 20: DP-36, SMA 50/200 e Bollinger 20/2 desde a mesma cesta de 14/10 | Lucas aceitou curvas iguais ao Buy & Hold: “o importante é estar lá para caso a gente consiga coletar uma informação diferente”; custo igual à última configuração dos agentes, fixado na criação |
 
 Essa aprovação não inclui custo de 0,1%, buffer de 2%, limite de exposição de
 85%, política de veto, prazo de processamento, rendimento de caixa, fonte ou

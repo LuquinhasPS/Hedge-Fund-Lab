@@ -87,6 +87,23 @@ Sem ordens, inferências pagas, ETL antigo ou ativação. Planejamento por regra
 documentada/exceções não exige enumeração literal de pregões futuros; ocorrência,
 negociação de cada instrumento e liquidação continuam distintas.
 
+**SMA/Bollinger no comparativo, 23/10 — DP-36, PAPER-05:** implementação local
+em `dashboard/rule_portfolios.py`: duas carteiras independentes com a cesta de
+14/10, regra determinística, sinais congelados no fechamento e execução OPEN
+B3 seguinte, sem IA. Parcelas de capital por ativo, custos fixados na criação,
+operações/sinais/manter persistidos no mesmo SQLite com recuperação idempotente;
+rotina de atualização de mercado, home, operações, seletor e comparação integrados.
+Carteiras de regra excluídas da seleção/execução dos agentes. 130 testes passaram
+(um optativo ignorado); prévia isolada com dados reais até 20/10 e comparação
+desktop/celular verificadas. A base local não tem os dados necessários desde
+21/10 e mostra atraso explicitamente. **Publicação/criação no Railway pendentes:**
+Tailscale reconectado, mas SSH aguarda a checagem adicional da conta; CLI Railway
+`Unauthorized`, conector da conta do projeto repetindo autenticação. A sessão
+Railway do navegador só tem o Centauro ERP e não foi alterada. GET HTTPS do
+servidor confirmou a taxa do gestor em 0,03%. Não alterar as carteiras reais
+locais, que são cópia antiga da nuvem. Próximo passo: concluir autenticação,
+publicar e inicializar as duas carteiras no volume existente.
+
 ## PAPER-01: bases aprovadas; regras técnicas pendentes
 
 O [contrato operacional do piloto](PILOTO_MULTIATIVOS_SPEC.md), em

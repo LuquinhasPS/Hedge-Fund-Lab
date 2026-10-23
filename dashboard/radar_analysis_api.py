@@ -113,6 +113,7 @@ def get(query):
         "wallets": [
             {**wallet_snapshot(w), "analysis_tickers": default_tickers(w)}
             for w in manual.get({})["wallets"]
+            if w.get("strategy") not in manual.RULE_STRATEGIES
         ],
         "examples": list(radar.EXAMPLES),
         "selected": registry["selected"],
@@ -186,6 +187,8 @@ def create(payload):
             )
             if wallet is None:
                 raise ValueError("analysis_wallet_not_found")
+            if wallet.get("strategy") in manual.RULE_STRATEGIES:
+                raise ValueError("analysis_rule_wallet_has_no_agents")
             if wallet["revision"] != request["wallet_revision"]:
                 raise ValueError("analysis_wallet_changed_reload")
             if target < wallet["start_date"]:

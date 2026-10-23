@@ -102,9 +102,9 @@ def schedule(at, target_date):
 
 
 def appliable(c):
-    return (
-        c["wallet"]["nature"] == "SIMULATION"
-        and c["wallet"].get("strategy") != "BUY_HOLD"
+    return c["wallet"]["nature"] == "SIMULATION" and c["wallet"].get("strategy") not in (
+        "BUY_HOLD",
+        *manual.RULE_STRATEGIES,
     )
 
 

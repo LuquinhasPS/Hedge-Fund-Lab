@@ -372,6 +372,8 @@ def build(wallet, book, issues, *, today, last_closed, calendar):
                 **{k: t[k] for k in ("id", "ticker", "side", "quantity", "price")},
                 "origin": "MANAGER"
                 if (t.get("source") or {}).get("kind") in MANAGER_KINDS
+                else "RULE"
+                if (t.get("source") or {}).get("kind") == "RULE_STRATEGY_EXECUTION"
                 else "MANUAL",
             }
             for t in wallet["trades"]
