@@ -20,14 +20,43 @@ recalcule hashes para contornar `original_source_changed` ou
 
 ## Como o contêiner sobe
 
-**Origem usada no `tcc` (22/10):** fork `LuquinhasPS/Hedge-Fund-Lab` do
+**Identidade conferida no servidor e no Railway em 23/10:** o TCC fica no
+projeto **Centauro ERP**, no ambiente **`tcc`**, serviço **`impartial-comfort`**.
+O nome do projeto não indica que seja o serviço de produção do ERP. Para esta
+aplicação, sempre escopar ações ao ambiente/serviço abaixo:
+
+- Projeto: `ad6797e4-d9a0-45a2-b7b8-04950c277b5b`.
+- Ambiente `tcc`: `f467c798-f6c7-48eb-be9c-5a4477e2e9cc`.
+- Serviço: `7987997f-61ea-4e23-ae05-3cda9dd50d97`.
+- Volume `hfl-data`: `8f660448-45ed-4a61-b145-118915e7b924`, `/app/data`, 20 GB.
+
+No SSH, usar **`/opt/venv/bin/python`**; o `python` do shell aponta para o
+interpretador do sistema, sem as dependências da aplicação. O shell SSH não
+herda automaticamente todas as variáveis do processo principal.
+
+Recuperação de acesso de 23/10: checagem SSH terminou com `Authorization
+successful` ao reiniciar o fluxo em `login.tailscale.com` e usar o Google da
+conta da tailnet. O login GitHub anterior havia terminado em `bad
+tailscale-authstate2 cookie`. A conexão Railway existente que lista Centauro
+ERP acessa o ambiente `tcc`; não é necessário insistir na conexão adicional
+que falha com `could not validate id_token_hint`.
+
+**Origem usada no `tcc` (23/10):** fork `LuquinhasPS/Hedge-Fund-Lab` do
 repositório `matheuspc3/Hedge-Fund-Lab`. Lucas usa o fork porque conseguiu
 selecioná-lo no Railway. O serviço segue a branch
 `fix/railway-daily-cycle-20261021`, fixado por `source.commitSha` no código
-`4fefe40cf82fccbf5126ea4ecd37962e3f47a559`. Sincronizar a `main` do fork com
+`2baa6c38b4483fa3a5518018a3c85704fd9317d0`. Sincronizar a `main` do fork com
 o original não troca esse pin, não incorpora a branch do PR #2 à `main` e não
 publica automaticamente uma versão nova. Atualizar a versão fixada é uma ação
 separada de deploy; preservar o volume `/app/data`.
+
+DP-36 publicada após autorização explícita de Lucas: deploy
+`38c9ee72-2541-4ade-b28a-613f0b8dee46` em SUCCESS, servidor iniciado às 20:28
+de 23/10 (Brasília). A versão anterior DP-35 era `4fefe40`, deploy
+`5b2b7739-d8db-44ce-a990-514db37b54ae`, preservada no histórico do Railway.
+SMA/Bollinger foram inicializadas uma vez pelo SSH com `/opt/venv/bin/python`
+e custo de 0,03%; a atualização de mercado agora avança as duas sem IA.
+Backup anterior: `/app/data/backups/before-rule-wallets-20261023T232120Z`.
 
 DP-35/APP-05: o servidor inicia também o processador de ordens intradiárias,
 com verificação a cada 60 s, independente de `HFL_DAILY_CYCLE`. Novas aprovações

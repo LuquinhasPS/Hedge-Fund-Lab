@@ -87,7 +87,7 @@ Sem ordens, inferências pagas, ETL antigo ou ativação. Planejamento por regra
 documentada/exceções não exige enumeração literal de pregões futuros; ocorrência,
 negociação de cada instrumento e liquidação continuam distintas.
 
-**SMA/Bollinger no comparativo, 23/10 — DP-36, PAPER-05:** implementação local
+**SMA/Bollinger no comparativo, 23/10 — DP-36, PAPER-05:** implementado e publicado
 em `dashboard/rule_portfolios.py`: duas carteiras independentes com a cesta de
 14/10, regra determinística, sinais congelados no fechamento e execução OPEN
 B3 seguinte, sem IA. Parcelas de capital por ativo, custos fixados na criação,
@@ -96,13 +96,17 @@ rotina de atualização de mercado, home, operações, seletor e comparação in
 Carteiras de regra excluídas da seleção/execução dos agentes. 130 testes passaram
 (um optativo ignorado); prévia isolada com dados reais até 20/10 e comparação
 desktop/celular verificadas. A base local não tem os dados necessários desde
-21/10 e mostra atraso explicitamente. **Publicação/criação no Railway pendentes:**
-Tailscale reconectado, mas SSH aguarda a checagem adicional da conta; CLI Railway
-`Unauthorized`, conector da conta do projeto repetindo autenticação. A sessão
-Railway do navegador só tem o Centauro ERP e não foi alterada. GET HTTPS do
-servidor confirmou a taxa do gestor em 0,03%. Não alterar as carteiras reais
-locais, que são cópia antiga da nuvem. Próximo passo: concluir autenticação,
-publicar e inicializar as duas carteiras no volume existente.
+21/10 e mostra atraso explicitamente. **Servidor atualizado e carteiras criadas:**
+Lucas confirmou o deploy específico após o bloqueio inicial da revisão automática.
+Deploy `38c9ee72-2541-4ade-b28a-613f0b8dee46` SUCCESS, fonte fixada em `2baa6c3`,
+no ambiente `tcc` do projeto Centauro ERP. Backup íntegro, taxa de 0,03%, duas
+carteiras com 7 decisões/7 sessões conferidas desde 14/10; nenhuma operação além
+da cesta inicial até 22/10, por isso coincidem com Buy & Hold. GETs e Chrome
+confirmaram as quatro carteiras, curva, tabela e seletor; repetir inicialização/
+processamento não alterou revisões. Carteiras e hashes das três ordens anteriores
+preservados. Dados necessários de 23/10 ainda ausentes: bloqueio explícito, sem
+inventar execução. Próximo passo: acompanhar a chegada da base B3 de 23/10 e
+as próximas sessões. Não copiar o SQLite antigo do PC sobre o volume da nuvem.
 
 ## PAPER-01: bases aprovadas; regras técnicas pendentes
 

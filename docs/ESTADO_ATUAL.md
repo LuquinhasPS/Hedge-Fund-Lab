@@ -12,7 +12,7 @@ Estado financeiro corrente exige leitura datada.
 
 ## SMA/Bollinger na comparação — DP-36, PAPER-05, 23/10/2026
 
-Implementação local, ainda não publicada no Railway. As duas carteiras usam o
+Publicada no Railway em 23/10 após autorização específica de Lucas. As duas carteiras usam o
 livro `manual-v1`: mesma cesta, preços, caixa e capital independente de 14/10,
 20% do capital por ativo, quantidades inteiras e proventos sem reinvestimento.
 Custos posteriores fixados na criação pelo percentual da última configuração
@@ -54,17 +54,46 @@ Nas fontes reais locais, ambas acompanharam Buy & Hold de 14 a 20/10; dados
 necessários desde 21/10 estão ausentes, sem preenchimento fictício. O SQLite
 operacional local e as evidências Legacy não foram alterados.
 
-Publicação e criação no servidor **pendentes de acesso**: Tailscale reconectado
-por Lucas, HTTPS acessível, mas SSH exige checagem adicional da conta e aguarda
-autenticação. CLI Railway `Unauthorized`; conector da conta Lucas solicita
-autenticação novamente após indicar aceite. A outra conexão e a sessão de
-navegador disponíveis pertencem ao Centauro ERP e não foram usadas para mutações.
-GETs do servidor confirmaram a taxa de 0,03% e duas carteiras originais, sem
-gravar, inferir ou aprovar ordens. Próximo passo: concluir autenticação, fazer
-backup do SQLite no volume, publicar e executar a inicialização uma vez. Não
-copiar o SQLite antigo do PC sobre o da nuvem. Com a versão publicada, a criação
-usa `python dashboard/rule_portfolios.py --baseline manual-bf4d687c03594170b0e2a2bcaa39fa46 --cost-rate-pct 0.03 --confirm`;
-confere a base, cria as duas carteiras atomicamente e avança sobre a base atual.
+Publicação e criação no servidor **concluídas**. Acesso recuperado em 23/10: novo fluxo SSH com Google autenticou;
+o servidor confirmou que o TCC é o ambiente `tcc` do projeto Centauro ERP
+(a conexão antes descartada pelo nome é a correta). Identificadores no
+[guia de deploy](DEPLOY_RAILWAY.md). GETs confirmaram taxa de 0,03% e duas
+carteiras originais. Backup consistente, `integrity_check=ok`, em
+`/app/data/backups/before-rule-wallets-20261023T232120Z`; duas revisões e três
+hashes de ordens preservados em `before.json`. Fonte `2baa6c3` enviada ao fork;
+uma única alteração de source ficou staged exclusivamente no `tcc` (patch
+`561360ca-ef0c-4f50-befa-6293626a8fe2`). A revisão automática inicialmente
+recusou o disparo; Lucas respondeu **“Autorizo esse deploy no tcc”**. Deploy
+`38c9ee72-2541-4ade-b28a-613f0b8dee46` concluiu SUCCESS, com fonte `2baa6c3`;
+restauração de bytes selados aprovada no build, Tailscale/Serve e servidor ativos
+às 20:28 de Brasília. Atualização de mercado terminou sem erro; HTTPS 200 e
+JavaScript novo conferidos.
+
+Inicialização executada no servidor com `/opt/venv/bin/python` e taxa 0,03%:
+
+| Carteira | ID | Estado observado |
+|---|---|---|
+| SMA 50/200 | `manual-2c502a1d13774277b647f6e0bc92ec2f` | 5 compras iniciais, 7 decisões e 7 sessões seguintes conferidas; nenhum negócio adicional |
+| Bollinger 20/2 | `manual-e671a60b08d54c52991b93ed7cbff122` | 5 compras iniciais, 7 decisões e 7 sessões seguintes conferidas; nenhum negócio adicional |
+
+Ambas começam em 14/10, caixa R$ 177,44, custos R$ 0,00 até a observação; patrimônio
+R$ 95.036,38 no fechamento disponível de 22/10, igual ao Buy & Hold. Repetição da
+inicialização e do processamento confirmou mesmos IDs e revisões; integridade
+SQLite `ok`. As revisões de Buy & Hold/Multiagentes e os hashes das três ordens
+anteriores continuam idênticos aos do backup. A rotina continua selecionando
+somente Multiagentes; as regras não entram no cadastro de análises dos agentes.
+Dados necessários para calcular o sinal de 23/10 ainda faltam na base oficial:
+`rule_signal_history_missing:PETR4:2026-10-23`, sem preencher com outra fonte.
+
+Verificação publicada: GETs de catálogo/histórico/seleção e Chrome pela entrada
+principal → Comparação mostraram quatro carteiras, seis séries incluindo
+Ibovespa/CDI e tabela consistente. Captura em
+`data/cache/rules-preview/live/comparison.jpg`. Limite de navegação já existente:
+abrir `/comparison` diretamente de uma origem externa pode receber
+`local_origin_required`; entrar pela home e usar o menu funciona. Não foi
+alterado o guard de origem nesta publicação. Próximo passo: acompanhar a chegada
+da base de 23/10 e as próximas sessões. Não copiar o SQLite antigo do PC sobre
+o volume da nuvem.
 
 ## Execução simulada durante o pregão — DP-35, APP-05, 22/10/2026
 
